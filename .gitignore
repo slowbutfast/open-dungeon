@@ -1,0 +1,20 @@
+# Environment configurations
+.env
+
+# Python virtual environment
+venv/
+ENV/
+env/
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# IDE configurations
+.vscode/
+.idea/
+
+# Local game save files
+game/adventures/
+
