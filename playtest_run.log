@@ -1,0 +1,164 @@
+
+=======================================================
+          STARTING AUTOMATED PLAYTEST SIMULATOR        
+=======================================================
+
+Copyright (c) 1981, 1982, 1983 Infocom, Inc. All rights reserved.
+Revision 88 / Connection online.
+Neural engine endpoint: http://172.20.10.2:1234/v1/
+
+
+--- MAIN MENU ---
+[1] Begin New Adventure
+[2] Restore Saved Adventure
+[3] Quit
+
+--- AVAILABLE SAVED ADVENTURES ---
+[0] ID: abc12 | Old Quest (5 turns)
+    Location: West of House | Score: 0 | Moves: 0
+    Summary: Adventure progress log....
+---------------------------------
+Options: [1] Load Adventure [2] Delete Adventure [3] Return
+
+--- MAIN MENU ---
+[1] Begin New Adventure
+[2] Restore Saved Adventure
+[3] Quit
+
+--- STORY GENESIS PRESETS ---
+[1] Lord of the Rings (Middle-earth Fantasy)
+    Scenario: An ancient Ring of Power must be carried to Mount Doom in Mordor to destroy the Dark Lord ...
+[2] Cyberpunk: Neon Shadows (Gritty Sci-Fi)
+    Scenario: In the corporate-ruled sprawl of Night City, you have stolen a prototype biochip that hold...
+[3] Star Wars: The Outer Rim (Space Opera)
+    Scenario: The Galactic Empire rules the galaxy. On the desert world of Tatooine, you have stumbled u...
+[4] Custom Adventure (Define your own universe/rules)
+[5] Return to Start Menu
+
+Preset Scenario: An ancient Ring of Power must be carried to Mount Doom in Mordor to destroy the Dark Lord Sauron. You start in the peaceful hills of the Shire, receiving a warning from Gandalf.
+
+Active system prompt instructions:
+You are the narrator for a Lord of the Rings text adventure in the style of Zork. Describe Middle-earth with details about hobbits, elves, dwarves, and dark riders, keeping the tone heroic yet sarcastic and curt. Keep responses very concise. Use the second-person perspective ("You"). Never write dialogue or actions for the player. At the very end of EVERY response, on a new line, you MUST append the current status in this exact format: [Status: <Location Name> | Score: <Current Score>]
+
+--- CHARACTER GENESIS ---
+[1] Thorne (Dwarf Warrior) - A stout dwarf warrior with a braided beard, heavily armored, carrying a double-bladed battleaxe.
+[2] Elandra (Elf Ranger) - A silent elf ranger wearing a green cloak, wielding a longbow, and skilled in tracking.
+[3] Valerius (Human Cleric) - A human cleric of the Sun God, wearing chainmail, wielding a warhammer, and capable of healing wounds.
+[4] Custom Character (Define your own hero)
+[5] Return to Start Menu
+
+--- MAIN MENU ---
+[1] Begin New Adventure
+[2] Restore Saved Adventure
+[3] Quit
+
+--- STORY GENESIS PRESETS ---
+[1] Lord of the Rings (Middle-earth Fantasy)
+    Scenario: An ancient Ring of Power must be carried to Mount Doom in Mordor to destroy the Dark Lord ...
+[2] Cyberpunk: Neon Shadows (Gritty Sci-Fi)
+    Scenario: In the corporate-ruled sprawl of Night City, you have stolen a prototype biochip that hold...
+[3] Star Wars: The Outer Rim (Space Opera)
+    Scenario: The Galactic Empire rules the galaxy. On the desert world of Tatooine, you have stumbled u...
+[4] Custom Adventure (Define your own universe/rules)
+[5] Return to Start Menu
+
+Preset Scenario: The Galactic Empire rules the galaxy. On the desert world of Tatooine, you have stumbled upon a Rebel holocron containing secret coordinates. Stormtroopers are searching the area.
+
+Active system prompt instructions:
+You are the narrator for a Star Wars space opera text adventure in the style of Zork. Describe hyperdrives, blasters, stormtroopers, and the Force, keeping the tone epic, sarcastic, and curt. Keep responses very concise. Use the second-person perspective ("You"). Never write dialogue or actions for the player. At the very end of EVERY response, on a new line, you MUST append the current status in this exact format: [Status: <Location Name> | Score: <Current Score>]
+
+--- EDIT SYSTEM PROMPT (CURRENT) ---
+You are the narrator for a Star Wars space opera text adventure in the style of Zork. Describe hyperdrives, blasters, stormtroopers, and the Force, keeping the tone epic, sarcastic, and curt. Keep responses very concise. Use the second-person perspective ("You"). Never write dialogue or actions for the player. At the very end of EVERY response, on a new line, you MUST append the current status in this exact format: [Status: <Location Name> | Score: <Current Score>]
+---------------------------------
+Press ENTER to keep the current prompt, or enter your custom prompt below:
+
+--- CHARACTER GENESIS ---
+[1] Jaxen (Jedi Survivor) - A hidden Jedi padawan in exile, carrying a blue lightsaber and wielding Force telekinesis.
+[2] Barton (Smuggler) - A cynical smuggler pilot carrying a modified blaster pistol, possessing a fast starship and quick reflexes.
+[3] T-8R (Security Droid) - A reprogrammed imperial security droid equipped with a heavy repeating blaster and thick armor plating.
+[4] Custom Character (Define your own hero)
+[5] Return to Start Menu
+
+>> CONNECTING TO NEURAL LINK / GENERATING STARTING SCENE...
+
+
+[SYSTEM: [LORE ACTIVATED: Korr]]
+You stand on the desert sands of Tatooine.
+
+Opening scene generated.
+[1] Proceed with this adventure
+[2] Reroll starting scene
+[3] Return to Start Menu
+[2J[2;24r[2;1H[s[1;1H[7m Tatooine                                                   Score: 0   Moves: 1 [27m[u> You are Korr, a Smuggler. A quick blaster smuggler. You begin your adventure. The Galactic Empire rules the galaxy. On the desert world of Tatooine, you have stumbled upon a Rebel holocron containing secret coordinates. Stormtroopers are searching the area.
+You stand on the desert sands of Tatooine.
+
+[SYSTEM: New adventure initialized.]
+[s[1;1H[7m Tatooine                                                   Score: 0   Moves: 1 [27m[u> go southh[K> go south
+[s[1;1H[7m Tatooine                                                   Score: 0   Moves: 1 [27m[uYou walk south into the noisy cantina.
+[s[1;1H[7m Cantina                                                    Score: 5   Moves: 2 [27m[u[s[1;1H[7m Cantina                                                    Score: 5   Moves: 2 [27m[u> [K> go south
+[s[1;1H[7m Cantina                                                    Score: 5   Moves: 2 [27m[uYou are already in the cantina.
+[s[1;1H[7m Cantina                                                    Score: 5   Moves: 3 [27m[u[s[1;1H[7m Cantina                                                    Score: 5   Moves: 3 [27m[u> /help
+
+--- TERMINAL HANDBOOK ---
+Welcome to the Retro CLI Zork-like Adventure!
+
+GAMEPLAY ACTIONS:
+  - Just type your action directly (e.g. "open mailbox", "go north", "read 
+leaflet").
+  - Do not use slash command prefixes for normal gameplay.
+
+SYSTEM COMMANDS:
+  - /undo         : Revert your last action and the AI's response.
+  - /retry        : Regenerate the AI's last response.
+  - /scan         : Scans recent history and auto-generates character/location 
+Lore Cards.
+  - /lore         : Manage the Lorebook (add, edit, or delete context cards 
+manually).
+  - /summary      : Manually view or overwrite the adventure's compressed memory
+summary.
+  - /system       : View or edit the active Dungeon Master system prompt.
+  - /save         : Force save game state.
+  - /load         : Display saved games and load/delete them.
+  - /menu         : Save and return to the main startup menu.
+  - /help         : View this handbook.
+  - /quit         : Save and quit.
+
+[s[1;1H[7m Cantina                                                    Score: 5   Moves: 3 [27m[u> /summary
+[r
+--- CURRENT ADVENTURE COMPRESSED MEMORY ---
+The Galactic Empire rules the galaxy. On the desert world of Tatooine, you have stumbled upon a Rebel holocron containing secret coordinates. Stormtroopers are searching the area.
+------------------------------------------
+[2J[2;24r[2;1H[s[1;1H[7m Cantina                                                    Score: 5   Moves: 3 [27m[u[SYSTEM: Memory summary updated successfully.]
+[s[1;1H[7m Cantina                                                    Score: 5   Moves: 3 [27m[u> /lore
+[r
+--- ACTIVE LORE CARDS ---
+[0] ● KORR (Smuggler)
+    Triggers: korr, smuggler
+    Desc: A quick blaster smuggler.
+-------------------------
+Options: [1] Add Card [2] Delete Card [3] Toggle Card [4] Edit Card [5] Return to Game
+
+Editing Card: Korr
+Card updated successfully.
+
+--- ACTIVE LORE CARDS ---
+[0] ● KORR THE BOLD (character)
+    Triggers: korr, bold
+    Desc: A legendary smuggler.
+-------------------------
+Options: [1] Add Card [2] Delete Card [3] Toggle Card [4] Edit Card [5] Return to Game
+[2J[2;24r[2;1H[s[1;1H[7m Cantina                                                    Score: 5   Moves: 3 [27m[u[s[1;1H[7m Cantina                                                    Score: 5   Moves: 3 [27m[u> /save
+[SYSTEM: Adventure state saved. ID: 14094a49]
+[s[1;1H[7m Cantina                                                    Score: 5   Moves: 3 [27m[u> /quit
+[r[24;1H
+Link terminated. Adventure preserved. Goodbye.
+[r[24;1H
+.
+----------------------------------------------------------------------
+Ran 1 test in 1.554s
+
+OK
+
+=======================================================
+          PLAYTEST SIMULATION PASSED SUCCESSFULLY       
+=======================================================

@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Retro Neural Adventure Link</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=JetBrains+Mono:wght@400;500;700&family=VT323&display=swap" rel="stylesheet">
+    <!-- Main Style Sheet -->
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="theme-default crt-effect">
+    
+    <!-- Phosphor Scanline Overlay -->
+    <div class="scanlines"></div>
+    <div class="screen-flicker"></div>
+    
+    <!-- Main Application Wrapper -->
+    <div id="app" class="app-container">
+        
+        <!-- 1. STARTUP MENU / SIMULATION SELECTION -->
+        <div id="startup-screen" class="glass-panel active">
+            <header class="startup-header">
+                <h1 class="glitch-title" data-text="NEURAL ADVENTURE LINK">NEURAL ADVENTURE LINK</h1>
+                <p class="subtitle">Infocom Cyber-Link Revision 88 &nbsp;//&nbsp;
+                    <span id="llm-status-pill" class="llm-pill llm-pill-checking">&#9675; CHECKING...</span>
+                </p>
+            </header>
+            
+            <div class="menu-choices">
+                <button id="btn-new-game" class="btn btn-secondary">
+                    <span class="btn-glow"></span>
+                    <span class="btn-text">[1] Begin New Simulation</span>
+                </button>
+                <button id="btn-restore-game" class="btn btn-secondary">
+                    <span class="btn-glow"></span>
+                    <span class="btn-text">[2] Restore Saved Simulation</span>
+                </button>
+                <button id="btn-toggle-crt" class="btn btn-secondary">
+                    <span class="btn-text">[T] Toggle CRT Scanlines</span>
+                </button>
+            </div>
+        </div>
+        
+        <!-- 2. NEW GAME WIZARD (PRESET SELECTION) -->
+        <div id="preset-screen" class="glass-panel hidden">
+            <header class="panel-header">
+                <h2>[STORY GENESIS PRESETS]</h2>
+                <p>Select a universe simulation template</p>
+            </header>
+            <div id="preset-list" class="preset-grid">
+                <!-- Presets will be dynamically populated here -->
+            </div>
+            <footer class="panel-footer-nav">
+                <button class="btn btn-back" onclick="showScreen('startup-screen')">Back</button>
+                <div class="footer-actions-right">
+                    <div class="secondary-actions-group">
+                        <button id="btn-custom-preset" class="btn btn-secondary">Custom Adventure</button>
+                        <button id="btn-preset-customize" class="btn btn-secondary hidden">Customize Story</button>
+                    </div>
+                    <button id="btn-preset-next" class="btn btn-primary hidden">Next: Character Select</button>
+                </div>
+            </footer>
+            <div class="kbd-hint">&#8592;&#8594; select preset &nbsp;&bull;&nbsp; Enter confirm &nbsp;&bull;&nbsp; Esc back</div>
+        </div>
+        
+        <!-- 3. CUSTOM UNIVERSE SETUP MODAL/SCREEN -->
+        <div id="custom-preset-screen" class="glass-panel hidden">
+            <header class="panel-header">
+                <h2>[CUSTOM UNIVERSE CONFIGURATION]</h2>
+                <p>Define adventure boundaries</p>
+            </header>
+            <div class="form-container">
+                <div class="form-group">
+                    <label for="custom-title">Adventure Title</label>
+                    <input type="text" id="custom-title" value="Custom Quest" placeholder="e.g. The Lost Relic">
+                </div>
+                <div class="form-group">
+                    <label for="custom-summary">Starting Scenario / Summary</label>
+                    <textarea id="custom-summary" rows="3">You stand at the beginning of a mysterious custom quest.</textarea>
+                </div>
+                <div class="form-group">
+                    <label for="custom-system-prompt">Narrator System Prompt (Dungeon Master Rules)</label>
+                    <textarea id="custom-system-prompt" class="code-font" rows="8"></textarea>
+                </div>
+            </div>
+            <footer class="panel-footer-nav">
+                <button class="btn btn-back" onclick="showScreen('preset-screen')">Back</button>
+                <button id="btn-submit-custom-preset" class="btn btn-primary">Next: Character Select</button>
+            </footer>
+        </div>
+        
+        <!-- 4. CHARACTER GENESIS SETUP -->
+        <div id="character-screen" class="glass-panel hidden">
+            <header class="panel-header">
+                <h2>[CHARACTER GENESIS]</h2>
+                <p>Define your hero avatar profile</p>
+            </header>
+            
+            <div id="preset-character-section">
+                <h3>Select Preset Class:</h3>
+                <div id="character-grid" class="character-grid">
+                    <!-- Dynamic presets character list -->
+                </div>
+            </div>
+            
+            <div id="custom-character-form" class="form-container hidden">
+                <h3>Custom Avatar Profile:</h3>
+                <div class="form-group">
+                    <label for="char-name">Character Name</label>
+                    <input type="text" id="char-name" value="Eldrin">
+                </div>
+                <div class="form-group">
+                    <label for="char-role">Class / Role</label>
+                    <input type="text" id="char-role" value="Mage">
+                </div>
+                <div class="form-group">
+                    <label for="char-desc">Description</label>
+                    <textarea id="char-desc" rows="3">A mysterious wizard wearing heavy robes and wielding a staff.</textarea>
+                </div>
+                <div class="form-group">
+                    <label for="char-triggers">Trigger Words (comma separated)</label>
+                    <input type="text" id="char-triggers" value="eldrin, mage, wizard">
+                </div>
+            </div>
+            
+            <footer class="panel-footer-nav">
+                <button id="btn-char-back" class="btn btn-back">Back</button>
+                <button id="btn-char-custom-toggle" class="btn btn-secondary">Customize Character</button>
+                <button id="btn-submit-character" class="btn btn-primary">Launch Simulation</button>
+            </footer>
+            <div class="kbd-hint">&#8592;&#8594; select character &nbsp;&bull;&nbsp; Enter launch &nbsp;&bull;&nbsp; Esc back</div>
+        </div>
+        
+        <!-- 5. RESTORE SAVE GAMES LIST -->
+        <div id="restore-screen" class="glass-panel hidden">
+            <header class="panel-header">
+                <h2>[RESTORE SIMULATION SAVE]</h2>
+                <p>Load preserved neural connections</p>
+            </header>
+            <div id="save-list" class="saves-container">
+                <!-- Saved adventure items dynamically rendered here -->
+            </div>
+            <footer class="panel-footer-nav">
+                <button class="btn btn-back" onclick="showScreen('startup-screen')">Back</button>
+            </footer>
+            <div class="kbd-hint">Esc back to menu</div>
+        </div>
+        
+        <!-- 6. MAIN GAMEPLAY CORE DASHBOARD -->
+        <div id="gameplay-screen" class="game-dashboard hidden">
+            
+            <!-- TOP STATS BAR -->
+            <div id="status-bar" class="status-bar">
+                <div class="status-item location"><span class="label">LOCATION:</span> <span id="val-location">Unknown</span></div>
+                <div class="status-item score"><span class="label">SCORE:</span> <span id="val-score">0</span></div>
+                <div class="status-item moves"><span class="label">MOVES:</span> <span id="val-moves">0</span></div>
+                <div class="status-item simulation"><span class="label">LINK:</span> <span id="val-title">Active Quest</span></div>
+            </div>
+            
+            <div class="dashboard-body">
+                
+                <!-- LEFT LOG CONSOLE PANEL -->
+                <main class="console-panel glass-panel">
+                    <div id="console-log" class="console-log">
+                        <!-- Gameplay history entries dynamically rendered -->
+                    </div>
+                    
+                    <!-- STREAMING ACTIVE OUTPUT CONTAINER -->
+                    <div id="streaming-box" class="streaming-box hidden">
+                        <span class="prompt-arrow">&gt; </span>
+                        <span id="streaming-content" class="streaming-content"></span>
+                        <span class="blinking-cursor">▒</span>
+                    </div>
+                    
+                    <!-- DYNAMIC SUGGESTION CHIPS -->
+                    <div id="suggestions-box" class="suggestions-box hidden">
+                        <div class="suggestions-label">Attempt action:</div>
+                        <div id="suggestions-list" class="suggestions-list">
+                            <!-- Suggestion items -->
+                        </div>
+                    </div>
+                    
+                    <!-- CORE COMMANDS CONTROL LINE BAR -->
+                    <div class="console-input-row">
+                        <span class="prompt-marker">&gt;</span>
+                        <input type="text" id="console-input" placeholder="Type gameplay action here (e.g. open mailbox)..." autocomplete="off" autofocus>
+                        <button id="btn-send" class="btn btn-action">Send</button>
+                    </div>
+                    
+                    <!-- UTILITY ACTIONS BAR -->
+                    <div class="console-utilities">
+                        <button id="btn-undo" class="btn btn-utility" title="Revert last turn">/undo</button>
+                        <button id="btn-retry" class="btn btn-utility" title="Regenerate narrator response">/retry</button>
+                        <button id="btn-continue" class="btn btn-utility" title="Trigger narration generation">/continue</button>
+                        <button id="btn-scan" class="btn btn-utility" title="Scan turns to extract lore cards">/scan</button>
+                        <button id="btn-system-edit" class="btn btn-utility" title="Edit Dungeon Master prompt">/system</button>
+                        <button id="btn-menu" class="btn btn-utility" title="Return to Start Menu">/menu</button>
+                    </div>
+                </main>
+                
+                <!-- RIGHT DETAILS TAB SIDEBAR -->
+                <aside class="sidebar-panel glass-panel">
+                    <div class="tab-header">
+                        <button id="tab-btn-lore" class="tab-btn active" onclick="switchSidebarTab('lore')">LOREBOOK</button>
+                        <button id="tab-btn-memory" class="tab-btn" onclick="switchSidebarTab('memory')">MEMORIES</button>
+                    </div>
+                    
+                    <div class="tab-body">
+                        <!-- LORE CARDS LIST -->
+                        <div id="tab-lore" class="tab-content active">
+                            <div class="lore-actions">
+                                <button id="btn-add-lore" class="btn btn-secondary btn-sm">+ Add Card</button>
+                            </div>
+                            <div id="lore-cards-list" class="lore-cards-list">
+                                <!-- Cards dynamically populated -->
+                            </div>
+                        </div>
+                        
+                        <!-- ADVENTURE MEMORY SUMMARY EDITOR -->
+                        <div id="tab-memory" class="tab-content">
+                            <div class="summary-container">
+                                <p class="help-text">Compressed game session memory summary (auto-updates during play):</p>
+                                <textarea id="summary-editor" rows="14" class="summary-editor code-font"></textarea>
+                                <button id="btn-save-summary" class="btn btn-primary btn-block">Save Memory State</button>
+                                <!-- Token Limit Slider -->
+                                <div class="token-limit-row">
+                                    <label for="token-limit-slider">MAX TOKENS</label>
+                                    <input type="range" id="token-limit-slider" min="50" max="300" step="10" value="300">
+                                    <span class="token-val" id="token-limit-val">300</span>
+                                </div>
+                                <!-- Model Selection -->
+                                <div class="model-selection-row">
+                                    <label for="model-selection-select">MODEL</label>
+                                    <select id="model-selection-select">
+                                        <!-- Will be dynamically populated with loaded models -->
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </aside>
+                
+            </div>
+        </div>
+        
+    </div>
+    
+    <!-- ==================== MODALS ==================== -->
+    
+    <!-- 1. SYSTEM PROMPT MONOSPACE MONSTER EDITOR MODAL -->
+    <div id="modal-system-prompt" class="modal-overlay hidden">
+        <div class="modal-content glass-panel">
+            <header class="modal-header">
+                <h3>[EDIT DUNGEON MASTER SYSTEM PROMPT]</h3>
+                <button class="btn-close" onclick="closeModal('modal-system-prompt')">&times;</button>
+            </header>
+            <div class="modal-body">
+                <p class="help-text">Alter the active LLM narrator style rules, location mappings, and core mechanics constraints:</p>
+                <textarea id="system-prompt-editor" class="code-font" rows="15"></textarea>
+            </div>
+            <footer class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('modal-system-prompt')">Cancel</button>
+                <button id="btn-save-system-prompt" class="btn btn-primary">Apply Rules</button>
+            </footer>
+        </div>
+    </div>
+    
+    <!-- 2. LORE CARD CREATOR/EDITOR MODAL -->
+    <div id="modal-lore-card" class="modal-overlay hidden">
+        <div class="modal-content glass-panel">
+            <header class="modal-header">
+                <h3 id="lore-modal-title">[ADD LORE BOOK CARD]</h3>
+                <button class="btn-close" onclick="closeModal('modal-lore-card')">&times;</button>
+            </header>
+            <div class="modal-body form-container">
+                <input type="hidden" id="lore-card-index" value="">
+                <div class="form-group">
+                    <label for="lore-name">Entity Name</label>
+                    <input type="text" id="lore-name" placeholder="e.g. Rusty Key">
+                </div>
+                <div class="form-group">
+                    <label for="lore-type">Entity Classification</label>
+                    <select id="lore-type">
+                        <option value="character">Character / Creature</option>
+                        <option value="location">Location / Room</option>
+                        <option value="item">Object / Item</option>
+                        <option value="lore">Lore / History</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="lore-desc">Description / context details</label>
+                    <textarea id="lore-desc" rows="3" placeholder="Describe appearance and parameters..."></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="lore-triggers">Keywords Triggers (comma separated)</label>
+                    <input type="text" id="lore-triggers" placeholder="e.g. key, rusty key, iron key">
+                </div>
+            </div>
+            <footer class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('modal-lore-card')">Cancel</button>
+                <button id="btn-save-lore-card" class="btn btn-primary">Apply Lore Card</button>
+            </footer>
+        </div>
+    </div>
+    
+    <!-- 3. CUSTOM CONFIRMATION MODAL -->
+    <div id="modal-confirm" class="modal-overlay hidden">
+        <div class="modal-content glass-panel" style="max-width: 450px;">
+            <header class="modal-header">
+                <h3>[SYSTEM WARNING]</h3>
+                <button class="btn-close">&times;</button>
+            </header>
+            <div class="modal-body">
+                <p id="confirm-message" class="code-font" style="line-height: 1.6; color: var(--text-user); margin: 0.5rem 0;"></p>
+            </div>
+            <footer class="modal-footer">
+                <button id="btn-confirm-no" class="btn btn-secondary">Cancel</button>
+                <button id="btn-confirm-yes" class="btn btn-primary" style="border-color: #ef4444; background: rgba(239, 68, 68, 0.15); box-shadow: 0 0 10px rgba(239, 68, 68, 0.2); color: #ef4444;">Confirm</button>
+            </footer>
+        </div>
+    </div>
+
+    <!-- In-page Toast Notification -->
+    <div id="toast-notification"></div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
