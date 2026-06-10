@@ -30,7 +30,7 @@ function buildClient() {
             apiKey: apiKey,
             defaultHeaders: {
                 'HTTP-Referer': 'https://github.com/anomalyco/local-llm-testing',
-                'X-Title': 'Retro Neural Adventure Link'
+                'X-Title': 'OpenDungeon'
             }
         });
         const effort = process.env.REASONING_EFFORT || "low";
