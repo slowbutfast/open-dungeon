@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
+import { llmTracker, addDebugLog } from './llmTracker.js';
 
 export class ContextManager {
     constructor() {
@@ -26,6 +27,8 @@ export class ContextManager {
         const turnsToSummarize = state.history.slice(0, 4);
         state.history = state.history.slice(4);
 
+        addDebugLog(`Context manager: starting background auto-summarization/compression (history length: ${state.history.length + 4} -> ${state.history.length} turns)`);
+
         if (this.memoryManager) {
             let startTurnIndex = Math.floor(state.archivedHistory.length / 2) + 1;
             for (let i = 0; i < turnsToSummarize.length; i += 2) {
@@ -41,7 +44,10 @@ export class ContextManager {
                 startTurnIndex++;
             }
             this.memoryManager.flushIfReady(state, model, saveFn)
-                .catch(e => console.error('Event extraction during summarization failed:', e.message));
+                .catch(e => {
+                    console.error('Event extraction during summarization failed:', e.message);
+                    addDebugLog(`Memory manager error (during summarization flush): ${e.message}`);
+                });
         }
         
         let eventsText = "";
@@ -63,13 +69,16 @@ ${eventsText}
 
 Provide ONLY the updated summary text. Do not write introductory words like "Here is the summary" or use markdown code blocks. Just print the summary.`;
 
+        const messages = [
+            { role: "system", content: "You are a concise summarizer for a text adventure game." },
+            { role: "user", content: prompt }
+        ];
+        const callId = llmTracker.startCall('summarization', messages);
+
         try {
             const response = await client.chat.completions.create({
                 model: model,
-                messages: [
-                    { role: "system", content: "You are a concise summarizer for a text adventure game." },
-                    { role: "user", content: prompt }
-                ],
+                messages,
                 temperature: 0.5,
                 max_tokens: 250
             });
@@ -80,8 +89,12 @@ Provide ONLY the updated summary text. Do not write introductory words like "Her
             state.summary = summaryContent;
             state.archivedHistory.push(...turnsToSummarize);
             await saveFn();
+            llmTracker.endCall(callId, summaryContent);
+            addDebugLog("Context manager: auto-summarization completed. Updated memory summary.");
         } catch (e) {
+            llmTracker.failCall(callId, e);
             state.history = [...turnsToSummarize, ...state.history];
+            addDebugLog(`Context manager error: summarization failed: ${e.message}`);
             throw new Error(`Summarization failed: ${e.message}`);
         }
     }
@@ -112,18 +125,21 @@ ${logText}
 
 JSON Output:`;
 
+        const messages = [
+            { role: "system", content: "You are an assistant that outputs structured data in pure JSON." },
+            { role: "user", content: prompt }
+        ];
+        const callId = llmTracker.startCall('card_extraction', messages);
         try {
             const response = await client.chat.completions.create({
                 model: model,
-                messages: [
-                    { role: "system", content: "You are an assistant that outputs structured data in pure JSON." },
-                    { role: "user", content: prompt }
-                ],
+                messages,
                 temperature: 0.3,
                 max_tokens: 800
             });
             
             let rawOutput = response.choices[0].message.content.trim();
+            llmTracker.endCall(callId, rawOutput);
             rawOutput = rawOutput.replace(/^```[a-zA-Z]*\n/, "").replace(/\n```$/, "").trim();
             
             const startIdx = rawOutput.indexOf('[');
@@ -154,6 +170,7 @@ JSON Output:`;
             }
             return addedCards;
         } catch (e) {
+            llmTracker.failCall(callId, e);
             throw new Error(`Lore extraction failed: ${e.message}`);
         }
     }

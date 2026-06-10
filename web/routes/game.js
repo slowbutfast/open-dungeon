@@ -2,6 +2,7 @@ import express from 'express';
 import { engine, resetEngine } from '../engineInstance.js';
 import { STORY_PRESETS } from '../../engine/storyPresets.js';
 import { DEFAULT_SYSTEM_PROMPT } from '../../engine/index.js';
+import { llmTracker, getDebugLogs } from '../../engine/llmTracker.js';
 
 const router = express.Router();
 
@@ -207,24 +208,28 @@ router.post('/init', async (req, res) => {
         text: `Character description: ${descNode}`
     });
 
+    const prompt = `Write the opening scene for a text adventure game. Title: ${title}. Character: ${charName} (${charType}). Starting scenario: ${summary}`;
+    const messages = [
+        { role: "system", content: activeEngine.systemPrompt },
+        { role: "user", content: prompt }
+    ];
+    const callId = llmTracker.startCall('opening_scene', messages);
     try {
-        const prompt = `Write the opening scene for a text adventure game. Title: ${title}. Character: ${charName} (${charType}). Starting scenario: ${summary}`;
         const response = await activeEngine.client.chat.completions.create({
             model: activeEngine.model,
-            messages: [
-                { role: "system", content: activeEngine.systemPrompt },
-                { role: "user", content: prompt }
-            ],
+            messages: messages,
             temperature: 0.8,
             max_tokens: activeEngine.maxTokens
         });
 
         const openingScene = response.choices[0].message.content.trim();
+        llmTracker.endCall(callId, openingScene);
         activeEngine.history.push({
             role: "assistant",
             text: openingScene
         });
     } catch (e) {
+        llmTracker.failCall(callId, e);
         activeEngine.history.push({
             role: "assistant",
             text: `You wake up in the world of ${title}. ${summary}\n[Status: Starting Location | Score: 0]`
@@ -326,6 +331,13 @@ router.post('/settings', async (req, res) => {
     }
 
     res.json({ status: "success", changed });
+});
+
+router.get('/debug/info', (req, res) => {
+    res.json({
+        calls: llmTracker.getCalls(),
+        logs: getDebugLogs()
+    });
 });
 
 export default router;

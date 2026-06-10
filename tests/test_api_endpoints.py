@@ -42,7 +42,7 @@ class TestApiEndpoints(unittest.TestCase):
         cls.proc = None
         
         tests_dir = os.path.dirname(os.path.abspath(__file__))
-        cls.save_dir = os.path.join(tests_dir, "adventures_test")
+        cls.save_dir = os.path.join(tests_dir, "adventures_api_test")
         os.makedirs(cls.save_dir, exist_ok=True)
         os.environ["SAVE_DIR"] = cls.save_dir
         
@@ -53,6 +53,7 @@ class TestApiEndpoints(unittest.TestCase):
         if not port_open:
             env = os.environ.copy()
             env["MOCK_LLM"] = "1"
+            env["PORT"] = str(cls.port)
             cls.proc = subprocess.Popen(
                 ["node", "web/server.js"],
                 stdout=subprocess.PIPE,

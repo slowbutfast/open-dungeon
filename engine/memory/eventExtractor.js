@@ -1,3 +1,5 @@
+import { llmTracker } from '../llmTracker.js';
+
 export class EventExtractor {
     constructor(client) {
         this.client = client;
@@ -110,20 +112,24 @@ You must output a single JSON object with the following structure. Do not output
   ]
 }`;
 
+        const messages = [
+            { role: "system", content: "You extract structured data from text and return only raw JSON." },
+            { role: "user", content: prompt }
+        ];
+        const callId = llmTracker.startCall('extraction', messages);
         try {
             const response = await this.client.chat.completions.create({
                 model: modelName,
-                messages: [
-                    { role: "system", content: "You extract structured data from text and return only raw JSON." },
-                    { role: "user", content: prompt }
-                ],
+                messages,
                 temperature: 0.1,
                 max_tokens: 1024
             });
 
             const text = response.choices[0].message.content;
+            llmTracker.endCall(callId, text);
             return this.parseExtractedJson(text);
         } catch (e) {
+            llmTracker.failCall(callId, e);
             console.error("EventExtractor error during API call:", e);
             return { events: [], inventory_changes: [], lore_facts: [] };
         }

@@ -14,7 +14,7 @@ if game_dir not in sys.path:
 class TestCliBehavior(unittest.TestCase):
     def setUp(self):
         tests_dir = os.path.dirname(os.path.abspath(__file__))
-        self.save_dir = os.path.join(tests_dir, "adventures_test")
+        self.save_dir = os.path.join(tests_dir, "adventures_cli_test")
         os.makedirs(self.save_dir, exist_ok=True)
         os.environ["SAVE_DIR"] = self.save_dir
 

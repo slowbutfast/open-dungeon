@@ -198,6 +198,7 @@
                         <button id="btn-scan" class="btn btn-utility" title="Scan turns to extract lore cards">/scan</button>
                         <button id="btn-system-edit" class="btn btn-utility" title="Edit Dungeon Master prompt">/system</button>
                         <button id="btn-toggle-crt-gameplay" class="btn btn-utility active" title="Toggle CRT scanlines and flicker theme">/crt</button>
+                        <button id="btn-debug-toggle" class="btn btn-utility" title="Toggle Debug Panel">/debug</button>
                         <button id="btn-menu" class="btn btn-utility" title="Return to Start Menu">/menu</button>
                     </div>
                 </main>
@@ -207,6 +208,7 @@
                     <div class="tab-header">
                         <button id="tab-btn-lore" class="tab-btn active" onclick="switchSidebarTab('lore')">LOREBOOK</button>
                         <button id="tab-btn-memory" class="tab-btn" onclick="switchSidebarTab('memory')">MEMORIES</button>
+                        <button id="tab-btn-debug" class="tab-btn" onclick="switchSidebarTab('debug')">DEBUG <span id="debug-pulse" class="debug-pulse-inactive"></span></button>
                     </div>
                     
                     <div class="tab-body">
@@ -262,6 +264,27 @@
                                     <h4>[SYSTEM MEMORY STATS]</h4>
                                     <div id="memory-stats-grid" class="memory-stats-grid">
                                         <!-- Dynamic stats -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- DEBUG AND LLM MONITOR PANEL -->
+                        <div id="tab-debug" class="tab-content">
+                            <div class="debug-container">
+                                <div class="debug-section">
+                                    <h4>[ACTIVE & QUEUED LLM CALLS]</h4>
+                                    <div id="llm-calls-list" class="llm-calls-list">
+                                        <p class="no-calls-msg">[No active LLM transmissions detected]</p>
+                                    </div>
+                                </div>
+                                
+                                <div class="memory-section-divider"></div>
+                                
+                                <div class="debug-section">
+                                    <h4>[SYSTEM LOGS]</h4>
+                                    <div id="debug-logs-list" class="debug-logs-list code-font">
+                                        <p class="no-logs-msg">[System log buffer empty]</p>
                                     </div>
                                 </div>
                             </div>
