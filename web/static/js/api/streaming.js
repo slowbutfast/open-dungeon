@@ -230,7 +230,7 @@ export async function submitPlayerCommand() {
       const helpDiv = document.createElement("div");
       helpDiv.className = "log-turn log-turn-system";
       helpDiv.innerText = `--- TERMINAL HANDBOOK ---
-Welcome to the Retro Neural Adventure Link!
+Welcome to OpenDungeon!
 
 GAMEPLAY ACTIONS:
   - Just type your action directly (e.g. "open mailbox", "go north").
