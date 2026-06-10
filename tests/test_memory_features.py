@@ -10,7 +10,7 @@ import glob
 import shutil
 
 class HttpClientProxy:
-    def __init__(self, base_url="http://127.0.0.1:5001"):
+    def __init__(self, base_url="http://127.0.0.1:5002"):
         self.base_url = base_url
         
     def get(self, path):
@@ -40,11 +40,11 @@ class HttpClientProxy:
 class TestMemoryFeatures(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.port = 5001
+        cls.port = 5002
         cls.proc = None
         
         tests_dir = os.path.dirname(os.path.abspath(__file__))
-        cls.save_dir = os.path.join(tests_dir, "adventures_test")
+        cls.save_dir = os.path.join(tests_dir, "adventures_memory_test")
         os.makedirs(cls.save_dir, exist_ok=True)
         os.environ["SAVE_DIR"] = cls.save_dir
         
@@ -55,6 +55,7 @@ class TestMemoryFeatures(unittest.TestCase):
         if not port_open:
             env = os.environ.copy()
             env["MOCK_LLM"] = "1"
+            env["PORT"] = str(cls.port)
             cls.proc = subprocess.Popen(
                 ["node", "web/server.js"],
                 stdout=subprocess.PIPE,
@@ -159,8 +160,14 @@ class TestMemoryFeatures(unittest.TestCase):
         payload = {"action_type": "say", "text": "I talk to Korr the smuggler in the cantina."}
         self.app.post("/api/action", json=payload)
 
-        # Wait a moment for background processing
-        time.sleep(1.0)
+        # Wait for background processing to finish (up to 5 seconds)
+        for _ in range(50):
+            res = self.app.get("/api/memory/stats")
+            if res.status_code == 200:
+                stats = json.loads(res.data)
+                if stats.get("lastExtractedTurnIndex", 0) > 0:
+                    break
+            time.sleep(0.1)
 
         # 1. Verify inventory
         res = self.app.get("/api/memory/inventory")

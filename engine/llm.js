@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import dotenv from 'dotenv';
 import { MockOpenAI } from './mockOpenAI.js';
+import { llmTracker, addDebugLog } from './llmTracker.js';
 
 dotenv.config();
 
@@ -139,6 +140,7 @@ export class LlmOrchestrator {
         const activeCards = contextManager.getActiveCards(state.cards, recentText);
         if (activeCards && activeCards.length > 0) {
             const triggeredNames = activeCards.map(c => c.name).join(", ");
+            addDebugLog(`Context cards: active card triggers: ${triggeredNames}`);
             yield { type: "system", content: `LORE ACTIVATED: ${triggeredNames}` };
         }
 
@@ -146,10 +148,12 @@ export class LlmOrchestrator {
         try {
             ragMemories = await contextManager.getRAGContext(recentText, state.adventureId);
             if (ragMemories && ragMemories.length > 0) {
+                addDebugLog(`RAG memory recall: query="${recentText.trim().substring(0, 45)}..." -> retrieved ${ragMemories.length} memories`);
                 yield { type: "system", content: `MEMORY RECALL: ${ragMemories.length} relevant memories` };
             }
         } catch (e) {
             // Non-fatal: continue without RAG context
+            addDebugLog(`RAG memory recall error: ${e.message}`);
         }
 
         let requestMaxTokens = state.maxTokens;
@@ -199,6 +203,7 @@ export class LlmOrchestrator {
         }
 
         let stream;
+        const callId = llmTracker.startCall('narration', messages);
         try {
             try {
                 stream = await this.client.chat.completions.create({
@@ -212,9 +217,11 @@ export class LlmOrchestrator {
                 const errorMsg = String(err);
                 if (errorMsg.includes("Failed to load model") || errorMsg.includes("400") || errorMsg.toLowerCase().includes("model")) {
                     yield { type: "system", content: `Failed to load '${state.model}'. Attempting fallback...` };
+                    addDebugLog(`Narration error: failed to load '${state.model}'. Attempting fallback...`);
                     const fallbackModel = await this.getLoadedModel();
                     if (fallbackModel && fallbackModel !== state.model) {
                         yield { type: "system", content: `Falling back to model: '${fallbackModel}'` };
+                        addDebugLog(`Narration info: falling back to model: '${fallbackModel}'`);
                         state.model = fallbackModel;
                         await saveFn();
                         stream = await this.client.chat.completions.create({
@@ -290,6 +297,7 @@ export class LlmOrchestrator {
             });
             await saveFn();
             yield { type: "done", content: cleanedText };
+            llmTracker.endCall(callId, cleanedText);
 
             if (contextManager.memoryManager) {
                 const lastTurns = state.history.slice(-2);
@@ -317,6 +325,7 @@ export class LlmOrchestrator {
             })();
 
         } catch (err) {
+            llmTracker.failCall(callId, err);
             state.history.pop();
             yield { type: "error", content: String(err) };
         }

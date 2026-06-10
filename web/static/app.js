@@ -181,6 +181,7 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("btn-continue").addEventListener("click", () => triggerUtilityAction("continue"));
     document.getElementById("btn-scan").addEventListener("click", triggerLoreScan);
     document.getElementById("btn-menu").addEventListener("click", returnToStartMenu);
+    document.getElementById("btn-debug-toggle").addEventListener("click", () => switchSidebarTab("debug"));
     
     document.getElementById("btn-system-edit").addEventListener("click", () => {
         if (currentGameState) {
@@ -381,6 +382,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Probe LLM host and update status pill
     pingLlm();
+
+    // Start polling debug information
+    startDebugPolling();
 });
 
 // Probe the LLM host and update the status pill on the startup screen
@@ -480,8 +484,15 @@ function closeModal(modalId) {
 function switchSidebarTab(tabName) {
     document.getElementById("tab-btn-lore").classList.toggle("active", tabName === "lore");
     document.getElementById("tab-btn-memory").classList.toggle("active", tabName === "memory");
+    document.getElementById("tab-btn-debug").classList.toggle("active", tabName === "debug");
     document.getElementById("tab-lore").classList.toggle("active", tabName === "lore");
     document.getElementById("tab-memory").classList.toggle("active", tabName === "memory");
+    document.getElementById("tab-debug").classList.toggle("active", tabName === "debug");
+    
+    // Trigger immediate refresh of debug data if switching to debug tab
+    if (tabName === "debug") {
+        pollDebugData();
+    }
 }
 
 // ----------------- WIZARD LOAD FUNCTIONS -----------------
@@ -1054,12 +1065,22 @@ async function executeStreamAction(actionType, text) {
                         // Accumulate into buffer — don't display yet
                         fullText += event.content;
                     } else if (event.type === "system") {
-                        // Render system messages inline immediately
-                        const sysDiv = document.createElement("div");
-                        sysDiv.className = "log-turn log-turn-system";
-                        sysDiv.innerText = `[SYSTEM: ${event.content}]`;
-                        log.appendChild(sysDiv);
-                        scrollToBottom();
+                        const contentLower = event.content.toLowerCase();
+                        const isMemoryRecall = contentLower.includes("memory recall");
+                        const isLoreActivated = contentLower.includes("lore activated");
+                        const isCompression = contentLower.includes("compress") || contentLower.includes("summariz");
+                        
+                        if (isMemoryRecall || isLoreActivated || isCompression) {
+                            // Quietly ignore for main CRT console
+                            // (It will be visible in the DEBUG tab via polling)
+                        } else {
+                            // Render other system messages inline immediately
+                            const sysDiv = document.createElement("div");
+                            sysDiv.className = "log-turn log-turn-system";
+                            sysDiv.innerText = `[SYSTEM: ${event.content}]`;
+                            log.appendChild(sysDiv);
+                            scrollToBottom();
+                        }
                     } else if (event.type === "error") {
                         alert("Stream error: " + event.content);
                     }
@@ -1545,5 +1566,121 @@ function handleArrowNavigation(e, buttons) {
             e.preventDefault();
             buttons[activeMenuIndex].click();
         }
+    }
+}
+
+// Debug Menu Polling & Render
+let debugPollInterval = null;
+
+async function pollDebugData() {
+    try {
+        const res = await fetch("/api/debug/info");
+        if (!res.ok) return;
+        const data = await res.json();
+        
+        renderLlmCalls(data.calls);
+        renderDebugLogs(data.logs);
+        
+        // Update red/green pulse dot on the debug tab header
+        const hasActive = data.calls.some(c => c.status === "active");
+        const pulseDot = document.getElementById("debug-pulse");
+        if (pulseDot) {
+            if (hasActive) {
+                pulseDot.className = "debug-pulse-active";
+            } else {
+                pulseDot.className = "debug-pulse-inactive";
+            }
+        }
+    } catch (e) {
+        console.error("Error polling debug info:", e);
+    }
+}
+
+function renderLlmCalls(calls) {
+    const listEl = document.getElementById("llm-calls-list");
+    if (!listEl) return;
+    
+    if (!calls || calls.length === 0) {
+        listEl.innerHTML = '<p class="no-calls-msg">[No active LLM transmissions detected]</p>';
+        return;
+    }
+    
+    // Reverse chronological order
+    const sorted = [...calls].sort((a, b) => b.id - a.id);
+    
+    listEl.innerHTML = sorted.map(call => {
+        const durationStr = call.duration ? `${(call.duration / 1000).toFixed(2)}s` : "--";
+        const statusClass = call.status; // 'active', 'completed', 'failed'
+        const promptSnippet = call.prompt ? call.prompt : "";
+        
+        return `
+            <div class="llm-call-item" id="call-${call.id}">
+                <div class="llm-call-header">
+                    <span class="llm-call-id">#${call.id}</span>
+                    <span class="llm-call-type">${call.type}</span>
+                    <span class="llm-call-status ${statusClass}">${call.status.toUpperCase()}</span>
+                </div>
+                <div class="llm-call-meta">
+                    <span>Time: ${new Date(call.timestamp).toLocaleTimeString()}</span>
+                    <span>Dur: ${durationStr}</span>
+                </div>
+                <button class="llm-call-prompt-toggle" onclick="toggleCallDetails(${call.id})">Toggle Details</button>
+                <div class="llm-call-details hidden" id="call-details-${call.id}">${escapeHtml(promptSnippet)}</div>
+            </div>
+        `;
+    }).join("");
+}
+
+// Bind to window to allow inline onclick attribute
+window.toggleCallDetails = function(id) {
+    const el = document.getElementById(`call-details-${id}`);
+    if (el) {
+        el.classList.toggle("hidden");
+    }
+};
+
+function renderDebugLogs(logs) {
+    const listEl = document.getElementById("debug-logs-list");
+    if (!listEl) return;
+    
+    if (!logs || logs.length === 0) {
+        listEl.innerHTML = '<p class="no-logs-msg">[System log buffer empty]</p>';
+        return;
+    }
+    
+    listEl.innerHTML = logs.map(log => {
+        return `
+            <div class="debug-log-line">
+                <span class="debug-log-timestamp">[${log.timestamp}]</span>
+                <span class="debug-log-message">${escapeHtml(log.message)}</span>
+            </div>
+        `;
+    }).join("");
+    
+    // Auto scroll debug logs panel to bottom
+    listEl.scrollTop = listEl.scrollHeight;
+}
+
+function escapeHtml(text) {
+    if (!text) return "";
+    return text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+function startDebugPolling() {
+    if (!debugPollInterval) {
+        pollDebugData();
+        debugPollInterval = setInterval(pollDebugData, 1500);
+    }
+}
+
+function stopDebugPolling() {
+    if (debugPollInterval) {
+        clearInterval(debugPollInterval);
+        debugPollInterval = null;
     }
 }

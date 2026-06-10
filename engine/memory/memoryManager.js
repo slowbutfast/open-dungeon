@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { VectorStore } from './vectorStore.js';
 import { StructuredStore } from './structuredStore.js';
 import { EventExtractor } from './eventExtractor.js';
+import { addDebugLog } from '../llmTracker.js';
 
 export class MemoryManager {
     constructor(dataDir, llmClient, embeddingService) {
@@ -53,13 +54,15 @@ export class MemoryManager {
         }
 
         const batch = this.turnBuffer.slice(0, this.batchSize);
+        addDebugLog(`Memory manager: flushing queue buffer for turns ${batch.map(t => t.turnIndex).join(', ')}`);
 
         try {
             await this._extractAndStore(batch, state, modelName, saveFn);
-            this.turnBuffer = this.turnBuffer.slice(this.batchSize);
         } catch (e) {
             console.error(`Error flushing memory buffer:`, e);
-            throw e;
+            addDebugLog(`Memory manager error: extraction failed: ${e.message}`);
+        } finally {
+            this.turnBuffer = this.turnBuffer.slice(this.batchSize);
         }
     }
 
@@ -74,6 +77,7 @@ export class MemoryManager {
         }
 
         const extracted = await this.eventExtractor.extractEvents(turnsForExtraction, modelName);
+        addDebugLog(`Memory manager: extracted ${extracted.events?.length || 0} events, ${extracted.inventory_changes?.length || 0} inventory changes, and ${extracted.lore_facts?.length || 0} lore facts.`);
 
         // 1. Process events
         if (extracted.events && extracted.events.length > 0) {
@@ -109,14 +113,19 @@ export class MemoryManager {
             }
 
             if (documents.length > 0) {
-                const eventEmbeddings = await this.embeddingService.embedBatch(documents);
-                await this.vectorStore.upsertDocuments(
-                    adventureId,
-                    ids,
-                    documents,
-                    eventEmbeddings,
-                    metadatas
-                );
+                try {
+                    const eventEmbeddings = await this.embeddingService.embedBatch(documents);
+                    await this.vectorStore.upsertDocuments(
+                        adventureId,
+                        ids,
+                        documents,
+                        eventEmbeddings,
+                        metadatas
+                    );
+                } catch (embErr) {
+                    console.error("Failed to generate or store vector embeddings for events, skipping vector store insertion:", embErr);
+                    addDebugLog(`Memory manager error: failed vector database sync for ${documents.length} events: ${embErr.message}`);
+                }
             }
         }
 

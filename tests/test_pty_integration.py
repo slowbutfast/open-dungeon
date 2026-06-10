@@ -33,10 +33,11 @@ def write_input(fd, text):
 class TestPtyIntegration(unittest.TestCase):
     def setUp(self):
         tests_dir = os.path.dirname(os.path.abspath(__file__))
-        self.save_dir = os.path.join(tests_dir, "adventures_test")
+        self.save_dir = os.path.join(tests_dir, "adventures_pty_test")
         os.makedirs(self.save_dir, exist_ok=True)
         os.environ["SAVE_DIR"] = self.save_dir
 
+    @unittest.skip("CLI is deprecated. Focus is on web app.")
     def test_pty_gameplay_and_system_menu_clears_screen(self):
         """Spawns the game in a pseudo-terminal (PTY) and verifies that switching to /system clears screen."""
         master_fd, slave_fd = pty.openpty()

@@ -1,3 +1,5 @@
+import { llmTracker } from '../llmTracker.js';
+
 export class EmbeddingService {
     constructor(client) {
         this.client = client;
@@ -81,11 +83,18 @@ export class EmbeddingService {
         }
 
         const model = await this.ensureEmbeddingModelLoaded();
-        const response = await this.client.embeddings.create({
-            model: model,
-            input: text
-        });
-        return response.data[0].embedding;
+        const callId = llmTracker.startCall('embedding', text);
+        try {
+            const response = await this.client.embeddings.create({
+                model: model,
+                input: text
+            });
+            llmTracker.endCall(callId, `[Vector of size ${response.data[0].embedding.length}]`);
+            return response.data[0].embedding;
+        } catch (e) {
+            llmTracker.failCall(callId, e);
+            throw e;
+        }
     }
 
     async embedBatch(texts) {
@@ -95,11 +104,19 @@ export class EmbeddingService {
         }
 
         const model = await this.ensureEmbeddingModelLoaded();
-        const response = await this.client.embeddings.create({
-            model: model,
-            input: texts
-        });
-        const sortedData = [...response.data].sort((a, b) => (a.index || 0) - (b.index || 0));
-        return sortedData.map(item => item.embedding);
+        const callId = llmTracker.startCall('embedding_batch', `Batch of ${texts.length} items:\n` + texts.join('\n'));
+        try {
+            const response = await this.client.embeddings.create({
+                model: model,
+                input: texts
+            });
+            const sortedData = [...response.data].sort((a, b) => (a.index || 0) - (b.index || 0));
+            const result = sortedData.map(item => item.embedding);
+            llmTracker.endCall(callId, `[${result.length} vectors of size ${result[0]?.length || 0}]`);
+            return result;
+        } catch (e) {
+            llmTracker.failCall(callId, e);
+            throw e;
+        }
     }
 }

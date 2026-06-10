@@ -39,7 +39,7 @@ app.use('/api', savesRouter);
 app.use('/api', loreRouter);
 app.use('/api', memoryRouter);
 
-const PORT = 5001;
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 5001;
 // Bind to 127.0.0.1 in mock mode to avoid firewall popup and socket lookup delay
 const host = process.env.MOCK_LLM === "1" ? "127.0.0.1" : "0.0.0.0";
 
