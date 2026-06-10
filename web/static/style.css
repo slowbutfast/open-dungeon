@@ -1470,6 +1470,8 @@ body:not(.crt-effect) .screen-flicker {
         z-index: 100;
         background: rgba(7, 9, 13, 0.98);
         border-top: 1px solid var(--border-light);
+        -webkit-transform: translate3d(0, 0, 0);
+        transform: translate3d(0, 0, 0);
     }
 
     .mobile-tab {
@@ -1478,10 +1480,12 @@ body:not(.crt-effect) .screen-flicker {
         border: none;
         padding: 0.5rem;
         font-family: 'VT323', monospace;
-        font-size: 1rem;
+        font-size: 1.2rem;
         color: var(--text-muted);
         cursor: pointer;
         min-height: 44px;
+        touch-action: manipulation;
+        -webkit-tap-highlight-color: transparent;
         transition: color var(--transition-fast);
     }
 
@@ -1515,14 +1519,18 @@ body:not(.crt-effect) .screen-flicker {
     }
 
     .status-bar {
-        flex-wrap: wrap;
-        font-size: 0.85rem;
-        gap: 0.25rem;
-        justify-content: flex-start;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        font-size: 1rem;
+        gap: 0.15rem;
     }
 
     .status-item {
-        min-width: 48%;
+        min-width: auto;
+    }
+
+    .console-log {
+        font-size: 0.85rem;
     }
 
     .console-utilities {
