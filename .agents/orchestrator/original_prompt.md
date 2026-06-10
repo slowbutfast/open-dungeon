@@ -1,2 +1,0 @@
-## 2026-06-08T03:15:10Z
-You are the Project Orchestrator. Please read ORIGINAL_REQUEST.md at /Users/gregorylazatin/Documents/Dev/projects/local-llm-testing/ORIGINAL_REQUEST.md and orchestrate the team to implement the requirements. Set up your workspace in /Users/gregorylazatin/Documents/Dev/projects/local-llm-testing/.agents/orchestrator/ and maintain your plan and progress files there, updating progress.md frequently. Report back to me when you have completed all milestones.

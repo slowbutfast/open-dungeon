@@ -14,6 +14,7 @@ __pycache__/
 # IDE configurations
 .vscode/
 .idea/
+tests/data
 
 # Local game save files
 game/adventures/

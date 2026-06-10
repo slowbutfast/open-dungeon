@@ -227,7 +227,7 @@ export class AdventureEngine {
     async summarizeOldTurns() {
         await this.context.summarizeOldTurns(
             this.state,
-            this.client,
+            this.llm.client,
             this.state.model,
             () => this.save()
         );
@@ -236,7 +236,7 @@ export class AdventureEngine {
     async autoGenerateCards() {
         return this.context.autoGenerateCards(
             this.state,
-            this.client,
+            this.llm.client,
             this.state.model,
             () => this.save()
         );
