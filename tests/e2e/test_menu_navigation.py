@@ -23,23 +23,27 @@ def start_server():
     """Starts the Flask server in mock mode if it is not already running."""
     port = 5001
     proc = None
-    if not is_port_open(port):
-        env = os.environ.copy()
-        env["MOCK_LLM"] = "1"  # Force mock mode for testing
-        env["SAVE_DIR"] = TEST_SAVE_DIR  # Isolate test saves
-        proc = subprocess.Popen(
-            ["node", "web/server.js"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env=env
+    if is_port_open(port):
+        raise RuntimeError(
+            f"Port {port} is already in use — please stop your server before running tests."
         )
-        # Wait for the server to spin up
-        for _ in range(50):
-            if is_port_open(port):
-                break
-            time.sleep(0.1)
-        else:
-            raise RuntimeError("Flask server failed to start on port 5001")
+
+    env = os.environ.copy()
+    env["MOCK_LLM"] = "1"  # Force mock mode for testing
+    env["SAVE_DIR"] = TEST_SAVE_DIR  # Isolate test saves
+    proc = subprocess.Popen(
+        ["node", "web/server.js"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=env
+    )
+    # Wait for the server to spin up
+    for _ in range(50):
+        if is_port_open(port):
+            break
+        time.sleep(0.1)
+    else:
+        raise RuntimeError("Flask server failed to start on port 5001")
     
     yield
     
