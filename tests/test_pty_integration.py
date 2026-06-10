@@ -31,6 +31,12 @@ def write_input(fd, text):
     os.write(fd, text.encode('utf-8'))
 
 class TestPtyIntegration(unittest.TestCase):
+    def setUp(self):
+        tests_dir = os.path.dirname(os.path.abspath(__file__))
+        self.save_dir = os.path.join(tests_dir, "adventures_test")
+        os.makedirs(self.save_dir, exist_ok=True)
+        os.environ["SAVE_DIR"] = self.save_dir
+
     def test_pty_gameplay_and_system_menu_clears_screen(self):
         """Spawns the game in a pseudo-terminal (PTY) and verifies that switching to /system clears screen."""
         master_fd, slave_fd = pty.openpty()
@@ -42,6 +48,7 @@ class TestPtyIntegration(unittest.TestCase):
         env = os.environ.copy()
         env["MOCK_LLM"] = "1"
         env["TERM"] = "xterm"
+        env["SAVE_DIR"] = self.save_dir
         
         # Start the subprocess with slave_fd as stdin/stdout/stderr
         proc = subprocess.Popen(
@@ -126,14 +133,17 @@ class TestPtyIntegration(unittest.TestCase):
 
     def tearDown(self):
         import glob
-        tests_dir = os.path.dirname(os.path.abspath(__file__))
-        save_dir = os.path.join(os.path.dirname(tests_dir), "game", "adventures")
-        for filepath in glob.glob(os.path.join(save_dir, "*.json")):
-            if not filepath.endswith("test-adv.json"):
-                try:
-                    os.remove(filepath)
-                except OSError:
-                    pass
+        for filepath in glob.glob(os.path.join(self.save_dir, "*.json")):
+            try:
+                os.remove(filepath)
+            except OSError:
+                pass
+        import shutil
+        if os.path.exists(self.save_dir):
+            try:
+                shutil.rmtree(self.save_dir)
+            except OSError:
+                pass
 
 if __name__ == "__main__":
     unittest.main()

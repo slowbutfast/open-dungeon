@@ -13,6 +13,11 @@ if game_dir not in sys.path:
 
 class TestCliBehavior(unittest.TestCase):
     def setUp(self):
+        tests_dir = os.path.dirname(os.path.abspath(__file__))
+        self.save_dir = os.path.join(tests_dir, "adventures_test")
+        os.makedirs(self.save_dir, exist_ok=True)
+        os.environ["SAVE_DIR"] = self.save_dir
+
         # Mocking AdventureEngine so LM Studio backend requests are intercepted
         from game.adventure_engine import AdventureEngine
         self.engine = AdventureEngine()
@@ -22,6 +27,14 @@ class TestCliBehavior(unittest.TestCase):
         self.engine.title = "Mock Quest"
         self.engine.history = []
         self.engine.summary = "A mock test run."
+
+    def tearDown(self):
+        import shutil
+        if hasattr(self, "save_dir") and os.path.exists(self.save_dir):
+            try:
+                shutil.rmtree(self.save_dir)
+            except OSError:
+                pass
 
     def test_type_text_reproduces_print_error(self):
         """Verify that type_text executes without causing keyword argument errors."""
