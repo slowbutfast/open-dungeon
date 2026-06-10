@@ -253,7 +253,8 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  window.addEventListener("keydown", (e) => {
+  if (window.matchMedia('(pointer: fine)').matches) {
+    window.addEventListener("keydown", (e) => {
     const confirmModal = document.getElementById("modal-confirm");
     if (confirmModal && !confirmModal.classList.contains("hidden")) {
       if (e.key === "Enter") {
@@ -357,6 +358,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     }
   });
+} // closes if (matchMedia)
 
   SettingsAPI.pingLlm();
   DebugAPI.startDebugPolling();
