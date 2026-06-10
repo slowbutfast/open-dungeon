@@ -1,0 +1,17 @@
+{
+  "name": "local-llm-testing-backend",
+  "version": "1.0.0",
+  "description": "Node.js refactored backend for Local LLM Retro Adventure Game",
+  "main": "web/server.js",
+  "scripts": {
+    "start": "node web/server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "openai": "^4.50.0",
+    "uuid": "^9.0.1"
+  },
+  "type": "module"
+}

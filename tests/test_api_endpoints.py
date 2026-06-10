@@ -2,26 +2,84 @@ import os
 import sys
 import json
 import unittest
+import socket
+import subprocess
+import time
+import requests
 
-# Add root folder to path
-parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if parent_dir not in sys.path:
-    sys.path.append(parent_dir)
-
-# Set mock env prior to importing web.server
-os.environ["MOCK_LLM"] = "1"
-
-from web.server import app
+class HttpClientProxy:
+    def __init__(self, base_url="http://127.0.0.1:5001"):
+        self.base_url = base_url
+        
+    def get(self, path):
+        r = requests.get(f"{self.base_url}{path}")
+        class ResponseWrapper:
+            def __init__(self, r):
+                self.status_code = r.status_code
+                self.data = r.content
+                self.mimetype = r.headers.get("Content-Type", "").split(";")[0]
+        return ResponseWrapper(r)
+        
+    def post(self, path, json=None, data=None):
+        if json is not None:
+            r = requests.post(f"{self.base_url}{path}", json=json)
+        elif data is not None:
+            r = requests.post(f"{self.base_url}{path}", data=data)
+        else:
+            r = requests.post(f"{self.base_url}{path}")
+            
+        class ResponseWrapper:
+            def __init__(self, r):
+                self.status_code = r.status_code
+                self.data = r.content
+                self.mimetype = r.headers.get("Content-Type", "").split(";")[0]
+        return ResponseWrapper(r)
 
 class TestApiEndpoints(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.port = 5001
+        cls.proc = None
+        
+        # Check if port is already open
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            port_open = s.connect_ex(('127.0.0.1', cls.port)) == 0
+            
+        if not port_open:
+            env = os.environ.copy()
+            env["MOCK_LLM"] = "1"
+            cls.proc = subprocess.Popen(
+                ["node", "web/server.js"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=env
+            )
+            # Wait for the server to spin up
+            for _ in range(50):
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    if s.connect_ex(('127.0.0.1', cls.port)) == 0:
+                        break
+                time.sleep(0.1)
+            else:
+                raise RuntimeError("Express server failed to start on port 5001")
+
+    @classmethod
+    def tearDownClass(cls):
+        if cls.proc:
+            cls.proc.terminate()
+            try:
+                cls.proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                cls.proc.kill()
+
     def setUp(self):
-        self.app = app.test_client()
-        self.app.testing = True
+        self.app = HttpClientProxy()
         
     def tearDown(self):
-        from web.server import engine
         import glob
-        for filepath in glob.glob(os.path.join(engine.save_dir, "*.json")):
+        tests_dir = os.path.dirname(os.path.abspath(__file__))
+        save_dir = os.path.join(os.path.dirname(tests_dir), "game", "adventures")
+        for filepath in glob.glob(os.path.join(save_dir, "*.json")):
             if not filepath.endswith("test-adv.json"):
                 try:
                     os.remove(filepath)
@@ -75,7 +133,7 @@ class TestApiEndpoints(unittest.TestCase):
         # Check stream output contains expected chunk data
         stream_data = res.data.decode("utf-8")
         self.assertIn("data: ", stream_data)
-        self.assertIn('"type": "chunk"', stream_data)
+        self.assertTrue('"type": "chunk"' in stream_data or '"type":"chunk"' in stream_data)
         
     def test_update_system_prompt_api(self):
         """Verify system prompt updating works."""
@@ -130,7 +188,7 @@ class TestApiEndpoints(unittest.TestCase):
         res = self.app.post("/api/lore", json={"action": "toggle", "index": 0})
         self.assertEqual(res.status_code, 200)
         data = json.loads(res.data)
-        self.assertFalse(data["cards"][0]["active"])
+        self.assertFalse(data["cards"][0]["enabled"])
         
         # 3. Delete card
         res = self.app.post("/api/lore", json={"action": "delete", "index": 0})
