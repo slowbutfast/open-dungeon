@@ -45,7 +45,12 @@ export function renderState(state, skipLastAssistant = false) {
         turnDiv.innerText = turn.text;
       }
     } else {
-      turnDiv.innerText = cleanMarkdownText(turn.text);
+      let text = turn.text;
+      const statusMatch = text.match(/\[Status:\s*(.*?)\s*\|\s*Score:\s*(\d+)\s*\]$/m);
+      if (statusMatch) {
+        text = text.replace(/\[Status:\s*(.*?)\s*\|\s*Score:\s*\d+\s*\]\n?/m, '').trim();
+      }
+      turnDiv.innerText = cleanMarkdownText(text);
     }
     log.appendChild(turnDiv);
   });
@@ -234,4 +239,18 @@ export function renderDebugLogs(logs) {
   }).join("");
 
   listEl.scrollTop = listEl.scrollHeight;
+}
+
+export function renderCostSummary(costData) {
+  const inputEl = document.getElementById("cost-input-tokens");
+  const outputEl = document.getElementById("cost-output-tokens");
+  const totalEl = document.getElementById("cost-total-tokens");
+  const costEl = document.getElementById("cost-estimated");
+  const breakdownEl = document.getElementById("cost-breakdown");
+
+  if (inputEl) inputEl.innerText = (costData.session_input_tokens || costData.input_tokens || 0).toLocaleString();
+  if (outputEl) outputEl.innerText = (costData.session_output_tokens || costData.output_tokens || 0).toLocaleString();
+  if (totalEl) totalEl.innerText = ((costData.session_input_tokens || costData.input_tokens || 0) + (costData.session_output_tokens || costData.output_tokens || 0)).toLocaleString();
+  if (costEl) costEl.innerText = `$${(costData.session_cost || costData.estimated_cost_usd || 0).toFixed(6)}`;
+  if (breakdownEl) breakdownEl.innerText = costData.session_cost_display || "Pricing based on DeepSeek V4 rates ($0.40/M in, $1.10/M out)";
 }
