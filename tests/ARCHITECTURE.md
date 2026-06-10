@@ -1,5 +1,11 @@
 # Test Architecture
 
+> **Deprecated:** The Python CLI proxy (`game/adventure_engine.py`) and its
+> tests (`test_cli_behavior.py`, `test_pty_integration.py`,
+> `simulate_playtest.py`) are **deprecated**. They may fail and are not
+> required to pass. Focus on the Node.js backend (`engine/`) and E2E tests
+> (`tests/e2e/`).
+
 ## Test Files
 
 | File | Type | What it tests |
