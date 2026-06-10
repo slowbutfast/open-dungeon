@@ -12,6 +12,19 @@ let storyCustomized = false;
 let activeMenuIndex = -1;
 let toastTimer = null;
 
+// Toggle CRT screen scanlines and flicker classes on body
+function toggleCrt() {
+    document.body.classList.toggle("crt-effect");
+    document.body.classList.toggle("theme-plain");
+    
+    // Sync the gameplay /crt utility button active class (if it exists)
+    const isCrtActive = document.body.classList.contains("crt-effect");
+    const crtBtnGameplay = document.getElementById("btn-toggle-crt-gameplay");
+    if (crtBtnGameplay) {
+        crtBtnGameplay.classList.toggle("active", isCrtActive);
+    }
+}
+
 // In-page retro toast notification
 function showToast(message, isError = false) {
     const toast = document.getElementById("toast-notification");
@@ -45,8 +58,11 @@ document.addEventListener("DOMContentLoaded", () => {
     });
     
     document.getElementById("btn-toggle-crt").addEventListener("click", () => {
-        document.body.classList.toggle("crt-effect");
-        document.body.classList.toggle("theme-plain");
+        toggleCrt();
+    });
+    
+    document.getElementById("btn-toggle-crt-gameplay").addEventListener("click", () => {
+        toggleCrt();
     });
 
     const startupButtons = [
@@ -251,15 +267,22 @@ document.addEventListener("DOMContentLoaded", () => {
         const activeScreen = getActiveScreenId();
         if (!activeScreen) return;
         
-        // If we are in gameplay screen, let the console input handle keypresses
-        if (activeScreen === "gameplay-screen") return;
-        
         // If typing in any input field or textarea, do not intercept
         if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.tagName === "SELECT") {
             return;
         }
         
         const key = e.key;
+        
+        // Global T/t shortcut to toggle CRT scanlines on any screen!
+        if (key.toLowerCase() === "t") {
+            e.preventDefault();
+            toggleCrt();
+            return;
+        }
+        
+        // If we are in gameplay screen, let the console input handle keypresses
+        if (activeScreen === "gameplay-screen") return;
         
         if (activeScreen === "startup-screen") {
             const buttons = [
@@ -443,35 +466,44 @@ function switchSidebarTab(tabName) {
 // ----------------- WIZARD LOAD FUNCTIONS -----------------
 
 async function loadPresets() {
-    const res = await fetch("/api/presets");
-    presets = await res.json();
-    
     const listContainer = document.getElementById("preset-list");
-    listContainer.innerHTML = "";
-    
-    presets.forEach((preset, idx) => {
-        const card = document.createElement("div");
-        card.className = "preset-card";
-        card.innerHTML = `
-            <h3>${preset.name}</h3>
-            <p>${preset.summary.substring(0, 110)}...</p>
-        `;
-        card.addEventListener("click", () => {
-            document.querySelectorAll(".preset-card").forEach(c => c.classList.remove("active"));
-            card.classList.add("active");
-            selectedPresetIdx = idx;
-            
-            // Populate the custom preset configuration form in case they want to customize it
-            document.getElementById("custom-title").value = preset.title;
-            document.getElementById("custom-summary").value = preset.summary;
-            document.getElementById("custom-system-prompt").value = preset.system_prompt;
-            
-            // Show the action buttons for preset
-            document.getElementById("btn-preset-customize").classList.remove("hidden");
-            document.getElementById("btn-preset-next").classList.remove("hidden");
+    listContainer.innerHTML = `
+        <div class="loader-container" style="grid-column: 1 / -1;">
+            <div class="retro-spinner"></div>
+            <span class="loader-text">[RETRIEVING SIMULATION TEMPLATES...]</span>
+        </div>
+    `;
+    try {
+        const res = await fetch("/api/presets");
+        presets = await res.json();
+        listContainer.innerHTML = "";
+        
+        presets.forEach((preset, idx) => {
+            const card = document.createElement("div");
+            card.className = "preset-card";
+            card.innerHTML = `
+                <h3>${preset.name}</h3>
+                <p>${preset.summary.substring(0, 110)}...</p>
+            `;
+            card.addEventListener("click", () => {
+                document.querySelectorAll(".preset-card").forEach(c => c.classList.remove("active"));
+                card.classList.add("active");
+                selectedPresetIdx = idx;
+                
+                // Populate the custom preset configuration form in case they want to customize it
+                document.getElementById("custom-title").value = preset.title;
+                document.getElementById("custom-summary").value = preset.summary;
+                document.getElementById("custom-system-prompt").value = preset.system_prompt;
+                
+                // Show the action buttons for preset
+                document.getElementById("btn-preset-customize").classList.remove("hidden");
+                document.getElementById("btn-preset-next").classList.remove("hidden");
+            });
+            listContainer.appendChild(card);
         });
-        listContainer.appendChild(card);
-    });
+    } catch (err) {
+        listContainer.innerHTML = `<p class="help-text" style="grid-column: 1 / -1; text-align: center; margin: 2rem 0; color: #ef4444;">Failed to load presets: ${err}</p>`;
+    }
 }
 
 function loadCharactersList(presetIdx) {
@@ -518,60 +550,96 @@ function selectCharacterCard(idx) {
 }
 
 // Load save games list
+// Load save games list
 async function loadSavesList() {
-    const res = await fetch("/api/saves");
-    const saves = await res.json();
-    
     const list = document.getElementById("save-list");
-    list.innerHTML = "";
-    
-    if (saves.length === 0) {
-        list.innerHTML = `<p class="help-text" style="text-align: center; margin: 2rem 0;">No active saved connections found.</p>`;
-        return;
+    list.innerHTML = `
+        <div class="loader-container">
+            <div class="retro-spinner"></div>
+            <span class="loader-text">[SCANNING NEURAL CHANNELS FOR SECURED CONNECTIONS...]</span>
+        </div>
+    `;
+    try {
+        const res = await fetch("/api/saves");
+        const saves = await res.json();
+        list.innerHTML = "";
+        
+        if (saves.length === 0) {
+            list.innerHTML = `<p class="help-text" style="text-align: center; margin: 2rem 0;">No active saved connections found.</p>`;
+            return;
+        }
+        
+        saves.forEach(save => {
+            const item = document.createElement("div");
+            item.className = "save-item";
+            item.innerHTML = `
+                <div class="save-details">
+                    <h4>${save.title}</h4>
+                    <p>Location: ${save.location} | Summary: ${save.summary.substring(0, 65)}...</p>
+                    <div class="save-meta">Slot ID: ${save.id} // connection turns: ${save.turns}</div>
+                </div>
+                <div class="save-actions">
+                    <button class="btn btn-primary btn-sm btn-restore">Restore</button>
+                    <button class="btn btn-secondary btn-sm btn-delete" style="color:#ef4444;">Delete</button>
+                </div>
+            `;
+            
+            item.querySelector(".btn-restore").addEventListener("click", (e) => loadSaveGame(save.id, e.target));
+            item.querySelector(".btn-delete").addEventListener("click", (e) => deleteSaveGame(save.id, e.target));
+            
+            list.appendChild(item);
+        });
+    } catch (err) {
+        list.innerHTML = `<p class="help-text" style="text-align: center; margin: 2rem 0; color: #ef4444;">Failed to load saved games: ${err}</p>`;
     }
-    
-    saves.forEach(save => {
-        const item = document.createElement("div");
-        item.className = "save-item";
-        item.innerHTML = `
-            <div class="save-details">
-                <h4>${save.title}</h4>
-                <p>Location: ${save.location} | Summary: ${save.summary.substring(0, 65)}...</p>
-                <div class="save-meta">Slot ID: ${save.id} // connection turns: ${save.turns}</div>
-            </div>
-            <div class="save-actions">
-                <button class="btn btn-primary btn-sm btn-restore">Restore</button>
-                <button class="btn btn-secondary btn-sm btn-delete" style="color:#ef4444;">Delete</button>
-            </div>
-        `;
-        
-        item.querySelector(".btn-restore").addEventListener("click", () => loadSaveGame(save.id));
-        item.querySelector(".btn-delete").addEventListener("click", () => deleteSaveGame(save.id));
-        
-        list.appendChild(item);
-    });
 }
 
 // ----------------- RESTORE SAVE API CALLS -----------------
 
-async function loadSaveGame(saveId) {
-    const res = await fetch(`/api/saves/${saveId}`, { method: "POST" });
-    const data = await res.json();
-    if (data.status === "success") {
-        await syncState();
-        showScreen("gameplay-screen");
-    } else {
-        alert("Restore failed: " + data.message);
+async function loadSaveGame(saveId, btn) {
+    const allButtons = document.querySelectorAll("#save-list button");
+    allButtons.forEach(b => b.disabled = true);
+    const originalText = btn.innerText;
+    btn.innerText = "[STABILIZING LINK...]";
+    try {
+        const res = await fetch(`/api/saves/${saveId}`, { method: "POST" });
+        const data = await res.json();
+        if (data.status === "success") {
+            await syncState();
+            showScreen("gameplay-screen");
+        } else {
+            showToast("Restore failed: " + data.message, true);
+        }
+    } catch (err) {
+        showToast("Restore failed: " + err, true);
+    } finally {
+        allButtons.forEach(b => b.disabled = false);
+        btn.innerText = originalText;
     }
 }
 
-async function deleteSaveGame(saveId) {
+async function deleteSaveGame(saveId, btn) {
     const confirmed = await showConfirm("Permanently wipe this save simulation Connection?");
     if (confirmed) {
-        const res = await fetch(`/api/saves/${saveId}`, { method: "DELETE" });
-        const data = await res.json();
-        if (data.status === "success") {
-            loadSavesList();
+        const allButtons = document.querySelectorAll("#save-list button");
+        allButtons.forEach(b => b.disabled = true);
+        const originalText = btn.innerText;
+        btn.innerText = "[WIPING...]";
+        try {
+            const res = await fetch(`/api/saves/${saveId}`, { method: "DELETE" });
+            const data = await res.json();
+            if (data.status === "success") {
+                loadSavesList();
+            } else {
+                showToast("Failed to delete save slot: " + data.message, true);
+            }
+        } catch (err) {
+            showToast("Failed to delete save slot: " + err, true);
+        } finally {
+            if (document.body.contains(btn)) {
+                allButtons.forEach(b => b.disabled = false);
+                btn.innerText = originalText;
+            }
         }
     }
 }
@@ -895,6 +963,18 @@ SYSTEM COMMANDS:
     await executeStreamAction(actionType, text);
 }
 
+function setConsoleDisabled(disabled) {
+    document.getElementById("console-input").disabled = disabled;
+    document.getElementById("btn-send").disabled = disabled;
+    document.getElementById("btn-undo").disabled = disabled;
+    document.getElementById("btn-retry").disabled = disabled;
+    document.getElementById("btn-continue").disabled = disabled;
+    document.getElementById("btn-scan").disabled = disabled;
+    document.getElementById("btn-system-edit").disabled = disabled;
+    document.getElementById("btn-toggle-crt-gameplay").disabled = disabled;
+    document.getElementById("btn-menu").disabled = disabled;
+}
+
 async function executeStreamAction(actionType, text) {
     // Hide suggestions during streaming
     document.getElementById("suggestions-box").classList.add("hidden");
@@ -906,6 +986,7 @@ async function executeStreamAction(actionType, text) {
     streamBox.classList.remove("hidden");
     
     scrollToBottom();
+    setConsoleDisabled(true);
     
     try {
         const response = await fetch("/api/action", {
@@ -968,22 +1049,31 @@ async function executeStreamAction(actionType, text) {
         } catch (e) {
             streamBox.classList.add("hidden");
         }
+    } finally {
+        setConsoleDisabled(false);
     }
 }
 
 // Trigger utility operations
 async function triggerUtilityAction(actionType) {
     if (actionType === "undo") {
-        const res = await fetch("/api/action", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action_type: "undo" })
-        });
-        const data = await res.json();
-        if (data.status === "success") {
-            await syncState();
-        } else {
-            alert("Undo failed: " + data.message);
+        setConsoleDisabled(true);
+        try {
+            const res = await fetch("/api/action", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ action_type: "undo" })
+            });
+            const data = await res.json();
+            if (data.status === "success") {
+                await syncState();
+            } else {
+                alert("Undo failed: " + data.message);
+            }
+        } catch (err) {
+            alert("Undo failed: " + err);
+        } finally {
+            setConsoleDisabled(false);
         }
     } else if (actionType === "retry") {
         await executeStreamAction("retry", "");
@@ -994,6 +1084,11 @@ async function triggerUtilityAction(actionType) {
 
 // Run lore scan
 async function triggerLoreScan() {
+    const scanBtn = document.getElementById("btn-scan");
+    const originalText = scanBtn.innerText;
+    setConsoleDisabled(true);
+    scanBtn.innerText = "/scan (scanning...)";
+    
     // Append log feedback
     const log = document.getElementById("console-log");
     const sysDiv = document.createElement("div");
@@ -1002,18 +1097,25 @@ async function triggerLoreScan() {
     log.appendChild(sysDiv);
     scrollToBottom();
     
-    const res = await fetch("/api/scan", { method: "POST" });
-    const data = await res.json();
-    
-    if (data.status === "success") {
-        await syncState();
-        const feedbackDiv = document.createElement("div");
-        feedbackDiv.className = "log-turn log-turn-system";
-        feedbackDiv.innerText = `[SYSTEM: ${data.message}]`;
-        document.getElementById("console-log").appendChild(feedbackDiv);
-        scrollToBottom();
-    } else {
-        alert("Scan failed: " + data.message);
+    try {
+        const res = await fetch("/api/scan", { method: "POST" });
+        const data = await res.json();
+        
+        if (data.status === "success") {
+            await syncState();
+            const feedbackDiv = document.createElement("div");
+            feedbackDiv.className = "log-turn log-turn-system";
+            feedbackDiv.innerText = `[SYSTEM: ${data.message}]`;
+            document.getElementById("console-log").appendChild(feedbackDiv);
+            scrollToBottom();
+        } else {
+            showToast("Scan failed: " + data.message, true);
+        }
+    } catch (err) {
+        showToast("Scan failed: " + err, true);
+    } finally {
+        setConsoleDisabled(false);
+        scanBtn.innerText = originalText;
     }
 }
 
@@ -1021,18 +1123,29 @@ async function triggerLoreScan() {
 
 async function saveSystemPrompt() {
     const newPrompt = document.getElementById("system-prompt-editor").value;
-    const res = await fetch("/api/system", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ system_prompt: newPrompt })
-    });
-    
-    const data = await res.json();
-    if (data.status === "success") {
-        closeModal("modal-system-prompt");
-        await syncState();
-    } else {
-        alert("Save failed: " + data.message);
+    const btn = document.getElementById("btn-save-system-prompt");
+    const originalText = btn.innerText;
+    btn.disabled = true;
+    btn.innerText = "[APPLYING RULES...]";
+    try {
+        const res = await fetch("/api/system", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ system_prompt: newPrompt })
+        });
+        const data = await res.json();
+        if (data.status === "success") {
+            showToast("Dungeon Master prompt updated");
+            await syncState();
+            closeModal("modal-system-prompt");
+        } else {
+            showToast("Update failed: " + data.message, true);
+        }
+    } catch (err) {
+        showToast("Update failed: " + err, true);
+    } finally {
+        btn.disabled = false;
+        btn.innerText = originalText;
     }
 }
 

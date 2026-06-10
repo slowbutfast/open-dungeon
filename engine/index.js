@@ -40,7 +40,7 @@ Do not write anything else on the status line.`;
 export class AdventureEngine {
     constructor(saveDir = null) {
         if (!saveDir) {
-            this.saveDir = path.join(__dirname, '..', 'adventures');
+            this.saveDir = path.join(__dirname, '..', 'game', 'adventures');
         } else {
             this.saveDir = saveDir;
         }
@@ -148,6 +148,7 @@ export class AdventureEngine {
 
     async undo() {
         const result = this.state.undo();
+        this.state.suggestions = [];
         await this.save();
         return result;
     }

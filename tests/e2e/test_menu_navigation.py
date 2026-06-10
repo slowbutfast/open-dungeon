@@ -274,3 +274,49 @@ def test_gameplay_exit_and_save(main_page):
     
     # Wait for list to update to ensure deletion is processed
     time.sleep(0.5)
+
+def test_gameplay_console_lockouts_and_utility_loaders(main_page):
+    """Validates loader text and element lockout states during lore scanning and system prompt saving."""
+    # 1. Launch a new simulation game
+    main_page.keyboard.press("1")
+    main_page.wait_for_selector(".preset-card")
+    main_page.keyboard.press("ArrowRight")
+    main_page.keyboard.press("Enter")
+    main_page.wait_for_selector(".char-card")
+    main_page.locator("#btn-submit-character").click()
+    main_page.wait_for_selector("#gameplay-screen:not(.hidden)", timeout=15000)
+    
+    # 2. Test Lore Scan Button Loading State and Lockouts
+    scan_btn = main_page.locator("#btn-scan")
+    scan_btn.click()
+    
+    # Verify the button text changes to '/scan (scanning...)' and is disabled along with console input
+    expect(scan_btn).to_be_disabled()
+    expect(scan_btn).to_have_text("/scan (scanning...)")
+    expect(main_page.locator("#console-input")).to_be_disabled()
+    expect(main_page.locator("#btn-send")).to_be_disabled()
+    
+    # Wait for the scan to finish
+    try:
+        main_page.wait_for_selector("div.log-turn-system:has-text('Scan complete')", timeout=15000)
+    except Exception as e:
+        print("DIAGNOSTIC - CONSOLE LOG TEXT:", main_page.locator("#console-log").inner_text())
+        raise e
+    expect(scan_btn).to_be_enabled()
+    expect(scan_btn).to_have_text("/scan")
+    expect(main_page.locator("#console-input")).to_be_enabled()
+    
+    # 3. Test Save System Prompt Button Loading State and Lockouts
+    main_page.locator("#btn-system-edit").click()
+    main_page.wait_for_selector("#modal-system-prompt:not(.hidden)")
+    
+    save_prompt_btn = main_page.locator("#btn-save-system-prompt")
+    save_prompt_btn.click()
+    
+    # Verify the button changes to '[APPLYING RULES...]' and is disabled
+    expect(save_prompt_btn).to_be_disabled()
+    expect(save_prompt_btn).to_have_text("[APPLYING RULES...]")
+    
+    # Wait for modal to close
+    main_page.wait_for_selector("#modal-system-prompt", state="hidden", timeout=10000)
+

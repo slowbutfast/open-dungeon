@@ -8,7 +8,7 @@ This document describes the current architecture, components, features, and API 
 
 The backend has been refactored from Python (Flask) to Node.js (Express), with a modular structure:
 1. **Express Web Server (`web/server.js`)**: Serves static templates/assets and mounts modular route handlers.
-2. **Modular Game Engine (`game/engine/`)**: Implements game state management, context summarization, and LLM streaming/completion coordination.
+2. **Modular Game Engine (`engine/`)**: Implements game state management, context summarization, and LLM streaming/completion coordination.
 3. **HTTP Client Proxy (`game/adventure_engine.py`)**: A transparent client wrapper that allows the existing Python CLI (`game/aidungeon_cli.py`) and unit test cases to communicate with the Express backend, with a local Python fallback for isolated test mocks.
 
 ```mermaid
@@ -16,9 +16,9 @@ graph TD
     UI[Web UI / app.js] <-->|HTTP REST / SSE| Server[Express Server / server.js]
     CLI[Python CLI / aidungeon_cli.py] <-->|Method Calls| Proxy[Client Proxy / adventure_engine.py]
     Proxy <-->|HTTP REST / SSE| Server
-    Server <-->|Engine Instance| Engine[JS Game Engine / game/engine/index.js]
+    Server <-->|Engine Instance| Engine[JS Game Engine / engine/index.js]
     Engine <-->|REST API / SDK| LM[LM Studio Server]
-    Engine <-->|JSON Files| Disk[(Save Directory / adventures/)]
+    Engine <-->|JSON Files| Disk[(Save Directory / game/adventures/)]
 ```
 
 ---
@@ -134,7 +134,7 @@ graph TD
 
 ## 🧪 Testing Coverage
 
-The entire backend status is covered by 39 integration/unit tests:
+The entire backend status is covered by 40 integration/unit tests:
 1. **API Endpoints (`tests/test_api_endpoints.py`)**: Tests route handling, SSE stream formats, settings updates, save slots, and lore modifications.
 2. **CLI Behavior (`tests/test_cli_behavior.py`)**: Tests context compression threshold, dynamic response length limits (brevity instructions for simple actions), history undos, and prompt creations.
 3. **PTY Integration (`tests/test_pty_integration.py`)**: Tests keyboard input loops in terminal-only modes.

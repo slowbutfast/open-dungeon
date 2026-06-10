@@ -1065,3 +1065,57 @@ body {
     border-color: var(--border-glow);
     box-shadow: 0 0 8px rgba(56, 189, 248, 0.3);
 }
+
+/* Retro Loading Spinner & Indicators */
+.loader-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem 0;
+    gap: 1rem;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.retro-spinner {
+    width: 24px;
+    height: 24px;
+    border: 2px solid var(--border-light);
+    border-top: 2px solid var(--text-neon);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    box-shadow: 0 0 8px rgba(56, 189, 248, 0.4);
+}
+
+.loader-text {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    letter-spacing: 0.1em;
+    animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
+}
+
+/* Hide native scrollbars globally but keep scroll functionality */
+::-webkit-scrollbar {
+    display: none;
+}
+* {
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* IE/Edge */
+}
+
+/* Control scanline/flicker display */
+body:not(.crt-effect) .scanlines,
+body:not(.crt-effect) .screen-flicker {
+    display: none;
+}
+

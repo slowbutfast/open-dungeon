@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import { MockOpenAI } from '../mockOpenAI.js';
+import { MockOpenAI } from './mockOpenAI.js';
 
 export class LlmOrchestrator {
     constructor() {
@@ -94,6 +94,7 @@ export class LlmOrchestrator {
     }
 
     async *generateResponseStream(state, actionType, text, contextManager, saveFn) {
+        state.suggestions = [];
         const formatUserInput = (type, val) => {
             if (type === "continue") return "";
             const cleaned = val.trim();

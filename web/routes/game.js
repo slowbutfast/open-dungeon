@@ -1,7 +1,7 @@
 import express from 'express';
 import { engine, resetEngine } from '../engineInstance.js';
-import { STORY_PRESETS } from '../../game/storyPresets.js';
-import { DEFAULT_SYSTEM_PROMPT } from '../../game/engine/index.js';
+import { STORY_PRESETS } from '../../engine/storyPresets.js';
+import { DEFAULT_SYSTEM_PROMPT } from '../../engine/index.js';
 
 const router = express.Router();
 
