@@ -6,7 +6,6 @@ import socket
 import subprocess
 import time
 import requests
-import glob
 import shutil
 
 class HttpClientProxy:
@@ -79,41 +78,24 @@ class TestMemoryFeatures(unittest.TestCase):
                 cls.proc.wait(timeout=2)
             except subprocess.TimeoutExpired:
                 cls.proc.kill()
-        # Clean up isolated test save directory entirely
-        import shutil
+
+        # Clean up isolated test save directory and any derived data artifacts
         if os.path.exists(cls.save_dir):
-            try:
-                shutil.rmtree(cls.save_dir)
-            except OSError:
-                pass
+            shutil.rmtree(cls.save_dir, ignore_errors=True)
+
+        # The engine derives dataDir from saveDir as saveDir/../data,
+        # so for save_dir=tests/adventures_memory_test, data dir is tests/data/
+        test_data_dir = os.path.join(os.path.dirname(cls.save_dir), "data")
+        if os.path.exists(test_data_dir):
+            shutil.rmtree(test_data_dir, ignore_errors=True)
+
         time.sleep(0.5)
 
     def setUp(self):
         self.app = HttpClientProxy()
-        # Clean up files before starting tests
-        self._cleanup_data_files()
-        
-    def tearDown(self):
-        self._cleanup_data_files()
 
-    def _cleanup_data_files(self):
-        tests_dir = os.path.dirname(os.path.abspath(__file__))
-        project_root = os.path.dirname(tests_dir)
-        data_dir = os.path.join(project_root, "game", "data")
-        
-        # Remove JSON saves in self.save_dir
-        for filepath in glob.glob(os.path.join(self.save_dir, "*.json")):
-            try:
-                os.remove(filepath)
-            except OSError:
-                pass
-                    
-        # Remove data indexes and memory.db
-        if os.path.exists(data_dir):
-            try:
-                shutil.rmtree(data_dir)
-            except OSError:
-                pass
+    def tearDown(self):
+        pass
 
     def test_memory_endpoints_empty_initially(self):
         """Verify memory endpoints return correct empty structures right after init."""

@@ -49,25 +49,29 @@ class TestApiEndpoints(unittest.TestCase):
         # Check if port is already open
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             port_open = s.connect_ex(('127.0.0.1', cls.port)) == 0
-            
-        if not port_open:
-            env = os.environ.copy()
-            env["MOCK_LLM"] = "1"
-            env["PORT"] = str(cls.port)
-            cls.proc = subprocess.Popen(
-                ["node", "web/server.js"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                env=env
+
+        if port_open:
+            raise RuntimeError(
+                f"Port {cls.port} is already in use — please stop your server before running tests."
             )
-            # Wait for the server to spin up
-            for _ in range(50):
-                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                    if s.connect_ex(('127.0.0.1', cls.port)) == 0:
-                        break
-                time.sleep(0.1)
-            else:
-                raise RuntimeError("Express server failed to start on port 5001")
+
+        env = os.environ.copy()
+        env["MOCK_LLM"] = "1"
+        env["PORT"] = str(cls.port)
+        cls.proc = subprocess.Popen(
+            ["node", "web/server.js"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env
+        )
+        # Wait for the server to spin up
+        for _ in range(50):
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                if s.connect_ex(('127.0.0.1', cls.port)) == 0:
+                    break
+            time.sleep(0.1)
+        else:
+            raise RuntimeError("Express server failed to start on port 5001")
 
     @classmethod
     def tearDownClass(cls):

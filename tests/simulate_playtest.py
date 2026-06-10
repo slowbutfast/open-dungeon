@@ -1,5 +1,6 @@
 import sys
 import os
+import shutil
 import unittest
 import io
 import re
@@ -9,16 +10,15 @@ from unittest.mock import MagicMock, patch
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "game"))
 
 class PlaytestSimulator(unittest.TestCase):
+    def setUp(self):
+        tests_dir = os.path.dirname(os.path.abspath(__file__))
+        self.save_dir = os.path.join(tests_dir, "adventures_sim_test")
+        os.makedirs(self.save_dir, exist_ok=True)
+        os.environ["SAVE_DIR"] = self.save_dir
+
     def tearDown(self):
-        import glob
-        from adventure_engine import AdventureEngine
-        engine = AdventureEngine()
-        for filepath in glob.glob(os.path.join(engine.save_dir, "*.json")):
-            if not filepath.endswith("test-adv.json"):
-                try:
-                    os.remove(filepath)
-                except OSError:
-                    pass
+        if hasattr(self, "save_dir") and os.path.exists(self.save_dir):
+            shutil.rmtree(self.save_dir, ignore_errors=True)
 
     def test_complete_gameplay_simulation(self):
         """Simulates a full interactive session covering menus, backouts, editing, history recall, and scroll boundaries."""
