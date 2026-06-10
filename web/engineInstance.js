@@ -1,4 +1,4 @@
-import { AdventureEngine } from '../game/engine/index.js';
+import { AdventureEngine } from '../engine/index.js';
 
 export let engine = new AdventureEngine();
 
