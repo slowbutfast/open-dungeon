@@ -49,6 +49,7 @@ app.listen(PORT, host, async () => {
     // Preload embedding model on startup
     if (process.env.MOCK_LLM === "1") {
         console.log(`[STARTUP] Fetching available models from LM Studio...`);
+        console.log(`[STARTUP] LLM model 'mock-gemma' is already loaded. Skipping load.`);
         console.log(`[STARTUP] Embedding model 'mock-embedding-model' is already loaded. Skipping load.`);
     } else {
         try {
@@ -62,6 +63,19 @@ app.listen(PORT, host, async () => {
                 const data = await resp.json();
                 const models = data.models || [];
                 
+                // Check if an LLM model is already loaded
+                let llmModelFound = false;
+                for (const m of models) {
+                    if (m.type !== "embedding" && m.loaded_instances && m.loaded_instances.length > 0) {
+                        console.log(`[STARTUP] LLM model '${m.key}' is already loaded. Skipping load.`);
+                        llmModelFound = true;
+                        break;
+                    }
+                }
+                if (!llmModelFound) {
+                    console.log(`[STARTUP] No LLM model found preloaded.`);
+                }
+
                 // Check if there is already a loaded embedding model
                 let alreadyLoaded = false;
                 for (const m of models) {
