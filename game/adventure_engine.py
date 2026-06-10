@@ -119,8 +119,12 @@ class MockOpenAI:
 class AdventureEngine:
     def __init__(self, save_dir=None):
         if save_dir is None:
-            engine_dir = os.path.dirname(os.path.abspath(__file__))
-            self.save_dir = os.path.join(engine_dir, "adventures")
+            env_save_dir = os.environ.get("SAVE_DIR")
+            if env_save_dir:
+                self.save_dir = os.path.abspath(env_save_dir)
+            else:
+                engine_dir = os.path.dirname(os.path.abspath(__file__))
+                self.save_dir = os.path.join(engine_dir, "adventures")
         else:
             self.save_dir = save_dir
         os.makedirs(self.save_dir, exist_ok=True)

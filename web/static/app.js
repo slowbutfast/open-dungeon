@@ -386,15 +386,11 @@ document.addEventListener("DOMContentLoaded", () => {
 // Probe the LLM host and update the status pill on the startup screen
 async function pingLlm() {
     const pill = document.getElementById("llm-status-pill");
-    const embedPill = document.getElementById("embedding-status-pill");
     if (!pill) return;
     try {
         const res = await fetch("/api/ping");
         const data = await res.json();
         pill.className = "llm-pill llm-pill-" + data.status;
-        if (embedPill) {
-            embedPill.className = "llm-pill llm-pill-" + data.status;
-        }
         
         // Populate model selector dropdown
         const select = document.getElementById("model-selection-select");
@@ -420,37 +416,15 @@ async function pingLlm() {
             const shortModel = data.model.length > 22
                 ? data.model.substring(0, 22) + "…"
                 : data.model;
-            pill.innerHTML = `&#9679; LLM: ${shortModel}`;
-            
-            if (embedPill) {
-                if (data.embedding_model) {
-                    const shortEmbed = data.embedding_model.length > 22
-                        ? data.embedding_model.substring(0, 22) + "…"
-                        : data.embedding_model;
-                    embedPill.innerHTML = `&#9679; EMBED: ${shortEmbed}`;
-                } else {
-                    embedPill.innerHTML = `&#9679; EMBED: NONE`;
-                    embedPill.className = "llm-pill llm-pill-offline";
-                }
-            }
+            pill.innerHTML = `&#9679; ONLINE &mdash; ${data.host}:${data.port} &mdash; ${shortModel}`;
         } else if (data.status === "mock") {
-            pill.innerHTML = `&#9679; LLM: MOCK MODE`;
-            if (embedPill) {
-                embedPill.innerHTML = `&#9679; EMBED: MOCK MODE`;
-            }
+            pill.innerHTML = `&#9679; MOCK MODE &mdash; ${data.host}:${data.port}`;
         } else {
-            pill.innerHTML = `&#9673; LLM: OFFLINE`;
-            if (embedPill) {
-                embedPill.innerHTML = `&#9673; EMBED: OFFLINE`;
-            }
+            pill.innerHTML = `&#9673; OFFLINE &mdash; ${data.host}:${data.port}`;
         }
     } catch {
         pill.className = "llm-pill llm-pill-offline";
-        pill.innerHTML = "&#9673; LLM: OFFLINE";
-        if (embedPill) {
-            embedPill.className = "llm-pill llm-pill-offline";
-            embedPill.innerHTML = "&#9673; EMBED: OFFLINE";
-        }
+        pill.innerHTML = "&#9673; OFFLINE";
     }
 }
 
@@ -932,10 +906,10 @@ async function submitPlayerCommand() {
     
     const log = document.getElementById("console-log");
     
-    // Intercept slash commands
-    if (commandText.startsWith("/")) {
+    // Intercept slash commands (supports both / and \ prefixes)
+    if (commandText.startsWith("/") || commandText.startsWith("\\")) {
         const parts = commandText.split(" ");
-        const cmd = parts[0].toLowerCase();
+        const cmd = parts[0].toLowerCase().replace("\\", "/");
         
         // Print user input command to console log if it is not /continue
         if (cmd !== "/continue") {

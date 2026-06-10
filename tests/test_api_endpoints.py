@@ -41,6 +41,11 @@ class TestApiEndpoints(unittest.TestCase):
         cls.port = 5001
         cls.proc = None
         
+        tests_dir = os.path.dirname(os.path.abspath(__file__))
+        cls.save_dir = os.path.join(tests_dir, "adventures_test")
+        os.makedirs(cls.save_dir, exist_ok=True)
+        os.environ["SAVE_DIR"] = cls.save_dir
+        
         # Check if port is already open
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             port_open = s.connect_ex(('127.0.0.1', cls.port)) == 0
@@ -71,20 +76,24 @@ class TestApiEndpoints(unittest.TestCase):
                 cls.proc.wait(timeout=2)
             except subprocess.TimeoutExpired:
                 cls.proc.kill()
+        # Clean up isolated test save directory entirely
+        import shutil
+        if os.path.exists(cls.save_dir):
+            try:
+                shutil.rmtree(cls.save_dir)
+            except OSError:
+                pass
 
     def setUp(self):
         self.app = HttpClientProxy()
         
     def tearDown(self):
         import glob
-        tests_dir = os.path.dirname(os.path.abspath(__file__))
-        save_dir = os.path.join(os.path.dirname(tests_dir), "game", "adventures")
-        for filepath in glob.glob(os.path.join(save_dir, "*.json")):
-            if not filepath.endswith("test-adv.json"):
-                try:
-                    os.remove(filepath)
-                except OSError:
-                    pass
+        for filepath in glob.glob(os.path.join(self.save_dir, "*.json")):
+            try:
+                os.remove(filepath)
+            except OSError:
+                pass
         
     def test_get_presets(self):
         """Verify presets endpoint returns list of presets."""
