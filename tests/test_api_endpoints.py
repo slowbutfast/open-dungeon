@@ -83,6 +83,7 @@ class TestApiEndpoints(unittest.TestCase):
                 shutil.rmtree(cls.save_dir)
             except OSError:
                 pass
+        time.sleep(0.5)
 
     def setUp(self):
         self.app = HttpClientProxy()
