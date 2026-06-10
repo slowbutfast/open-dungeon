@@ -25,7 +25,8 @@
             <header class="startup-header">
                 <h1 class="glitch-title" data-text="NEURAL ADVENTURE LINK">NEURAL ADVENTURE LINK</h1>
                 <p class="subtitle">Infocom Cyber-Link Revision 88 &nbsp;//&nbsp;
-                    <span id="llm-status-pill" class="llm-pill llm-pill-checking">&#9675; CHECKING...</span>
+                    <span id="llm-status-pill" class="llm-pill llm-pill-checking">&#9675; CHECKING...</span> &nbsp;//&nbsp;
+                    <span id="embedding-status-pill" class="llm-pill llm-pill-checking">&#9675; EMBEDDING: CHECKING...</span>
                 </p>
             </header>
             
@@ -197,7 +198,7 @@
                         <button id="btn-continue" class="btn btn-utility" title="Trigger narration generation">/continue</button>
                         <button id="btn-scan" class="btn btn-utility" title="Scan turns to extract lore cards">/scan</button>
                         <button id="btn-system-edit" class="btn btn-utility" title="Edit Dungeon Master prompt">/system</button>
-                        <button id="btn-toggle-crt-gameplay" class="btn btn-utility" title="Toggle CRT scanlines and flicker theme">/crt</button>
+                        <button id="btn-toggle-crt-gameplay" class="btn btn-utility active" title="Toggle CRT scanlines and flicker theme">/crt</button>
                         <button id="btn-menu" class="btn btn-utility" title="Return to Start Menu">/menu</button>
                     </div>
                 </main>
@@ -238,6 +239,31 @@
                                     <select id="model-selection-select">
                                         <!-- Will be dynamically populated with loaded models -->
                                     </select>
+                                </div>
+
+                                <!-- Dynamic RAG Memory Subsections -->
+                                <div class="memory-section-divider"></div>
+                                <div class="memory-subsection">
+                                    <h4>[CURRENT INVENTORY]</h4>
+                                    <div id="inventory-list" class="inventory-list">
+                                        <!-- Dynamic items -->
+                                    </div>
+                                </div>
+
+                                <div class="memory-section-divider"></div>
+                                <div class="memory-subsection">
+                                    <h4>[RECENT EVENT LOG]</h4>
+                                    <div id="event-log-list" class="event-log-list">
+                                        <!-- Dynamic events -->
+                                    </div>
+                                </div>
+
+                                <div class="memory-section-divider"></div>
+                                <div class="memory-subsection">
+                                    <h4>[SYSTEM MEMORY STATS]</h4>
+                                    <div id="memory-stats-grid" class="memory-stats-grid">
+                                        <!-- Dynamic stats -->
+                                    </div>
                                 </div>
                             </div>
                         </div>

@@ -264,6 +264,20 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Global keyboard navigation and shortcut listener
     window.addEventListener("keydown", (e) => {
+        const confirmModal = document.getElementById("modal-confirm");
+        if (confirmModal && !confirmModal.classList.contains("hidden")) {
+            if (e.key === "Enter") {
+                e.preventDefault();
+                document.getElementById("btn-confirm-yes").click();
+                return;
+            }
+            if (e.key === "Escape") {
+                e.preventDefault();
+                document.getElementById("btn-confirm-no").click();
+                return;
+            }
+        }
+
         const activeScreen = getActiveScreenId();
         if (!activeScreen) return;
         
@@ -358,6 +372,13 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
+    // Sync CRT button active state on load (body starts with crt-effect class)
+    const isCrtActive = document.body.classList.contains("crt-effect");
+    const crtBtnGameplay = document.getElementById("btn-toggle-crt-gameplay");
+    if (crtBtnGameplay) {
+        crtBtnGameplay.classList.toggle("active", isCrtActive);
+    }
+
     // Probe LLM host and update status pill
     pingLlm();
 });
@@ -365,11 +386,15 @@ document.addEventListener("DOMContentLoaded", () => {
 // Probe the LLM host and update the status pill on the startup screen
 async function pingLlm() {
     const pill = document.getElementById("llm-status-pill");
+    const embedPill = document.getElementById("embedding-status-pill");
     if (!pill) return;
     try {
         const res = await fetch("/api/ping");
         const data = await res.json();
         pill.className = "llm-pill llm-pill-" + data.status;
+        if (embedPill) {
+            embedPill.className = "llm-pill llm-pill-" + data.status;
+        }
         
         // Populate model selector dropdown
         const select = document.getElementById("model-selection-select");
@@ -395,15 +420,37 @@ async function pingLlm() {
             const shortModel = data.model.length > 22
                 ? data.model.substring(0, 22) + "…"
                 : data.model;
-            pill.innerHTML = `&#9679; ${data.host}:${data.port} &mdash; ${shortModel}`;
+            pill.innerHTML = `&#9679; LLM: ${shortModel}`;
+            
+            if (embedPill) {
+                if (data.embedding_model) {
+                    const shortEmbed = data.embedding_model.length > 22
+                        ? data.embedding_model.substring(0, 22) + "…"
+                        : data.embedding_model;
+                    embedPill.innerHTML = `&#9679; EMBED: ${shortEmbed}`;
+                } else {
+                    embedPill.innerHTML = `&#9679; EMBED: NONE`;
+                    embedPill.className = "llm-pill llm-pill-offline";
+                }
+            }
         } else if (data.status === "mock") {
-            pill.innerHTML = `&#9679; MOCK MODE &mdash; ${data.host}:${data.port}`;
+            pill.innerHTML = `&#9679; LLM: MOCK MODE`;
+            if (embedPill) {
+                embedPill.innerHTML = `&#9679; EMBED: MOCK MODE`;
+            }
         } else {
-            pill.innerHTML = `&#9673; OFFLINE &mdash; ${data.host}:${data.port}`;
+            pill.innerHTML = `&#9673; LLM: OFFLINE`;
+            if (embedPill) {
+                embedPill.innerHTML = `&#9673; EMBED: OFFLINE`;
+            }
         }
     } catch {
         pill.className = "llm-pill llm-pill-offline";
-        pill.innerHTML = "&#9673; OFFLINE";
+        pill.innerHTML = "&#9673; LLM: OFFLINE";
+        if (embedPill) {
+            embedPill.className = "llm-pill llm-pill-offline";
+            embedPill.innerHTML = "&#9673; EMBED: OFFLINE";
+        }
     }
 }
 
@@ -729,9 +776,10 @@ async function syncState() {
     const state = await res.json();
     currentGameState = state;
     renderState(state);
+    await syncMemoryDetails();
 }
 
-function renderState(state) {
+function renderState(state, skipLastAssistant = false) {
     // 1. Render Status Bar
     document.getElementById("val-location").innerText = state.location;
     document.getElementById("val-score").innerText = state.score;
@@ -760,7 +808,17 @@ function renderState(state) {
     const log = document.getElementById("console-log");
     log.innerHTML = "";
     
-    state.history.forEach(turn => {
+    // When skipLastAssistant is true, omit the final assistant turn so the
+    // caller can render it with the reveal animation instead
+    let history = state.history;
+    if (skipLastAssistant) {
+        const lastAssistantIdx = history.map(t => t.role).lastIndexOf("assistant");
+        if (lastAssistantIdx !== -1) {
+            history = history.filter((_, i) => i !== lastAssistantIdx);
+        }
+    }
+    
+    history.forEach(turn => {
         const turnDiv = document.createElement("div");
         turnDiv.className = `log-turn log-turn-${turn.role}`;
         
@@ -879,12 +937,14 @@ async function submitPlayerCommand() {
         const parts = commandText.split(" ");
         const cmd = parts[0].toLowerCase();
         
-        // Print user input command to console log
-        const userDiv = document.createElement("div");
-        userDiv.className = "log-turn log-turn-user";
-        userDiv.innerText = `> ${commandText}`;
-        log.appendChild(userDiv);
-        scrollToBottom();
+        // Print user input command to console log if it is not /continue
+        if (cmd !== "/continue") {
+            const userDiv = document.createElement("div");
+            userDiv.className = "log-turn log-turn-user";
+            userDiv.innerText = `> ${commandText}`;
+            log.appendChild(userDiv);
+            scrollToBottom();
+        }
         
         if (cmd === "/undo") {
             await triggerUtilityAction("undo");
@@ -971,7 +1031,7 @@ function setConsoleDisabled(disabled) {
     document.getElementById("btn-continue").disabled = disabled;
     document.getElementById("btn-scan").disabled = disabled;
     document.getElementById("btn-system-edit").disabled = disabled;
-    document.getElementById("btn-toggle-crt-gameplay").disabled = disabled;
+    // Keep CRT toggle button enabled during streaming actions
     document.getElementById("btn-menu").disabled = disabled;
 }
 
@@ -979,14 +1039,18 @@ async function executeStreamAction(actionType, text) {
     // Hide suggestions during streaming
     document.getElementById("suggestions-box").classList.add("hidden");
     
-    // Show active streaming layout
-    const streamBox = document.getElementById("streaming-box");
-    const streamContent = document.getElementById("streaming-content");
-    streamContent.innerText = "";
-    streamBox.classList.remove("hidden");
-    
+    // Append an inline loader line to the console log
+    const log = document.getElementById("console-log");
+    const loaderDiv = document.createElement("div");
+    loaderDiv.className = "log-turn log-turn-system";
+    loaderDiv.id = "stream-loader-indicator";
+    loaderDiv.innerText = "[RECEIVING TRANSMISSION...]";
+    log.appendChild(loaderDiv);
     scrollToBottom();
+    
     setConsoleDisabled(true);
+    
+    let fullText = "";
     
     try {
         const response = await fetch("/api/action", {
@@ -995,7 +1059,7 @@ async function executeStreamAction(actionType, text) {
             body: JSON.stringify({ action_type: actionType, text: text })
         });
         
-        // Handle stream body reader
+        // Handle stream body reader — accumulate all chunks
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
@@ -1013,11 +1077,10 @@ async function executeStreamAction(actionType, text) {
                     const event = JSON.parse(line.substring(6));
                     
                     if (event.type === "chunk") {
-                        streamContent.innerText += event.content;
-                        scrollToBottom();
+                        // Accumulate into buffer — don't display yet
+                        fullText += event.content;
                     } else if (event.type === "system") {
-                        // Render system message inline immediately
-                        const log = document.getElementById("console-log");
+                        // Render system messages inline immediately
                         const sysDiv = document.createElement("div");
                         sysDiv.className = "log-turn log-turn-system";
                         sysDiv.innerText = `[SYSTEM: ${event.content}]`;
@@ -1030,28 +1093,203 @@ async function executeStreamAction(actionType, text) {
             }
         }
         
-        // Finalize turn response stream
+        // Remove the loader line now that stream is complete
+        const loaderEl = document.getElementById("stream-loader-indicator");
+        if (loaderEl) loaderEl.remove();
+        
+        // Fetch updated state
         const resState = await fetch("/api/state");
         const state = await resState.json();
         currentGameState = state;
         
-        streamBox.classList.add("hidden");
-        renderState(state);
+        // Render full state history, skipping the last assistant turn
+        // (it will be rendered by the reveal animation below)
+        renderState(state, true);
+        
+        // Now do the character-by-character reveal of the last assistant response
+        if (fullText.trim().length > 0) {
+            const cleaned = cleanMarkdownText(fullText);
+            revealAssistantText(log, cleaned);
+        }
         
     } catch (err) {
+        const loaderEl = document.getElementById("stream-loader-indicator");
+        if (loaderEl) loaderEl.remove();
         alert("Network action request error: " + err);
         try {
             const resState = await fetch("/api/state");
             const state = await resState.json();
             currentGameState = state;
-            streamBox.classList.add("hidden");
             renderState(state);
         } catch (e) {
-            streamBox.classList.add("hidden");
+            // ignore
         }
     } finally {
         setConsoleDisabled(false);
     }
+}
+
+/**
+ * Appends an assistant turn div and runs a character-by-character reveal animation.
+ * The unrevealed portion is shown as a green highlighted placeholder that shrinks
+ * as each character is typed into the revealed span.
+ */
+function revealAssistantText(log, text) {
+    const turnDiv = document.createElement("div");
+    turnDiv.className = "log-turn log-turn-assistant";
+    
+    // Revealed span grows; placeholder span shrinks
+    const revealedSpan = document.createElement("span");
+    revealedSpan.className = "revealed-text";
+    revealedSpan.innerText = "";
+    
+    const placeholderSpan = document.createElement("span");
+    placeholderSpan.className = "hidden-placeholder";
+    placeholderSpan.innerText = text;
+    
+    turnDiv.appendChild(revealedSpan);
+    turnDiv.appendChild(placeholderSpan);
+    log.appendChild(turnDiv);
+    scrollToBottom();
+    
+    // Animate: reveal one character at a time
+    let revealedCount = 0;
+    const CHAR_DELAY_MS = 4; // Reveal much faster
+    
+    function revealNextChar() {
+        if (revealedCount >= text.length) {
+            // Animation complete — collapse to plain text node
+            turnDiv.innerHTML = "";
+            turnDiv.innerText = text;
+            scrollToBottom();
+            syncMemoryAndLore(); // Silently update lore cards and stats
+            return;
+        }
+        revealedCount++;
+        revealedSpan.innerText = text.slice(0, revealedCount);
+        placeholderSpan.innerText = text.slice(revealedCount);
+        scrollToBottom();
+        setTimeout(revealNextChar, CHAR_DELAY_MS);
+    }
+    
+    revealNextChar();
+}
+
+// Sync sidebar memory details and cards from the backend silently
+async function syncMemoryAndLore() {
+    try {
+        const res = await fetch("/api/state");
+        const state = await res.json();
+        currentGameState = state;
+        
+        // Update stats
+        const locationEl = document.getElementById("val-location");
+        const scoreEl = document.getElementById("val-score");
+        const movesEl = document.getElementById("val-moves");
+        const summaryEl = document.getElementById("summary-editor");
+        
+        if (locationEl) locationEl.innerText = state.location;
+        if (scoreEl) scoreEl.innerText = state.score;
+        if (movesEl) movesEl.innerText = state.moves;
+        if (summaryEl) summaryEl.value = state.summary;
+        
+        // Update lore cards list
+        renderLoreCards(state.cards);
+        
+        // Fetch and render other details from memory manager
+        await syncMemoryDetails();
+    } catch (e) {
+        // quiet fail
+    }
+}
+
+async function syncMemoryDetails() {
+    try {
+        const [resInv, resEvt, resStats] = await Promise.all([
+            fetch("/api/memory/inventory"),
+            fetch("/api/memory/events"),
+            fetch("/api/memory/stats")
+        ]);
+        if (resInv.ok) {
+            const items = await resInv.json();
+            renderInventory(items);
+        }
+        if (resEvt.ok) {
+            const events = await resEvt.json();
+            renderEventsLog(events);
+        }
+        if (resStats.ok) {
+            const stats = await resStats.json();
+            renderMemoryStats(stats);
+        }
+    } catch (e) {
+        // quiet fail
+    }
+}
+
+function renderInventory(items) {
+    const list = document.getElementById("inventory-list");
+    if (!list) return;
+    list.innerHTML = "";
+    if (!items || items.length === 0) {
+        list.innerHTML = `<p class="help-text" style="text-align: center; margin: 0.5rem 0;">[INVENTORY EMPTY]</p>`;
+        return;
+    }
+    items.forEach(item => {
+        const card = document.createElement("div");
+        card.className = "inventory-item-card";
+        
+        const header = document.createElement("div");
+        header.className = "inventory-item-header";
+        header.innerHTML = `<span>${item.item_name} (x${item.quantity})</span><span class="inventory-item-type">${item.item_type}</span>`;
+        card.appendChild(header);
+        
+        if (item.description) {
+            const desc = document.createElement("div");
+            desc.className = "inventory-item-desc";
+            desc.innerText = item.description;
+            card.appendChild(desc);
+        }
+        list.appendChild(card);
+    });
+}
+
+function renderEventsLog(events) {
+    const list = document.getElementById("event-log-list");
+    if (!list) return;
+    list.innerHTML = "";
+    if (!events || events.length === 0) {
+        list.innerHTML = `<p class="help-text" style="text-align: center; margin: 0.5rem 0;">[NO EVENT LOG ENTRIES]</p>`;
+        return;
+    }
+    events.forEach(evt => {
+        const card = document.createElement("div");
+        card.className = "event-log-card";
+        
+        const header = document.createElement("div");
+        header.className = "event-log-header";
+        const locStr = evt.location ? ` @ ${evt.location}` : "";
+        header.innerHTML = `<span>${evt.event_type.toUpperCase()}${locStr}</span><span class="event-log-meta">Turn ${evt.turn_index}</span>`;
+        card.appendChild(header);
+        
+        const summary = document.createElement("div");
+        summary.className = "event-log-summary";
+        summary.innerText = evt.summary;
+        card.appendChild(summary);
+        
+        list.appendChild(card);
+    });
+}
+
+function renderMemoryStats(stats) {
+    const grid = document.getElementById("memory-stats-grid");
+    if (!grid) return;
+    grid.innerHTML = `
+        <div class="memory-stat-item"><span class="stat-label">Events</span><span class="stat-val">${stats.events}</span></div>
+        <div class="memory-stat-item"><span class="stat-label">Items</span><span class="stat-val">${stats.inventory}</span></div>
+        <div class="memory-stat-item"><span class="stat-label">Lore Cards</span><span class="stat-val">${stats.lore}</span></div>
+        <div class="memory-stat-item"><span class="stat-label">Watermark</span><span class="stat-val">Turn ${stats.lastExtractedTurnIndex}</span></div>
+    `;
 }
 
 // Trigger utility operations

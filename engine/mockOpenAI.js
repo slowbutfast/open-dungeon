@@ -94,10 +94,22 @@ class MockChat {
     }
 }
 
+class MockEmbeddings {
+    async create(options) {
+        const inputs = Array.isArray(options.input) ? options.input : [options.input];
+        const data = inputs.map((inp, idx) => ({
+            embedding: Array(768).fill(0).map((_, i) => Math.sin(idx + i) * 0.1),
+            index: idx
+        }));
+        return { data };
+    }
+}
+
 export class MockOpenAI {
     constructor() {
         this.baseURL = "http://mock-url/v1";
         this.models = new MockModels();
         this.chat = new MockChat();
+        this.embeddings = new MockEmbeddings();
     }
 }

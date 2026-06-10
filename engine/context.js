@@ -1,6 +1,10 @@
 import { v4 as uuidv4 } from 'uuid';
 
 export class ContextManager {
+    constructor() {
+        this.memoryManager = null;
+    }
+
     getActiveCards(cards, textContext) {
         const activeCards = [];
         for (const card of cards) {
@@ -21,6 +25,24 @@ export class ContextManager {
         if (state.history.length < 4) return;
         const turnsToSummarize = state.history.slice(0, 4);
         state.history = state.history.slice(4);
+
+        if (this.memoryManager) {
+            let startTurnIndex = Math.floor(state.archivedHistory.length / 2) + 1;
+            for (let i = 0; i < turnsToSummarize.length; i += 2) {
+                const userTurn = turnsToSummarize[i];
+                const assistantTurn = turnsToSummarize[i + 1];
+                if (userTurn && assistantTurn) {
+                    this.memoryManager.bufferTurnPair({
+                        turnIndex: startTurnIndex,
+                        player: userTurn.text,
+                        dm: assistantTurn.text
+                    });
+                }
+                startTurnIndex++;
+            }
+            this.memoryManager.flushIfReady(state, model, saveFn)
+                .catch(e => console.error('Event extraction during summarization failed:', e.message));
+        }
         
         let eventsText = "";
         for (const turn of turnsToSummarize) {
@@ -134,5 +156,10 @@ JSON Output:`;
         } catch (e) {
             throw new Error(`Lore extraction failed: ${e.message}`);
         }
+    }
+
+    async getRAGContext(queryText, adventureId, topK = 5) {
+        if (!this.memoryManager) return [];
+        return this.memoryManager.recallRelevantMemories(queryText, adventureId, topK);
     }
 }
