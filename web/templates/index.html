@@ -234,6 +234,10 @@
                                     <input type="range" id="token-limit-slider" min="50" max="300" step="10" value="300">
                                     <span class="token-val" id="token-limit-val">300</span>
                                 </div>
+                                <!-- Token Limit Range Display -->
+                                <div class="token-range-info">
+                                    <span id="token-range-label" class="help-text">Range: 50 - 300</span>
+                                </div>
                                 <!-- Model Selection -->
                                 <div class="model-selection-row">
                                     <label for="model-selection-select">MODEL</label>
@@ -265,6 +269,18 @@
                                     <div id="memory-stats-grid" class="memory-stats-grid">
                                         <!-- Dynamic stats -->
                                     </div>
+                                </div>
+
+                                <div class="memory-section-divider"></div>
+                                <div class="memory-subsection">
+                                    <h4>[USAGE & COST]</h4>
+                                    <div id="usage-cost-grid" class="memory-stats-grid">
+                                        <div class="memory-stat-item"><span class="stat-label">Input Tokens</span><span class="stat-val" id="cost-input-tokens">0</span></div>
+                                        <div class="memory-stat-item"><span class="stat-label">Output Tokens</span><span class="stat-val" id="cost-output-tokens">0</span></div>
+                                        <div class="memory-stat-item"><span class="stat-label">Total Tokens</span><span class="stat-val" id="cost-total-tokens">0</span></div>
+                                        <div class="memory-stat-item"><span class="stat-label">Est. Cost (USD)</span><span class="stat-val" id="cost-estimated">$0.000000</span></div>
+                                    </div>
+                                    <p class="help-text" id="cost-breakdown">Waiting for first LLM call...</p>
                                 </div>
                             </div>
                         </div>

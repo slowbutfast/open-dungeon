@@ -1,5 +1,6 @@
 import { showToast } from '../ui/toast.js';
 import { closeModal } from '../ui/screens.js';
+import { renderCostSummary } from '../ui/renderers.js';
 
 export async function pingLlm() {
   const pill = document.getElementById("llm-status-pill");
@@ -28,20 +29,45 @@ export async function pingLlm() {
       }
     }
 
+    // Apply dynamic token range if provided by backend
+    if (data.max_tokens_range) {
+      const [min, max] = data.max_tokens_range;
+      const slider = document.getElementById("token-limit-slider");
+      const rangeLabel = document.getElementById("token-range-label");
+      if (slider) {
+        slider.min = min;
+        slider.max = max;
+        if (parseInt(slider.value) > max) {
+          slider.value = max;
+          document.getElementById("token-limit-val").innerText = max;
+        }
+      }
+      if (rangeLabel) {
+        rangeLabel.innerText = `Range: ${min} - ${max}`;
+      }
+    }
+
+    // Render cost if provided
+    if (data.cost) {
+      renderCostSummary(data.cost);
+    }
+
     if (data.status === "online") {
-      const shortModel = data.model.length > 22
+      const backendLabel = data.backend === "openrouter" ? "OPENROUTER" : "LM STUDIO";
+      const shortModel = data.model && data.model.length > 22
         ? data.model.substring(0, 22) + "…"
-        : data.model;
-      const shortEmbedding = data.embedding_model && data.embedding_model.length > 22
+        : data.model || "?";
+      const shortEmbed = data.embedding_model && data.embedding_model.length > 22
         ? data.embedding_model.substring(0, 22) + "…"
-        : data.embedding_model || "n/a";
-      pill.innerHTML = `&#9679; ONLINE — ${data.host}:${data.port} — LLM: ${shortModel} | EMBED: ${shortEmbedding}`;
+        : data.embedding_model || "";
+      const embedStr = shortEmbed ? ` | EMBED: ${shortEmbed}` : "";
+      pill.innerHTML = `&#9679; ${backendLabel} — ${shortModel}${embedStr}`;
     } else if (data.status === "mock") {
       const llmModel = data.model || "mock-llm";
-      const embedModel = data.embedding_model || "mock-embedding-model";
-      pill.innerHTML = `&#9679; MOCK MODE — ${data.host}:${data.port} — LLM: ${llmModel} | EMBED: ${embedModel}`;
+      pill.innerHTML = `&#9679; MOCK MODE — ${llmModel}`;
     } else {
-      pill.innerHTML = `&#9673; OFFLINE — ${data.host}:${data.port}`;
+      const hostInfo = data.host ? `${data.host}:${data.port}` : "?";
+      pill.innerHTML = `&#9673; OFFLINE — ${hostInfo}`;
     }
   } catch {
     pill.className = "llm-pill llm-pill-offline";

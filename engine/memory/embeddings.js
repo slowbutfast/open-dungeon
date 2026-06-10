@@ -1,5 +1,9 @@
 import { llmTracker } from '../llmTracker.js';
 
+function isOpenRouter() {
+    return process.env.LLM_BACKEND === "openrouter" && process.env.MOCK_LLM !== "1";
+}
+
 export class EmbeddingService {
     constructor(client) {
         this.client = client;
@@ -16,11 +20,16 @@ export class EmbeddingService {
             return this.loadedEmbeddingModel;
         }
 
+        if (isOpenRouter()) {
+            this.loadedEmbeddingModel = process.env.OPENROUTER_EMBEDDING_MODEL || "nvidia/llama-nemotron-embed-vl-1b-v2:free";
+            return this.loadedEmbeddingModel;
+        }
+
         try {
             const baseUrlStr = this.client.baseURL;
             if (!baseUrlStr) {
-                this.loadedEmbeddingModel = "nomic-embed-text";
-                return "nomic-embed-text";
+                this.loadedEmbeddingModel = "nvidia/llama-nemotron-embed-vl-1b-v2:free";
+                return "nvidia/llama-nemotron-embed-vl-1b-v2:free";
             }
             const parsed = new URL(baseUrlStr);
             const apiBase = `${parsed.protocol}//${parsed.host}`;
@@ -73,8 +82,8 @@ export class EmbeddingService {
         }
 
         // Fallback or default
-        this.loadedEmbeddingModel = "nomic-embed-text";
-        return "nomic-embed-text";
+        this.loadedEmbeddingModel = "nvidia/llama-nemotron-embed-vl-1b-v2:free";
+        return "nvidia/llama-nemotron-embed-vl-1b-v2:free";
     }
 
     async embed(text) {
@@ -87,13 +96,22 @@ export class EmbeddingService {
         try {
             const response = await this.client.embeddings.create({
                 model: model,
-                input: text
+                input: text,
+                encoding_format: 'float'
             });
+            if (response.error) {
+                throw new Error(response.error.message || String(response.error));
+            }
+            if (!response.data || !response.data[0] || !response.data[0].embedding) {
+                throw new Error(`Unexpected embedding response format: ${JSON.stringify(Object.keys(response))}`);
+            }
             llmTracker.endCall(callId, `[Vector of size ${response.data[0].embedding.length}]`);
             return response.data[0].embedding;
         } catch (e) {
             llmTracker.failCall(callId, e);
-            throw e;
+            console.warn(`[Embedding] Failed to embed text: ${e.message}`);
+            // Return mock vector as fallback so game flow continues
+            return Array(768).fill(0).map((_, i) => Math.sin(i + text.length) * 0.1);
         }
     }
 
@@ -108,15 +126,24 @@ export class EmbeddingService {
         try {
             const response = await this.client.embeddings.create({
                 model: model,
-                input: texts
+                input: texts,
+                encoding_format: 'float'
             });
+            if (response.error) {
+                throw new Error(response.error.message || String(response.error));
+            }
+            if (!response.data || !Array.isArray(response.data)) {
+                throw new Error(`Unexpected batch embedding response: ${JSON.stringify(Object.keys(response))}`);
+            }
             const sortedData = [...response.data].sort((a, b) => (a.index || 0) - (b.index || 0));
             const result = sortedData.map(item => item.embedding);
             llmTracker.endCall(callId, `[${result.length} vectors of size ${result[0]?.length || 0}]`);
             return result;
         } catch (e) {
             llmTracker.failCall(callId, e);
-            throw e;
+            console.warn(`[Embedding] Failed to embed batch: ${e.message}`);
+            // Return mock vectors as fallback so game flow continues
+            return texts.map((_, idx) => Array(768).fill(0).map((_, i) => Math.sin(idx + i + texts.length) * 0.1));
         }
     }
 }

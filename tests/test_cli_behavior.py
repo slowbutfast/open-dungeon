@@ -286,7 +286,7 @@ class TestCliBehavior(unittest.TestCase):
         
         # Mock inputs:
         # Prompt.ask choices: 1. Preset choice "3", 2. Character choice "1", 3. Proceed choice "1"
-        prompt_choices = ["3", "1", "1"]
+        prompt_choices = ["4", "1", "1"]
         # get_interactive_edit choices: 1. Custom prompt input
         edit_choices = ["Custom Jedi DM rules."]
         
@@ -391,7 +391,7 @@ class TestCliBehavior(unittest.TestCase):
         """Verify that selecting option 5 (Return to Start Menu) during preset selection returns False."""
         from game import menu_manager
         
-        with patch("rich.prompt.Prompt.ask", return_value="5") as mock_prompt_ask, \
+        with patch("rich.prompt.Prompt.ask", return_value="6") as mock_prompt_ask, \
              patch("rich.console.Console.clear"):
             
             result = menu_manager.setup_new_adventure(self.engine)

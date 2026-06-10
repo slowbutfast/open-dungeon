@@ -3,6 +3,7 @@ import { engine, resetEngine } from '../engineInstance.js';
 import { STORY_PRESETS } from '../../engine/storyPresets.js';
 import { DEFAULT_SYSTEM_PROMPT } from '../../engine/index.js';
 import { llmTracker, getDebugLogs } from '../../engine/llmTracker.js';
+import { getBackendType, getTokenRange } from '../../engine/llm.js';
 
 const router = express.Router();
 
@@ -11,24 +12,48 @@ router.get('/presets', (req, res) => {
 });
 
 router.get('/ping', async (req, res) => {
+    const backend = getBackendType();
+    const tokenRange = getTokenRange();
+    const cost = llmTracker.getSessionCost();
+
+    if (backend === "mock") {
+        return res.json({
+            status: "mock",
+            backend: "mock",
+            host: "mock",
+            port: "0",
+            model: "mock-llm",
+            embedding_model: "mock-embedding-model",
+            models: ["mock-llm"],
+            base_url: "mock://localhost",
+            max_tokens_range: [tokenRange.min, tokenRange.max],
+            cost: cost
+        });
+    }
+
+    if (backend === "openrouter") {
+        const model = process.env.OPENROUTER_MODEL || "deepseek/deepseek-v4-flash";
+        const embedModel = process.env.OPENROUTER_EMBEDDING_MODEL || "nomic-embed-text";
+        return res.json({
+            status: "online",
+            backend: "openrouter",
+            host: "openrouter.ai",
+            port: "443",
+            model: model,
+            embedding_model: embedModel,
+            models: [model],
+            base_url: "https://openrouter.ai/api/v1",
+            max_tokens_range: [tokenRange.min, tokenRange.max],
+            cost: cost
+        });
+    }
+
+    // LM Studio backend
     const host = process.env.LM_STUDIO_HOST || "127.0.0.1";
     const port = process.env.LM_STUDIO_PORT || "1234";
     const baseURL = `http://${host}:${port}/v1`;
 
-    if (process.env.MOCK_LLM === "1") {
-        return res.json({
-            status: "mock",
-            host,
-            port,
-            model: "mock-llm",
-            embedding_model: "mock-embedding-model",
-            models: ["mock-llm"],
-            base_url: baseURL
-        });
-    }
-
     try {
-        // Try LM Studio native API first
         const apiURL = `http://${host}:${port}/api/v1/models`;
         const response = await fetch(apiURL, { signal: AbortSignal.timeout(3000) });
         if (response.ok) {
@@ -67,16 +92,18 @@ router.get('/ping', async (req, res) => {
 
             return res.json({
                 status: "online",
+                backend: "lmstudio",
                 host,
                 port,
                 model: loadedModel || "unknown",
                 embedding_model: loadedEmbeddingModel,
                 models: modelIds,
-                base_url: baseURL
+                base_url: baseURL,
+                max_tokens_range: [tokenRange.min, tokenRange.max],
+                cost: cost
             });
         }
     } catch (e) {
-        // Fallback to standard OpenAI compatible /v1/models
         try {
             const openAiURL = `http://${host}:${port}/v1/models`;
             const response = await fetch(openAiURL, { signal: AbortSignal.timeout(3000) });
@@ -96,35 +123,44 @@ router.get('/ping', async (req, res) => {
 
                 return res.json({
                     status: "online",
+                    backend: "lmstudio",
                     host,
                     port,
                     model: loadedModel,
                     embedding_model: loadedEmbeddingModel,
                     models: modelIds,
-                    base_url: baseURL
+                    base_url: baseURL,
+                    max_tokens_range: [tokenRange.min, tokenRange.max],
+                    cost: cost
                 });
             }
         } catch (err) {
             return res.json({
                 status: "offline",
+                backend: "lmstudio",
                 host,
                 port,
                 model: null,
                 embedding_model: null,
                 models: [],
-                error: err.message
+                error: err.message,
+                max_tokens_range: [tokenRange.min, tokenRange.max],
+                cost: cost
             });
         }
     }
-    
+
     return res.json({
         status: "offline",
+        backend: "lmstudio",
         host,
         port,
         model: null,
         embedding_model: null,
         models: [],
-        error: "Failed to ping server"
+        error: "Failed to ping server",
+        max_tokens_range: [tokenRange.min, tokenRange.max],
+        cost: cost
     });
 });
 
@@ -312,10 +348,11 @@ router.post('/settings', async (req, res) => {
     const data = req.body || {};
     const changed = [];
     const activeEngine = engine;
+    const tokenRange = getTokenRange();
 
     if (data.max_tokens !== undefined) {
         let val = parseInt(data.max_tokens, 10);
-        val = Math.max(50, Math.min(300, val));
+        val = Math.max(tokenRange.min, Math.min(tokenRange.max, val));
         activeEngine.maxTokens = val;
         changed.push(`max_tokens=${val}`);
     }
@@ -331,6 +368,11 @@ router.post('/settings', async (req, res) => {
     }
 
     res.json({ status: "success", changed });
+});
+
+router.get('/cost', (req, res) => {
+    const cost = llmTracker.getSessionCost();
+    res.json(cost);
 });
 
 router.get('/debug/info', (req, res) => {
