@@ -2,7 +2,8 @@
 
 ## Architecture Documentation
 
-Each major component has a co-located architecture doc:
+Each major component has a co-located architecture doc. Make sure you update
+the respective doc after making any changes to a module:
 
 | Component | Location |
 |-----------|----------|
@@ -21,5 +22,11 @@ Each major component has a co-located architecture doc:
 | Task | Command |
 |------|---------|
 | Start server | `node web/server.js` |
-| Run tests | `python -m pytest tests/ -v` |
+| Run tests | `python -m pytest tests/ -v` (CLI tests deprecated — see `tests/ARCHITECTURE.md`) |
 | E2E tests (Playwright) | Configured in `tests/e2e/` |
+
+## Deprecations
+
+The legacy Python CLI proxy (`game/adventure_engine.py`) and its test suite
+(`test_cli_behavior.py`, `test_pty_integration.py`, `simulate_playtest.py`)
+are **deprecated**. Tests may fail — do not block work on them.
