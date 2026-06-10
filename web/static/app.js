@@ -917,10 +917,10 @@ async function submitPlayerCommand() {
     
     const log = document.getElementById("console-log");
     
-    // Intercept slash commands (supports both / and \ prefixes)
-    if (commandText.startsWith("/") || commandText.startsWith("\\")) {
+    // Intercept slash commands (supports only / prefix)
+    if (commandText.startsWith("/")) {
         const parts = commandText.split(" ");
-        const cmd = parts[0].toLowerCase().replace("\\", "/");
+        const cmd = parts[0].toLowerCase();
         
         // Print user input command to console log if it is not /continue
         if (cmd !== "/continue") {
@@ -949,6 +949,9 @@ async function submitPlayerCommand() {
                 openModal("modal-system-prompt");
             }
             return;
+        } else if (cmd === "/debug") {
+            switchSidebarTab("debug");
+            return;
         } else if (cmd === "/menu") {
             await returnToStartMenu();
             return;
@@ -968,6 +971,7 @@ SYSTEM COMMANDS:
   - /continue     : Let the story generate a response on its own.
   - /scan         : Scans recent history and auto-generates character/location Lore Cards.
   - /system       : View or edit the active Dungeon Master system prompt.
+  - /debug        : Switch to the LLM and RAG debug dashboard panel.
   - /menu         : Save and return to the main startup menu.
   - /help         : View this handbook.`;
             log.appendChild(helpDiv);
