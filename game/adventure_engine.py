@@ -18,6 +18,7 @@ Use the second-person perspective ("You").
 Do not write dialogue or actions for the player character ("You").
 Never break character.
 Do not write suggestions, choices, options lists, or any trailing questions asking the player what they want to do next (e.g. do not ask "What do you do?" or "What is your next move?"). Let the player decide entirely on their own.
+Only reference or use items that are in the player's [CURRENT INVENTORY] or that are clearly present in the immediate location. Do not invent, assume, or list options/choices with hallucinated items that the player does not possess.
 
 Example 1:
 Player: open mailbox
@@ -684,10 +685,16 @@ class AdventureEngine:
                     break
         return active_cards
 
-    def build_system_message(self, active_cards=None):
+    def build_system_message(self, active_cards=None, inventory_items=None):
         system_content = self.system_prompt
         system_content += f"\n\n[CURRENT STATUS]\n- Location: {self.location}\n- Score: {self.score}\n- Moves: {self.moves}"
         
+        if inventory_items:
+            items_list = "\n".join([f"- {item['item_name']} (x{item.get('quantity', 1)}): {item.get('description', 'No description')}" for item in inventory_items])
+            system_content += f"\n\n[CURRENT INVENTORY]\n{items_list}"
+        else:
+            system_content += f"\n\n[CURRENT INVENTORY]\n- (Empty)"
+            
         if self.summary:
             system_content += f"\n\n[ADVENTURE SUMMARY]\n{self.summary}"
             

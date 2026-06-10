@@ -76,9 +76,16 @@ export class LlmOrchestrator {
         return "local-model";
     }
 
-    buildSystemMessage(state, activeCards = null, ragMemories = null) {
+    buildSystemMessage(state, activeCards = null, ragMemories = null, inventoryItems = null) {
         let systemContent = state.systemPrompt;
         systemContent += `\n\n[CURRENT STATUS]\n- Location: ${state.location}\n- Score: ${state.score}\n- Moves: ${state.moves}`;
+        
+        if (inventoryItems && inventoryItems.length > 0) {
+            const itemsList = inventoryItems.map(item => `- ${item.item_name} (x${item.quantity}): ${item.description || 'No description'}`).join('\n');
+            systemContent += `\n\n[CURRENT INVENTORY]\n${itemsList}`;
+        } else {
+            systemContent += `\n\n[CURRENT INVENTORY]\n- (Empty)`;
+        }
         
         if (state.summary) {
             systemContent += `\n\n[ADVENTURE SUMMARY]\n${state.summary}`;
@@ -161,7 +168,15 @@ export class LlmOrchestrator {
         }
 
         const messages = [];
-        const systemMsgObj = this.buildSystemMessage(state, activeCards, ragMemories);
+        let inventoryItems = [];
+        if (contextManager && contextManager.memoryManager && state.adventureId) {
+            try {
+                inventoryItems = contextManager.memoryManager.getInventory(state.adventureId) || [];
+            } catch (e) {
+                // ignore
+            }
+        }
+        const systemMsgObj = this.buildSystemMessage(state, activeCards, ragMemories, inventoryItems);
         if (isSimpleAction) {
             systemMsgObj.content += "\n(Reply with a single curt sentence of 15 words or less.)";
         }
