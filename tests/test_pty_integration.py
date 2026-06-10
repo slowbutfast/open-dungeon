@@ -77,8 +77,8 @@ class TestPtyIntegration(unittest.TestCase):
             out = read_all_available(master_fd, timeout=2.0)
             self.assertIn("STORY GENESIS PRESETS", out)
             
-            # 4. Select Option 3 (Star Wars)
-            write_input(master_fd, "3\n")
+            # 4. Select Option 4 (Star Wars: The Outer Rim)
+            write_input(master_fd, "4\n")
             
             # 5. Read customization prompts and select default choice for customize universe details (False)
             out = read_all_available(master_fd, timeout=2.0)

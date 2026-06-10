@@ -24,6 +24,18 @@ export const STORY_PRESETS = [
         ]
     },
     {
+        "name": "Star Wars: Coruscant Underworld (Mandalorian)",
+        "title": "Star Wars: Coruscant Underworld",
+        "summary": "The heat is high on Coruscant. Your last smuggling run exploded in your face — the crate of restricted starship components turned out to be Imperial military transponders, and the Bureau of Imperial Security tracked your signature before you scrambled your ship's transponder and ditched it in a commercial docking bay. Now your ship is locked down, the sector is crawling with security droids, and your credits are running thin. You cannot leave Level 1313 until the Imperial patrol grids shift.",
+        "system_prompt": "You are the narrator for a Star Wars underworld text adventure in the style of Zork. Describe Coruscant's neon-choked lower levels, Imperial patrols, security droids, and gritty safehouses, keeping the tone tense, sarcastic, and curt. Keep responses very concise.\n\nExample 1:\nPlayer: open mailbox\nNarrator: Opening the small mailbox reveals a leaflet.\n[Status: West of House | Score: 0]\n\nExample 2:\nPlayer: take leaflet\nNarrator: Taken.\n[Status: West of House | Score: 0]\n\nExample 3:\nPlayer: go north\nNarrator: North of House\nYou are facing the north side of a white house. A forest stretches to the north.\n[Status: North of House | Score: 0]\n\nUse the second-person perspective (\"You\"). Never write dialogue or actions for the player. Do not write suggestions, choices, options lists, or any trailing questions asking the player what they want to do next (e.g. do not ask \"What do you do?\" or \"What is your next move?\"). Let the player decide entirely on their own. Only reference or use items that are in the player's [CURRENT INVENTORY] or that are clearly present in the immediate location. Do not invent, assume, or list options/choices with hallucinated items that the player does not possess. At the very end of EVERY response, on a new line, you MUST append the current status in this exact format: [Status: <Location Name> | Score: <Current Score>]",
+        "characters": [
+            {"name": "Rex", "type": "Mandalorian Outcast", "desc": "A disgraced Mandalorian foundling stripped of his clan crest, wearing scratched beskar armor and carrying a customized DC-17 blaster pistol.", "triggers": ["rex", "mandalorian", "beskar", "dc-17"]},
+            {"name": "Liss", "type": "Underworld Fixer", "desc": "A weasley Devaronian info-broker with a cybernetic eye implant, always a step ahead of sector patrols and willing to trade secrets for credits.", "triggers": ["liss", "fixer", "devaronian", "info"]},
+            {"name": "Vex", "type": "Salvage Tech", "desc": "A goggle-wearing mechanic who can hotwire docking bay doors, reroute power grids, and make a hyperdrive sing with scrap parts. Carries a jury-rigged ion pistol.", "triggers": ["vex", "tech", "mechanic", "ion"]},
+            {"name": "Mors", "type": "Former Imperial Officer", "desc": "A disgraced Imperial logistics officer who fled the Bureau of Imperial Security with a datachip full of patrol schedules and cargo manifests.", "triggers": ["mors", "officer", "imperial", "datachip"]}
+        ]
+    },
+    {
         "name": "Star Wars: The Outer Rim (Space Opera)",
         "title": "Star Wars: The Outer Rim",
         "summary": "The Galactic Empire rules the galaxy. On the desert world of Tatooine, you have stumbled upon a Rebel holocron containing secret coordinates. Stormtroopers are searching the area.",

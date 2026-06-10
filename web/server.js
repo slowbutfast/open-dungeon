@@ -46,12 +46,17 @@ const host = process.env.MOCK_LLM === "1" ? "127.0.0.1" : "0.0.0.0";
 app.listen(PORT, host, async () => {
     console.log(`Express server running on http://${host}:${PORT}`);
     
-    // Preload embedding model on startup
+    const backend = process.env.LLM_BACKEND === "openrouter" ? "openrouter" : "lmstudio";
+    
     if (process.env.MOCK_LLM === "1") {
-        console.log(`[STARTUP] Fetching available models from LM Studio...`);
-        console.log(`[STARTUP] LLM model 'mock-gemma' is already loaded. Skipping load.`);
-        console.log(`[STARTUP] Embedding model 'mock-embedding-model' is already loaded. Skipping load.`);
+        console.log(`[STARTUP] Using mock LLM. Skipping model preloading.`);
+    } else if (backend === "openrouter") {
+        console.log(`[STARTUP] Using OpenRouter backend. Model: ${process.env.OPENROUTER_MODEL || "deepseek/deepseek-v4-flash"}`);
+        console.log(`[STARTUP] Reasoning effort: ${process.env.REASONING_EFFORT || "low"}`);
+        console.log(`[STARTUP] Embedding model: ${process.env.OPENROUTER_EMBEDDING_MODEL || "nvidia/llama-nemotron-embed-vl-1b-v2:free"}`);
+        console.log(`[STARTUP] Token range: ${process.env.MAX_TOKENS_RANGE || "50:300"}`);
     } else {
+        console.log(`[STARTUP] Using LM Studio backend. Preloading models...`);
         try {
             const hostIP = process.env.LM_STUDIO_HOST || "127.0.0.1";
             const portNum = process.env.LM_STUDIO_PORT || "1234";

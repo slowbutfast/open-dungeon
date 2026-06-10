@@ -112,7 +112,7 @@ class TestApiEndpoints(unittest.TestCase):
     def test_init_and_state_api(self):
         """Verify initialization and state sync updates values correctly."""
         payload = {
-            "preset_idx": 2, # Star Wars (indexed at 2 in STORY_PRESETS)
+            "preset_idx": 3, # Star Wars Outer Rim (indexed at 3 in STORY_PRESETS)
             "character": {
                 "name": "Jaxen",
                 "type": "Jedi",

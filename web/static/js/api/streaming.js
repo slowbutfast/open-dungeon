@@ -1,6 +1,6 @@
 import { scrollToBottom, cleanMarkdownText } from '../utils.js';
 import { openModal, switchSidebarTab, returnToStartMenu } from '../ui/screens.js';
-import { renderState, renderLoreCards } from '../ui/renderers.js';
+import { renderState, renderLoreCards, renderCostSummary } from '../ui/renderers.js';
 import { syncMemoryAndLore } from './memory.js';
 
 export function setConsoleDisabled(disabled) {
@@ -93,6 +93,7 @@ export async function executeStreamAction(actionType, text) {
   setConsoleDisabled(true);
 
   let fullText = "";
+  let sessionCost = null;
 
   try {
     const response = await fetch("/api/action", {
@@ -119,6 +120,8 @@ export async function executeStreamAction(actionType, text) {
 
           if (event.type === "chunk") {
             fullText += event.content;
+          } else if (event.type === "cost") {
+            sessionCost = event;
           } else if (event.type === "system") {
             const contentLower = event.content.toLowerCase();
             const isMemoryRecall = contentLower.includes("memory recall");
@@ -151,6 +154,10 @@ export async function executeStreamAction(actionType, text) {
     if (fullText.trim().length > 0) {
       const cleaned = cleanMarkdownText(fullText);
       revealAssistantText(log, cleaned);
+    }
+
+    if (sessionCost) {
+      renderCostSummary(sessionCost);
     }
 
   } catch (err) {

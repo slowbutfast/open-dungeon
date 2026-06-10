@@ -122,7 +122,7 @@ You must output a single JSON object with the following structure. Do not output
                 model: modelName,
                 messages,
                 temperature: 0.1,
-                max_tokens: 1024
+                max_tokens: 2048
             });
 
             const text = response.choices[0].message.content;
@@ -162,6 +162,20 @@ You must output a single JSON object with the following structure. Do not output
                 lore_facts: Array.isArray(parsed.lore_facts) ? parsed.lore_facts : []
             };
         } catch (e) {
+            // Try to salvage truncated JSON by adding missing closing brackets
+            const closings = [']', ']', ']', ']', ']', '}]', ']}]', '"]}]}', '", "value": {}}'];
+            for (const suffix of closings) {
+                try {
+                    const parsed = JSON.parse(cleaned + suffix);
+                    return {
+                        events: Array.isArray(parsed.events) ? parsed.events : [],
+                        inventory_changes: Array.isArray(parsed.inventory_changes) ? parsed.inventory_changes : [],
+                        lore_facts: Array.isArray(parsed.lore_facts) ? parsed.lore_facts : []
+                    };
+                } catch (attemptErr) {
+                    // Continue trying next salvage attempt
+                }
+            }
             console.error("Failed to parse extracted events JSON. Raw output was:", text);
             return { events: [], inventory_changes: [], lore_facts: [] };
         }

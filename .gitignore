@@ -7,6 +7,7 @@ ENV/
 env/
 
 # Python cache files
+.pytest_cache
 __pycache__/
 *.py[cod]
 *$py.class
@@ -18,6 +19,7 @@ tests/data
 
 # Local game save files
 game/adventures/
+game/data
 
 # Node.js dependencies
 node_modules/

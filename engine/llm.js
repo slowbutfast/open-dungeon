@@ -5,18 +5,59 @@ import { llmTracker, addDebugLog } from './llmTracker.js';
 
 dotenv.config();
 
+export function getBackendType() {
+    if (process.env.MOCK_LLM === "1") return "mock";
+    return process.env.LLM_BACKEND === "openrouter" ? "openrouter" : "lmstudio";
+}
+
+export function getTokenRange() {
+    const range = process.env.MAX_TOKENS_RANGE || "50:300";
+    const parts = range.split(':').map(Number);
+    return { min: parts[0] || 50, max: parts[1] || 300 };
+}
+
+function buildClient() {
+    const backend = getBackendType();
+
+    if (backend === "openrouter") {
+        const apiKey = process.env.OPENROUTER_API_KEY;
+        if (!apiKey || apiKey === 'sk-or-v1-your-api-key-here') {
+            console.warn('[LLM] OPENROUTER_API_KEY is missing or still set to the placeholder. Falling back to mock mode.');
+            return { client: new MockOpenAI(), isOpenRouter: false, reasoningEffort: null };
+        }
+        const client = new OpenAI({
+            baseURL: 'https://openrouter.ai/api/v1',
+            apiKey: apiKey,
+            defaultHeaders: {
+                'HTTP-Referer': 'https://github.com/anomalyco/local-llm-testing',
+                'X-Title': 'Retro Neural Adventure Link'
+            }
+        });
+        const effort = process.env.REASONING_EFFORT || "low";
+        return { client, isOpenRouter: true, reasoningEffort: effort };
+    }
+
+    const host = process.env.LM_STUDIO_HOST || "127.0.0.1";
+    const port = process.env.LM_STUDIO_PORT || "1234";
+    const client = new OpenAI({
+        baseURL: `http://${host}:${port}/v1`,
+        apiKey: 'lm-studio'
+    });
+    return { client, isOpenRouter: false, reasoningEffort: null };
+}
+
 export class LlmOrchestrator {
     constructor() {
         const mockLlm = process.env.MOCK_LLM === "1";
         if (mockLlm) {
             this.client = new MockOpenAI();
+            this.isOpenRouter = false;
+            this.reasoningEffort = null;
         } else {
-            const host = process.env.LM_STUDIO_HOST || "127.0.0.1";
-            const port = process.env.LM_STUDIO_PORT || "1234";
-            this.client = new OpenAI({
-                baseURL: `http://${host}:${port}/v1`,
-                apiKey: 'lm-studio'
-            });
+            const config = buildClient();
+            this.client = config.client;
+            this.isOpenRouter = config.isOpenRouter;
+            this.reasoningEffort = config.reasoningEffort;
         }
     }
 
@@ -24,31 +65,33 @@ export class LlmOrchestrator {
         if (process.env.MOCK_LLM === "1") {
             return "mock-gemma";
         }
-        
+
+        if (this.isOpenRouter) {
+            const model = process.env.OPENROUTER_MODEL || "deepseek/deepseek-v4-flash";
+            return model;
+        }
+
         try {
             const baseUrlStr = this.client.baseURL;
             const parsed = new URL(baseUrlStr);
             const apiUrl = `${parsed.protocol}//${parsed.host}/api/v1/models`;
-            
+
             const resp = await fetch(apiUrl, { signal: AbortSignal.timeout(2000) });
             if (resp.ok) {
                 const data = await resp.json();
-                
-                // 1. Look for a loaded LLM
+
                 for (const m of data.models || []) {
                     if (m.type === "llm" && m.loaded_instances && m.loaded_instances.length > 0 && typeof m.key === "string") {
                         return m.key;
                     }
                 }
-                
-                // 2. Look for any LLM
+
                 for (const m of data.models || []) {
                     if (m.type === "llm" && typeof m.key === "string") {
                         return m.key;
                     }
                 }
-                
-                // 3. Fallback
+
                 if (data.models && data.models.length > 0) {
                     const key = data.models[0].key;
                     if (typeof key === "string") return key;
@@ -57,7 +100,7 @@ export class LlmOrchestrator {
         } catch (e) {
             // Ignore and try OpenAI list
         }
-        
+
         try {
             const models = await this.client.models.list();
             if (models && models.data && models.data.length > 0) {
@@ -73,25 +116,25 @@ export class LlmOrchestrator {
         } catch (e) {
             // Ignore
         }
-        
+
         return "local-model";
     }
 
     buildSystemMessage(state, activeCards = null, ragMemories = null, inventoryItems = null) {
         let systemContent = state.systemPrompt;
         systemContent += `\n\n[CURRENT STATUS]\n- Location: ${state.location}\n- Score: ${state.score}\n- Moves: ${state.moves}`;
-        
+
         if (inventoryItems && inventoryItems.length > 0) {
             const itemsList = inventoryItems.map(item => `- ${item.item_name} (x${item.quantity}): ${item.description || 'No description'}`).join('\n');
             systemContent += `\n\n[CURRENT INVENTORY]\n${itemsList}`;
         } else {
             systemContent += `\n\n[CURRENT INVENTORY]\n- (Empty)`;
         }
-        
+
         if (state.summary) {
             systemContent += `\n\n[ADVENTURE SUMMARY]\n${state.summary}`;
         }
-        
+
         if (activeCards && activeCards.length > 0) {
             systemContent += "\n\n[WORLD INFO & LORE]";
             for (const card of activeCards) {
@@ -161,8 +204,8 @@ export class LlmOrchestrator {
         if (actionType === "do") {
             const cleanedCmd = text.trim().toLowerCase();
             const simpleVerbs = [
-                "take", "get", "drop", "open", "close", "read", "examine", 
-                "inventory", "wear", "look at", "put", "push", "pull", 
+                "take", "get", "drop", "open", "close", "read", "examine",
+                "inventory", "wear", "look at", "put", "push", "pull",
                 "turn", "unlock", "lock", "use", "drink", "eat"
             ];
             if (simpleVerbs.some(verb => cleanedCmd.startsWith(verb))) {
@@ -206,31 +249,41 @@ export class LlmOrchestrator {
         const callId = llmTracker.startCall('narration', messages);
         try {
             try {
-                stream = await this.client.chat.completions.create({
+                const requestBody = {
                     model: state.model,
                     messages,
                     temperature: state.temperature,
                     max_tokens: requestMaxTokens,
                     stream: true
-                });
+                };
+                if (this.isOpenRouter) {
+                    requestBody.reasoning = { effort: this.reasoningEffort };
+                    requestBody.stream_options = { include_usage: true };
+                }
+                stream = await this.client.chat.completions.create(requestBody);
             } catch (err) {
                 const errorMsg = String(err);
-                if (errorMsg.includes("Failed to load model") || errorMsg.includes("400") || errorMsg.toLowerCase().includes("model")) {
-                    yield { type: "system", content: `Failed to load '${state.model}'. Attempting fallback...` };
-                    addDebugLog(`Narration error: failed to load '${state.model}'. Attempting fallback...`);
+                if (errorMsg.includes("Failed to load model") || errorMsg.includes("400") || errorMsg.toLowerCase().includes("model") || errorMsg.includes("429")) {
+                    yield { type: "system", content: `Failed with '${state.model}'. Attempting fallback...` };
+                    addDebugLog(`Narration error: failed with '${state.model}'. Attempting fallback...`);
                     const fallbackModel = await this.getLoadedModel();
                     if (fallbackModel && fallbackModel !== state.model) {
                         yield { type: "system", content: `Falling back to model: '${fallbackModel}'` };
                         addDebugLog(`Narration info: falling back to model: '${fallbackModel}'`);
                         state.model = fallbackModel;
                         await saveFn();
-                        stream = await this.client.chat.completions.create({
+                        const retryBody = {
                             model: state.model,
                             messages,
                             temperature: state.temperature,
                             max_tokens: requestMaxTokens,
                             stream: true
-                        });
+                        };
+                        if (this.isOpenRouter) {
+                            retryBody.reasoning = { effort: this.reasoningEffort };
+                            retryBody.stream_options = { include_usage: true };
+                        }
+                        stream = await this.client.chat.completions.create(retryBody);
                     } else {
                         throw err;
                     }
@@ -241,9 +294,21 @@ export class LlmOrchestrator {
 
             let assistantText = "";
             let buffer = "";
+            let thinkingText = "";
+            let usageData = null;
 
             for await (const chunk of stream) {
-                const content = chunk.choices[0]?.delta?.content;
+                const delta = chunk.choices?.[0]?.delta;
+
+                if (delta?.reasoning) {
+                    thinkingText += delta.reasoning;
+                }
+
+                if (chunk.usage) {
+                    usageData = chunk.usage;
+                }
+
+                const content = delta?.content;
                 if (content !== undefined && content !== null) {
                     assistantText += content;
 
@@ -264,6 +329,24 @@ export class LlmOrchestrator {
                         yield { type: "chunk", content: content };
                     }
                 }
+            }
+
+            if (thinkingText) {
+                addDebugLog(`[DeepSeek Thinking] ${thinkingText}`);
+            }
+
+            if (usageData) {
+                llmTracker.recordUsage(callId, usageData);
+                const cost = llmTracker.getSessionCost();
+                yield {
+                    type: "cost",
+                    input_tokens: usageData.prompt_tokens || usageData.input_tokens || 0,
+                    output_tokens: usageData.completion_tokens || usageData.output_tokens || 0,
+                    session_input_tokens: cost.input_tokens,
+                    session_output_tokens: cost.output_tokens,
+                    session_cost: cost.estimated_cost_usd,
+                    session_cost_display: cost.breakdown
+                };
             }
 
             let cleanedText = assistantText.trim();
@@ -336,19 +419,19 @@ export class LlmOrchestrator {
             yield { type: "error", content: "No history to regenerate." };
             return;
         }
-        
+
         if (state.history[state.history.length - 1].role === "assistant") {
             state.history.pop();
         }
-        
+
         if (state.history.length === 0) {
             yield { type: "error", content: "No player turn to regenerate a response for." };
             return;
         }
-        
+
         const lastUserTurn = state.history.pop();
         let rawText = lastUserTurn.text;
-        
+
         if (rawText.startsWith("> You try to ")) {
             rawText = rawText.substring("> You try to ".length);
         } else if (rawText.startsWith("> You say, \"") && rawText.endsWith("\"")) {
@@ -356,9 +439,9 @@ export class LlmOrchestrator {
         } else if (rawText.startsWith("> ")) {
             rawText = rawText.substring(2);
         }
-        
+
         const actionType = lastUserTurn.action_type || "story";
-        
+
         for await (const event of this.generateResponseStream(state, actionType, rawText, contextManager, saveFn)) {
             yield event;
         }
