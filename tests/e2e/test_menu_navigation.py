@@ -23,7 +23,7 @@ def start_server():
         env = os.environ.copy()
         env["MOCK_LLM"] = "1"  # Force mock mode for testing
         proc = subprocess.Popen(
-            ["./venv/bin/python3", "web/server.py"],
+            ["node", "web/server.js"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             env=env

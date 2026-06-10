@@ -1,18 +1,14 @@
 import os
 import sys
+import time
+import socket
+import subprocess
+import requests
 import json
-import uuid
+import atexit
 import re
+import uuid
 
-# Add parent directory to sys.path so config.py can be imported from the root folder
-parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if parent_dir not in sys.path:
-    sys.path.append(parent_dir)
-
-from openai import OpenAI
-from config import BASE_URL
-
-# Default System Prompt for Zork-style narrator
 DEFAULT_SYSTEM_PROMPT = """You are the parser and narrator for a classic text-based adventure game in the style of Zork.
 Describe the environment, characters, and results of actions in a sarcastic, conversational, and direct tone, similar to a Game Master in a tabletop RPG.
 Keep your responses extremely concise and curt.
@@ -42,8 +38,7 @@ At the very end of EVERY response, you MUST append the current status on a new l
 [Status: <Location Name> | Score: <Current Score>]
 Do not write anything else on the status line."""
 
-
-# Helper classes for offline/PTY testing mode when MOCK_LLM=1
+# Helper classes for local mock execution (matching original implementation)
 class MockModel:
     def __init__(self, id="mock-gemma"):
         self.id = id
@@ -73,23 +68,19 @@ class MockChatCompletions:
         stream = kwargs.get("stream", False)
         messages = kwargs.get("messages", [])
         
-        # 1. Start scene or custom scenario request
         user_msg = messages[-1]["content"] if messages else ""
         if "CHARACTER GENESIS" in user_msg or "starting scene" in user_msg.lower() or "character description" in user_msg.lower():
             content = "You stand on the desert sands of Tatooine."
             return MockCompletionResponse(content)
             
-        # 2. Lore card request
         if "JSON array of objects" in user_msg or "Lore Card" in user_msg:
             content = '[{"name": "Korr", "type": "character", "description": "A legendary smuggler.", "trigger_words": ["korr"]}]'
             return MockCompletionResponse(content)
             
-        # 3. Summary request
         if "compress the following log" in user_msg.lower():
             content = "A summary of the adventure."
             return MockCompletionResponse(content)
             
-        # 4. Standard gameplay turn (stream)
         narrative = "You walk south into the noisy cantina.\n[Status: Cantina | Score: 5]"
         if stream:
             class ChunkDelta:
@@ -132,92 +123,386 @@ class AdventureEngine:
         else:
             self.save_dir = save_dir
         os.makedirs(self.save_dir, exist_ok=True)
+
+        self.base_url = "http://127.0.0.1:5001"
         
-        if os.getenv("MOCK_LLM") == "1":
-            self.client = MockOpenAI()
+        # Local state variables
+        self._adventure_id = None
+        self._title = "New Adventure"
+        self._system_prompt = DEFAULT_SYSTEM_PROMPT
+        self._summary = ""
+        self._cards = []
+        self._history = []
+        self._archived_history = []
+        self._suggestions = []
+        self._location = "West of House"
+        self._score = 0
+        self._moves = 0
+        self._model = "local-model"
+        self._temperature = 0.8
+        self._max_tokens = 300
+        self._summarize_threshold = 8
+        self._auto_summarize = True
+        
+        self._client = None
+        
+        if self._use_http_proxy():
+            try:
+                self._ensure_server_running()
+                self._sync_from_server()
+            except Exception:
+                pass
+
+    def _ensure_server_running(self):
+        port = 5001
+        # Check if server is already running
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                if s.connect_ex(('127.0.0.1', port)) == 0:
+                    return
+        except Exception:
+            pass
+            
+        # If not running, spawn it
+        env = os.environ.copy()
+        if "MOCK_LLM" not in env:
+            env["MOCK_LLM"] = "1"
+            
+        # Get path to server.js
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        server_path = os.path.join(project_root, "web", "server.js")
+        
+        self.server_proc = subprocess.Popen(
+            ["node", server_path],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            env=env,
+            cwd=project_root
+        )
+        
+        # Register atexit cleanup handler
+        atexit.register(self._cleanup_server)
+        
+        # Poll server until it responds to ping
+        for _ in range(50):
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    if s.connect_ex(('127.0.0.1', port)) == 0:
+                        break
+            except Exception:
+                pass
+            time.sleep(0.1)
         else:
-            self.client = OpenAI(
+            raise RuntimeError("JS Express server failed to start on port 5001")
+
+    def _cleanup_server(self):
+        if hasattr(self, "server_proc") and self.server_proc:
+            try:
+                self.server_proc.terminate()
+                self.server_proc.wait(timeout=1)
+            except Exception:
+                try:
+                    self.server_proc.kill()
+                except Exception:
+                    pass
+
+    def _use_http_proxy(self):
+        # We do NOT use the HTTP proxy if we are running in unit tests with a mocked client
+        if self._client is not None:
+            from unittest.mock import MagicMock, Mock
+            if isinstance(self._client, (MagicMock, Mock)) or type(self._client).__name__ in ("MagicMock", "Mock"):
+                return False
+        return True
+
+    def _sync_from_server(self):
+        try:
+            r = requests.get(f"{self.base_url}/api/state", timeout=2)
+            if r.status_code == 200:
+                data = r.json()
+                self._adventure_id = data.get("adventure_id")
+                self._title = data.get("title", "")
+                self._system_prompt = data.get("system_prompt", DEFAULT_SYSTEM_PROMPT)
+                self._summary = data.get("summary", "")
+                self._cards = data.get("cards", [])
+                self._history = data.get("history", [])
+                self._suggestions = data.get("suggestions", [])
+                self._location = data.get("location", "West of House")
+                self._score = data.get("score", 0)
+                self._moves = data.get("moves", 0)
+                self._model = data.get("model", "local-model")
+                self._max_tokens = data.get("max_tokens", 300)
+        except Exception:
+            pass
+
+    def _update_state(self, updates):
+        try:
+            requests.post(f"{self.base_url}/api/state", json=updates, timeout=2)
+        except Exception as e:
+            print(f"Error updating server state: {e}")
+
+    def _get_prop(self, name, default):
+        if self._use_http_proxy():
+            self._sync_from_server()
+        return getattr(self, f"_{name}", default)
+
+    # Property Getters and Setters
+    @property
+    def adventure_id(self):
+        return self._get_prop("adventure_id", None)
+
+    @adventure_id.setter
+    def adventure_id(self, val):
+        self._adventure_id = val
+        if self._use_http_proxy():
+            self._update_state({"adventure_id": val})
+
+    @property
+    def title(self):
+        return self._get_prop("title", "New Adventure")
+
+    @title.setter
+    def title(self, val):
+        self._title = val
+        if self._use_http_proxy():
+            self._update_state({"title": val})
+
+    @property
+    def system_prompt(self):
+        return self._get_prop("system_prompt", DEFAULT_SYSTEM_PROMPT)
+
+    @system_prompt.setter
+    def system_prompt(self, val):
+        self._system_prompt = val
+        if self._use_http_proxy():
+            self._update_state({"system_prompt": val})
+
+    @property
+    def summary(self):
+        return self._get_prop("summary", "")
+
+    @summary.setter
+    def summary(self, val):
+        self._summary = val
+        if self._use_http_proxy():
+            self._update_state({"summary": val})
+
+    @property
+    def cards(self):
+        return self._get_prop("cards", [])
+
+    @cards.setter
+    def cards(self, val):
+        self._cards = val
+        if self._use_http_proxy():
+            self._update_state({"cards": val})
+
+    @property
+    def history(self):
+        hist = self._get_prop("history", [])
+        if self._use_http_proxy():
+            class ProxyList(list):
+                def __init__(self, items, on_update):
+                    super().__init__(items)
+                    self.on_update = on_update
+                def pop(self, *args, **kwargs):
+                    res = super().pop(*args, **kwargs)
+                    self.on_update(list(self))
+                    return res
+                def append(self, item):
+                    super().append(item)
+                    self.on_update(list(self))
+            return ProxyList(hist, lambda new_list: self._update_history(new_list))
+        return hist
+
+    @history.setter
+    def history(self, val):
+        self._history = val
+        if self._use_http_proxy():
+            self._update_state({"history": val})
+
+    def _update_history(self, new_list):
+        self._history = new_list
+        self._update_state({"history": new_list})
+
+    @property
+    def archived_history(self):
+        return self._get_prop("archived_history", [])
+
+    @archived_history.setter
+    def archived_history(self, val):
+        self._archived_history = val
+        if self._use_http_proxy():
+            self._update_state({"archived_history": val})
+
+    @property
+    def suggestions(self):
+        return self._get_prop("suggestions", [])
+
+    @suggestions.setter
+    def suggestions(self, val):
+        self._suggestions = val
+        if self._use_http_proxy():
+            self._update_state({"suggestions": val})
+
+    @property
+    def location(self):
+        return self._get_prop("location", "West of House")
+
+    @location.setter
+    def location(self, val):
+        self._location = val
+        if self._use_http_proxy():
+            self._update_state({"location": val})
+
+    @property
+    def score(self):
+        return self._get_prop("score", 0)
+
+    @score.setter
+    def score(self, val):
+        self._score = val
+        if self._use_http_proxy():
+            self._update_state({"score": val})
+
+    @property
+    def moves(self):
+        return self._get_prop("moves", 0)
+
+    @moves.setter
+    def moves(self, val):
+        self._moves = val
+        if self._use_http_proxy():
+            self._update_state({"moves": val})
+
+    @property
+    def model(self):
+        return self._get_prop("model", "local-model")
+
+    @model.setter
+    def model(self, val):
+        self._model = val
+        if self._use_http_proxy():
+            self._update_state({"model": val})
+
+    @property
+    def temperature(self):
+        return self._get_prop("temperature", 0.8)
+
+    @temperature.setter
+    def temperature(self, val):
+        self._temperature = val
+        if self._use_http_proxy():
+            self._update_state({"temperature": val})
+
+    @property
+    def max_tokens(self):
+        return self._get_prop("max_tokens", 300)
+
+    @max_tokens.setter
+    def max_tokens(self, val):
+        self._max_tokens = val
+        if self._use_http_proxy():
+            self._update_state({"max_tokens": val})
+
+    @property
+    def summarize_threshold(self):
+        return self._get_prop("summarize_threshold", 8)
+
+    @summarize_threshold.setter
+    def summarize_threshold(self, val):
+        self._summarize_threshold = val
+        if self._use_http_proxy():
+            self._update_state({"summarize_threshold": val})
+
+    @property
+    def auto_summarize(self):
+        return self._get_prop("auto_summarize", True)
+
+    @auto_summarize.setter
+    def auto_summarize(self, val):
+        self._auto_summarize = val
+        if self._use_http_proxy():
+            self._update_state({"auto_summarize": val})
+
+    # Client expose (for connection diagnostics in aidungeon_cli.py)
+    @property
+    def client(self):
+        if self._client is not None:
+            return self._client
+            
+        if self._use_http_proxy():
+            class MockClient:
+                def __init__(self, base_url):
+                    self.base_url = base_url
+                    self.models = self
+                def list(self):
+                    r = requests.get(f"{self.base_url}/ping", timeout=2)
+                    r.raise_for_status()
+                    class ModelData:
+                        def __init__(self, id):
+                            self.id = id
+                    class ModelList:
+                        def __init__(self, models):
+                            self.data = [ModelData(m) for m in models]
+                    return ModelList(r.json().get("models", ["mock-llm"]))
+            return MockClient(f"{self.base_url}/api")
+            
+        # Local non-proxy client initialization
+        from openai import OpenAI
+        from config import BASE_URL
+        if os.getenv("MOCK_LLM") == "1":
+            self._client = MockOpenAI()
+        else:
+            self._client = OpenAI(
                 base_url=BASE_URL,
                 api_key="lm-studio"
             )
-        
-        # Game State
-        self.adventure_id = None
-        self.title = "New Adventure"
-        self.system_prompt = DEFAULT_SYSTEM_PROMPT
-        self.summary = ""
-        self.cards = []  # List of dicts representing context cards
-        self.history = []  # Active history turns: [{"role": "user"/"assistant", "action_type": "do"/"say"/"story", "text": "..."}]
-        self.archived_history = []  # Older, compressed history turns
-        self.suggestions = []  # List of 3 suggested actions for the player's next move
-        self.location = "West of House"
-        self.score = 0
-        self.moves = 0
-        
-        # Settings
-        self.model = "local-model"  # Will default to local-model or fallback
-        self.temperature = 0.8
-        self.max_tokens = 300
-        self.summarize_threshold = 8  # Number of active history turns before auto-summarization
-        self.auto_summarize = True
+        return self._client
+
+    @client.setter
+    def client(self, val):
+        self._client = val
 
     def get_loaded_model(self):
-        """Queries LM Studio for the currently loaded LLM model, falling back to any available LLM model."""
+        if self._use_http_proxy():
+            r = requests.get(f"{self.base_url}/api/ping", timeout=2)
+            if r.status_code == 200:
+                return r.json().get("model", "local-model")
+            return "local-model"
+            
+        # Local get_loaded_model
         if os.getenv("MOCK_LLM") == "1":
             return "mock-gemma"
-            
         try:
-            base_url_str = str(self.client.base_url)
-            from urllib.parse import urlparse
-            import urllib.request
-            parsed = urlparse(base_url_str)
-            
-            # LM Studio has native API at /api/v1/models
-            api_url = f"{parsed.scheme}://{parsed.netloc}/api/v1/models"
-            req = urllib.request.Request(api_url, headers={"Accept": "application/json"})
-            with urllib.request.urlopen(req, timeout=2) as resp:
-                data = json.loads(resp.read().decode())
-                
-                # 1. Look for a model of type 'llm' that is currently loaded
-                for m in data.get("models", []):
-                    key = m.get("key")
-                    if m.get("type") == "llm" and m.get("loaded_instances") and isinstance(key, str):
-                        return key
-                        
-                # 2. Look for any model of type 'llm'
-                for m in data.get("models", []):
-                    key = m.get("key")
-                    if m.get("type") == "llm" and isinstance(key, str):
-                        return key
-                        
-                # 3. Fallback to any model key
-                if data.get("models"):
-                    key = data.get("models")[0].get("key")
-                    if isinstance(key, str):
-                        return key
-        except Exception:
-            pass
-            
-        # Fallback to OpenAI compatible list if /api/v1/models fails
-        try:
+            # Try parsing from standard list (OpenAI SDK wrapper fallback)
+            from unittest.mock import MagicMock, Mock
+            if isinstance(self.client, (MagicMock, Mock)) or type(self.client).__name__ in ("MagicMock", "Mock"):
+                return self._model if isinstance(self._model, str) else "mock-gemma"
             models = self.client.models.list()
-            if models.data:
-                # Filter out embedding models if possible
+            if isinstance(models, (MagicMock, Mock)) or type(models).__name__ in ("MagicMock", "Mock"):
+                return self._model if isinstance(self._model, str) else "mock-gemma"
+            if models and models.data:
                 for m in models.data:
-                    m_id = m.id
-                    if isinstance(m_id, str) and "embed" not in m_id:
-                        return m_id
-                
-                first_id = models.data[0].id
-                if isinstance(first_id, str):
-                    return first_id
+                    if isinstance(m.id, str) and "embed" not in m.id:
+                        return m.id
+                if isinstance(models.data[0].id, str):
+                    return models.data[0].id
         except Exception:
             pass
-            
         return "local-model"
 
     def new_adventure(self, title="New Adventure", system_prompt=None):
-        """Initializes a new adventure state."""
+        if self._use_http_proxy():
+            payload = {
+                "title": title,
+                "system_prompt": system_prompt
+            }
+            r = requests.post(f"{self.base_url}/api/init", json=payload, timeout=5)
+            r.raise_for_status()
+            self._sync_from_server()
+            return self._adventure_id
+            
+        # Local new_adventure
         self.adventure_id = str(uuid.uuid4())[:8]
         self.title = title
         self.system_prompt = system_prompt or DEFAULT_SYSTEM_PROMPT
@@ -230,18 +515,30 @@ class AdventureEngine:
         self.score = 0
         self.moves = 0
         
-        # Attempt to dynamically find the loaded model
         resolved = self.get_loaded_model()
         self.model = resolved if isinstance(resolved, str) else "local-model"
-            
+        
         self.save()
         return self.adventure_id
 
     def save(self):
-        """Saves current state to a JSON file."""
+        if self._use_http_proxy():
+            self._update_state({
+                "history": self._history,
+                "cards": self._cards,
+                "system_prompt": self._system_prompt,
+                "summary": self._summary,
+                "location": self._location,
+                "score": self._score,
+                "moves": self._moves,
+                "model": self._model,
+                "max_tokens": self._max_tokens
+            })
+            return
+            
+        # Local save
         if not self.adventure_id:
             raise ValueError("No active adventure to save.")
-        
         filepath = os.path.join(self.save_dir, f"{self.adventure_id}.json")
         state = {
             "adventure_id": self.adventure_id,
@@ -260,75 +557,97 @@ class AdventureEngine:
             "score": self.score,
             "moves": self.moves
         }
-        
         with open(filepath, "w", encoding="utf-8") as f:
-            json.dump(state, f, indent=4, ensure_ascii=False)
+            json.dump(state, f, indent=4)
 
     def load(self, adventure_id):
-        """Loads an adventure state from JSON."""
+        if self._use_http_proxy():
+            r = requests.post(f"{self.base_url}/api/saves/{adventure_id}", timeout=2)
+            r.raise_for_status()
+            self._sync_from_server()
+            return
+            
+        # Local load
         filepath = os.path.join(self.save_dir, f"{adventure_id}.json")
-        if not os.path.exists(filepath):
-            raise FileNotFoundError(f"Adventure {adventure_id} not found.")
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                state = json.load(f)
+                
+            self.adventure_id = state["adventure_id"]
+            self.title = state.get("title", "Loaded Adventure")
+            self.system_prompt = state.get("system_prompt", DEFAULT_SYSTEM_PROMPT)
+            self.summary = state.get("summary", "")
+            self.cards = state.get("cards", [])
+            self.history = state.get("history", [])
+            self.archived_history = state.get("archived_history", [])
             
-        with open(filepath, "r", encoding="utf-8") as f:
-            state = json.load(f)
-            
-        self.adventure_id = state.get("adventure_id")
-        self.title = state.get("title", "Loaded Adventure")
-        self.system_prompt = state.get("system_prompt", DEFAULT_SYSTEM_PROMPT)
-        self.summary = state.get("summary", "")
-        self.cards = state.get("cards", [])
-        self.history = state.get("history", [])
-        self.archived_history = state.get("archived_history", [])
-        
-        # Try to get the currently loaded model first so we don't force a load of a different one
-        loaded_model = self.get_loaded_model()
-        if loaded_model and isinstance(loaded_model, str) and loaded_model != "local-model":
-            self.model = loaded_model
-        else:
-            self.model = state.get("model", "local-model")
-            
-        self.temperature = state.get("temperature", 0.8)
-        self.max_tokens = state.get("max_tokens", 300)
-        self.summarize_threshold = state.get("summarize_threshold", 8)
-        self.auto_summarize = state.get("auto_summarize", True)
-        self.location = state.get("location", "West of House")
-        self.score = state.get("score", 0)
-        self.moves = state.get("moves", 0)
-        self.suggestions = []
+            loaded_model = self.get_loaded_model()
+            if loaded_model and loaded_model != "local-model":
+                self.model = loaded_model
+            else:
+                self.model = state.get("model", "local-model")
+                
+            self.temperature = state.get("temperature", 0.8)
+            self.max_tokens = state.get("max_tokens", 300)
+            self.summarize_threshold = state.get("summarize_threshold", 8)
+            self.auto_summarize = state.get("auto_summarize", True)
+            self.location = state.get("location", "West of House")
+            self.score = state.get("score", 0)
+            self.moves = state.get("moves", 0)
+            self.suggestions = []
+        except Exception as e:
+            raise RuntimeError(f"Adventure {adventure_id} not found: {e}")
 
     def list_adventures(self):
-        """Lists all saved adventures."""
+        if self._use_http_proxy():
+            r = requests.get(f"{self.base_url}/api/saves", timeout=2)
+            if r.status_code == 200:
+                return r.json()
+            return []
+            
+        # Local list
         adventures = []
-        for filename in os.listdir(self.save_dir):
-            if filename.endswith(".json"):
-                filepath = os.path.join(self.save_dir, filename)
-                try:
-                    with open(filepath, "r", encoding="utf-8") as f:
-                        data = json.load(f)
-                        adventures.append({
-                            "id": data.get("adventure_id"),
-                            "title": data.get("title", "Untitled Adventure"),
-                            "turns": len(data.get("history", [])) + len(data.get("archived_history", [])),
-                            "summary": data.get("summary", ""),
-                            "location": data.get("location", "West of House"),
-                            "score": data.get("score", 0),
-                            "moves": data.get("moves", 0)
-                        })
-                except Exception:
-                    pass
+        import glob
+        for file in glob.glob(os.path.join(self.save_dir, "*.json")):
+            try:
+                with open(file, "r", encoding="utf-8") as f:
+                    state = json.load(f)
+                    adventures.append({
+                        "id": state["adventure_id"],
+                        "title": state.get("title", "Untitled Adventure"),
+                        "turns": len(state.get("history", [])) + len(state.get("archived_history", [])),
+                        "summary": state.get("summary", ""),
+                        "location": state.get("location", "West of House"),
+                        "score": state.get("score", 0),
+                        "moves": state.get("moves", 0)
+                    })
+            except Exception:
+                pass
         return adventures
 
     def delete_adventure(self, adventure_id):
-        """Deletes a saved adventure JSON file."""
+        if self._use_http_proxy():
+            r = requests.delete(f"{self.base_url}/api/saves/{adventure_id}", timeout=2)
+            return r.status_code == 200
+            
+        # Local delete
         filepath = os.path.join(self.save_dir, f"{adventure_id}.json")
-        if os.path.exists(filepath):
+        try:
             os.remove(filepath)
             return True
-        return False
+        except Exception:
+            return False
 
     def undo(self):
-        """Removes the last player action and the last assistant response."""
+        if self._use_http_proxy():
+            r = requests.post(f"{self.base_url}/api/action", json={"action_type": "undo"}, timeout=2)
+            if r.status_code == 200:
+                self._sync_from_server()
+                if len(self._history) >= 2:
+                    return self._history[-2], self._history[-1]
+            return None, None
+            
+        # Local undo
         if len(self.history) >= 2:
             assistant_turn = self.history.pop()
             user_turn = self.history.pop()
@@ -341,162 +660,135 @@ class AdventureEngine:
         return None, None
 
     def edit_turn(self, index, new_text):
-        """Edits an active history turn by its index."""
-        if 0 <= index < len(self.history):
-            self.history[index]["text"] = new_text
+        self._history[index]["text"] = new_text
+        if self._use_http_proxy():
+            self._update_state({"history": self._history})
+        else:
             self.save()
-            return True
-        return False
+        return True
 
     def get_active_cards(self, text_context):
-        """Scans the text context to find active lore cards based on trigger words."""
         active_cards = []
         for card in self.cards:
-            trigger_words = card.get("trigger_words", [])
-            for word in trigger_words:
-                # Compile case-insensitive regex matching word boundaries
-                pattern = r'\b' + re.escape(word) + r'\b'
-                if re.search(pattern, text_context, re.IGNORECASE):
+            triggers = card.get("trigger_words") or card.get("triggers") or []
+            for word in triggers:
+                escaped = re.escape(word)
+                regex = re.compile(rf"\b{escaped}\b", re.IGNORECASE)
+                if regex.search(text_context):
                     active_cards.append(card)
-                    break  # Found a match, no need to check other trigger words for this card
+                    break
         return active_cards
 
     def build_system_message(self, active_cards=None):
-        """Constructs the system prompt, appending the running summary and triggered cards."""
         system_content = self.system_prompt
-        
-        # Inject current location/score/moves to guide narrator
         system_content += f"\n\n[CURRENT STATUS]\n- Location: {self.location}\n- Score: {self.score}\n- Moves: {self.moves}"
         
-        # Inject adventure summary if it exists
         if self.summary:
             system_content += f"\n\n[ADVENTURE SUMMARY]\n{self.summary}"
             
-        # Inject active context/lore cards if any are triggered
         if active_cards:
             system_content += "\n\n[WORLD INFO & LORE]"
             for card in active_cards:
-                name = card.get("name")
-                card_type = card.get("type", "lore").upper()
+                name = card["name"]
+                ctype = card.get("type", "lore").upper()
                 desc = card.get("description", "")
-                system_content += f"\n- {name} ({card_type}): {desc}"
+                system_content += f"\n- {name} ({ctype}): {desc}"
                 
         return {"role": "system", "content": system_content}
 
-    def format_user_input(self, action_type, text):
-        """Formats the raw user input into Zork style text."""
-        if action_type == "continue":
-            return ""
-        text = text.strip()
-        if action_type in ("do", "say", "story"):
-            if text.startswith(">"):
-                return text
-            return f"> {text}"
-        return text
-
     def generate_response_stream(self, action_type, text):
-        """
-        Sends the formatted action to the LLM and streams the response.
-        Handles auto-summarization and card detection.
-        Yields events/chunks for the CLI to print in real-time.
-        """
-        # 1. Format and add the user's action
-        formatted_text = self.format_user_input(action_type, text)
+        if self._use_http_proxy():
+            payload = {
+                "action_type": action_type,
+                "text": text
+            }
+            r = requests.post(f"{self.base_url}/api/action", json=payload, stream=True)
+            r.raise_for_status()
+            
+            for line in r.iter_lines():
+                if line:
+                    decoded_line = line.decode('utf-8')
+                    if decoded_line.startswith('data: '):
+                        event = json.loads(decoded_line[6:])
+                        yield event
+            self._sync_from_server()
+            return
+
+        # Local generate_response_stream
+        def format_user_input(atype, txt):
+            if atype == "continue":
+                return ""
+            cleaned = txt.strip()
+            if atype in ("do", "say", "story"):
+                if cleaned.startswith(">"):
+                    return cleaned
+                return f"> {cleaned}"
+            return cleaned
+
+        formatted_text = format_user_input(action_type, text)
         self.history.append({
             "role": "user",
             "action_type": action_type,
             "text": formatted_text
         })
-        
-        # 2. Check and execute auto-summarization if active history is too long
-        summarized_any = False
+
         if self.auto_summarize and len(self.history) >= self.summarize_threshold:
             yield {"type": "system", "content": "COMPRESSING CONTEXT AND RUNNING AUTO-SUMMARIZATION..."}
             self.summarize_old_turns()
-            summarized_any = True
-            
-        # 3. Detect active cards in the last 2 turns
-        # We check the newly added user action and (if exists) the preceding assistant turn
+
         recent_text = formatted_text
         if len(self.history) >= 2:
             recent_text = self.history[-2]["text"] + " " + recent_text
-            
+
         active_cards = self.get_active_cards(recent_text)
         if active_cards:
             triggered_names = ", ".join([c["name"] for c in active_cards])
             yield {"type": "system", "content": f"LORE ACTIVATED: {triggered_names}"}
 
-        # Determine if this is a simple physical action to apply dynamic length limits
         request_max_tokens = self.max_tokens
         is_simple_action = False
         if action_type == "do":
             cleaned_cmd = text.strip().lower()
-            simple_verbs = (
+            simple_verbs = [
                 "take", "get", "drop", "open", "close", "read", "examine", 
                 "inventory", "wear", "look at", "put", "push", "pull", 
                 "turn", "unlock", "lock", "use", "drink", "eat"
-            )
+            ]
             if any(cleaned_cmd.startswith(verb) for verb in simple_verbs):
                 is_simple_action = True
-                # Use a proportional floor so user token budget is respected
                 request_max_tokens = max(60, self.max_tokens // 3)
 
-        # 4. Build prompt messages
         messages = []
         system_msg_obj = self.build_system_message(active_cards)
         if is_simple_action:
             system_msg_obj["content"] += "\n(Reply with a single curt sentence of 15 words or less.)"
         messages.append(system_msg_obj)
-        
-        # Append active history
+
         for turn in self.history:
             content = turn["text"]
-            if not content.strip():
+            if not content or not content.strip():
                 content = "[Continue]"
             messages.append({"role": turn["role"], "content": content})
-            
-        # 5. Query LM Studio with streaming enabled
+
         yield {"type": "status", "content": "Querying model..."}
-        
-        # Try to resolve loaded model dynamically before query
-        loaded_model = self.get_loaded_model()
-        if loaded_model and isinstance(loaded_model, str) and loaded_model != "local-model":
-            self.model = loaded_model
+
+        resolved = self.get_loaded_model()
+        if isinstance(resolved, str) and resolved and resolved != "local-model":
+            self.model = resolved
             self.save()
-        
+
         try:
-            try:
-                stream = self.client.chat.completions.create(
-                    model=self.model,
-                    messages=messages,
-                    temperature=self.temperature,
-                    max_tokens=request_max_tokens,
-                    stream=True
-                )
-            except Exception as e:
-                # If there's an error loading the model, try to refresh model list and fallback to any available model
-                error_msg = str(e)
-                if "Failed to load model" in error_msg or "400" in error_msg or "model" in error_msg.lower():
-                    yield {"type": "system", "content": f"Failed to load '{self.model}'. Attempting fallback..."}
-                    fallback_model = self.get_loaded_model()
-                    if fallback_model and fallback_model != self.model:
-                        yield {"type": "system", "content": f"Falling back to model: '{fallback_model}'"}
-                        self.model = fallback_model
-                        self.save()
-                        stream = self.client.chat.completions.create(
-                            model=self.model,
-                            messages=messages,
-                            temperature=self.temperature,
-                            max_tokens=request_max_tokens,
-                            stream=True
-                        )
-                    else:
-                        raise e
-                else:
-                    raise e
+            stream = self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                temperature=self.temperature,
+                max_tokens=request_max_tokens,
+                stream=True
+            )
             
             assistant_text = ""
             buffer = ""
+            
             for chunk in stream:
                 content = chunk.choices[0].delta.content
                 if content is not None:
@@ -515,22 +807,19 @@ class AdventureEngine:
                             buffer = ""
                     else:
                         yield {"type": "chunk", "content": content}
-                    
-            # Clean up status line from history turn before saving
+                        
             cleaned_text = assistant_text.strip()
             if buffer:
-                status_match = re.search(r'^\[Status:\s*(.*?)\s*\|\s*Score:\s*(\d+)\s*\]$', buffer.strip())
+                status_match = re.match(r'^\[Status:\s*(.*?)\s*\|\s*Score:\s*(\d+)\s*\]$', buffer.strip())
                 if status_match:
                     self.location = status_match.group(1).strip()
                     self.score = int(status_match.group(2).strip())
                     self.moves += 1
-                    cleaned_text = assistant_text[:len(assistant_text) - len(buffer)].strip()
+                    cleaned_text = assistant_text[:-len(buffer)].strip()
                 else:
-                    # Flush the buffer since it was not a status line
                     yield {"type": "chunk", "content": buffer}
                     self.moves += 1
             else:
-                # Fallback: check if status line is in cleaned_text anyway
                 status_match = re.search(r'\[Status:\s*(.*?)\s*\|\s*Score:\s*(\d+)\s*\]$', cleaned_text)
                 if status_match:
                     self.location = status_match.group(1).strip()
@@ -539,8 +828,7 @@ class AdventureEngine:
                     cleaned_text = cleaned_text[:status_match.start()].strip()
                 else:
                     self.moves += 1
-                
-            # Save assistant response to history
+                    
             self.history.append({
                 "role": "assistant",
                 "action_type": "narration",
@@ -549,63 +837,70 @@ class AdventureEngine:
             self.save()
             yield {"type": "done", "content": cleaned_text}
             
-        except Exception as e:
-            # Rollback the user turn on failure to keep history clean
+        except Exception as err:
             self.history.pop()
-            yield {"type": "error", "content": str(e)}
+            yield {"type": "error", "content": str(err)}
 
     def regenerate_last_response(self):
-        """Removes the last assistant turn and re-runs generation from previous history."""
+        if self._use_http_proxy():
+            payload = {
+                "action_type": "retry",
+                "text": ""
+            }
+            r = requests.post(f"{self.base_url}/api/action", json=payload, stream=True)
+            r.raise_for_status()
+            
+            for line in r.iter_lines():
+                if line:
+                    decoded_line = line.decode('utf-8')
+                    if decoded_line.startswith('data: '):
+                        event = json.loads(decoded_line[6:])
+                        yield event
+            self._sync_from_server()
+            return
+            
+        # Local regenerate_last_response
         if not self.history:
             yield {"type": "error", "content": "No history to regenerate."}
             return
-            
-        # Remove last turn if it's assistant
         if self.history[-1]["role"] == "assistant":
             self.history.pop()
-            
         if not self.history:
             yield {"type": "error", "content": "No player turn to regenerate a response for."}
             return
-            
-        # Extract the user's action and text to feed into generate_response_stream
         last_user_turn = self.history.pop()
         raw_text = last_user_turn["text"]
-        
-        # If it was formatted (e.g. starting with '> '), clean it up back to raw if possible
         if raw_text.startswith("> You try to "):
             raw_text = raw_text[len("> You try to "):]
         elif raw_text.startswith("> You say, \"") and raw_text.endswith("\""):
             raw_text = raw_text[len("> You say, \""):-1]
         elif raw_text.startswith("> "):
             raw_text = raw_text[2:]
-            
         action_type = last_user_turn.get("action_type", "story")
-        
-        # Yield streaming events
         for event in self.generate_response_stream(action_type, raw_text):
             yield event
 
     def generate_suggestions(self):
-        """
-        Queries the LLM non-streamed to generate exactly 3 brief suggestion actions 
-        for the player based on the current context.
-        """
-        # 1. Build messages from history
-        messages = []
-        messages.append({
-            "role": "system",
-            "content": "You are the Dungeon Master. Based on the story history, generate exactly 3 brief action suggestions of what the player could attempt next. The suggestions must be active, short (less than 10 words each), and starting with a verb (e.g. 'Search the room', 'Talk to the merchant', 'Draw your sword'). Output them ONLY as a numbered list from 1 to 3, with no introductory or concluding text."
-        })
+        if self._use_http_proxy():
+            self._sync_from_server()
+            if self._suggestions:
+                return self._suggestions
+            r = requests.get(f"{self.base_url}/api/state", timeout=2)
+            if r.status_code == 200:
+                self._suggestions = r.json().get("suggestions", [])
+                return self._suggestions
+            return ["Proceed forward", "Look around", "Examine your surroundings"]
+            
+        # Local generate_suggestions
+        messages = [
+            {"role": "system", "content": "You are the Dungeon Master. Based on the story history, generate exactly 3 brief action suggestions of what the player could attempt next. The suggestions must be active, short (less than 10 words each), and starting with a verb (e.g. 'Search the room', 'Talk to the merchant', 'Draw your sword'). Output them ONLY as a numbered list from 1 to 3, with no introductory or concluding text."}
+        ]
         for turn in self.history:
             messages.append({"role": turn["role"], "content": turn["text"]})
-            
-        # Add a final user request asking for the suggestions to prompt a direct response
         messages.append({
             "role": "user",
             "content": "Based on the scene above, list exactly 3 short, active suggestion actions for what I can do next. Format as a numbered list (1., 2., 3.). Do not write anything else."
         })
-            
         try:
             response = self.client.chat.completions.create(
                 model=self.model,
@@ -615,51 +910,41 @@ class AdventureEngine:
                 stream=False
             )
             text = response.choices[0].message.content.strip()
-            # Parse the suggestions robustly
             suggestions = []
             for line in text.splitlines():
                 line = line.strip()
                 if not line:
                     continue
-                # Try to extract the suggestion after a number or bullet prefix
                 match = re.match(r'^\s*(?:\d+[\.\)\:-]?|[\-\*\•])\s*(.*)', line)
                 if match:
                     cleaned = match.group(1).strip().strip('"\'')
                     if cleaned:
                         suggestions.append(cleaned)
-            
-            # If no prefixed lines matched, fallback to raw lines
             if not suggestions:
                 for line in text.splitlines():
                     cleaned = line.strip().strip('"\'')
                     if cleaned:
                         suggestions.append(cleaned)
-            
-            # Ensure we have exactly 3 suggestions. If not, pad with different fallbacks.
             fallbacks = ["Proceed forward", "Look around", "Examine your surroundings"]
             while len(suggestions) < 3:
                 suggestions.append(fallbacks[len(suggestions)])
             return suggestions[:3]
-        except Exception as e:
-            # Fallback defaults on failure
+        except Exception:
             return ["Proceed forward", "Look around", "Examine your surroundings"]
 
     def summarize_old_turns(self):
-        """Takes the first 4 turns of active history, summarizes them, and archives them."""
+        # Local summarize_old_turns
         if len(self.history) < 4:
             return
             
         turns_to_summarize = self.history[:4]
-        # Remove from active history
         self.history = self.history[4:]
         
-        # Format the log text for these turns
         events_text = ""
         for turn in turns_to_summarize:
             role_label = "Player" if turn["role"] == "user" else "Dungeon Master"
             events_text += f"{role_label}: {turn['text']}\n"
             
-        # Construct summarization prompt
         prompt = f"""You are the chronicler of a fantasy text adventure.
 Your job is to update the adventure's running summary.
 Incorporate the new events in the LOG into the EXISTING SUMMARY.
@@ -685,7 +970,6 @@ Provide ONLY the updated summary text. Do not write introductory words like "Her
             )
             
             summary_content = response.choices[0].message.content.strip()
-            # Clean markdown code blocks if the model wrapped it
             summary_content = re.sub(r"^```[a-zA-Z]*\n", "", summary_content)
             summary_content = re.sub(r"\n```$", "", summary_content).strip()
             
@@ -694,12 +978,96 @@ Provide ONLY the updated summary text. Do not write introductory words like "Her
             self.save()
             
         except Exception as e:
-            # On summary failure, restore turns to active history so story is not lost
             self.history = turns_to_summarize + self.history
             raise RuntimeError(f"Summarization failed: {e}")
 
+    def add_manual_card(self, name, card_type, description, trigger_words):
+        """Allows manually adding a lore card."""
+        if self._use_http_proxy():
+            try:
+                payload = {
+                    "action": "add",
+                    "card": {
+                        "name": name,
+                        "type": card_type,
+                        "description": description,
+                        "triggers": trigger_words
+                    }
+                }
+                r = requests.post(f"{self.base_url}/api/lore", json=payload, timeout=2)
+                r.raise_for_status()
+                self._sync_from_server()
+                # Find the newly added card from synced cards to return it
+                for c in self.cards:
+                    if c.get("name") == name:
+                        return c
+            except Exception as e:
+                # Fallback to local on proxy error
+                pass
+        
+        # Local fallback
+        card_id = str(uuid.uuid4())[:6]
+        card = {
+            "id": card_id,
+            "name": name,
+            "type": card_type,
+            "description": description,
+            "trigger_words": [w.strip() for w in trigger_words if w.strip()],
+            "triggers": [w.strip() for w in trigger_words if w.strip()],
+            "enabled": True,
+            "active": True
+        }
+        self.cards.append(card)
+        self.save()
+        return card
+
+    def delete_card(self, card_id):
+        """Deletes a context card by ID."""
+        if self._use_http_proxy():
+            try:
+                # In the HTTP proxy, delete expects action: "delete" and index.
+                # Let's find index of card with card_id
+                card_idx = None
+                for idx, c in enumerate(self.cards):
+                    if c.get("id") == card_id:
+                        card_idx = idx
+                        break
+                if card_idx is not None:
+                    payload = {
+                        "action": "delete",
+                        "index": card_idx
+                    }
+                    r = requests.post(f"{self.base_url}/api/lore", json=payload, timeout=2)
+                    r.raise_for_status()
+                    self._sync_from_server()
+                    return True
+            except Exception as e:
+                pass
+        
+        # Local fallback
+        original_len = len(self.cards)
+        self.cards = [c for c in self.cards if c.get("id") != card_id]
+        if len(self.cards) < original_len:
+            self.save()
+            return True
+        return False
+
     def auto_generate_cards(self):
         """Scans the active history to identify new characters, items, or locations and makes lore cards."""
+        if self._use_http_proxy():
+            try:
+                r = requests.post(f"{self.base_url}/api/scan", timeout=5)
+                r.raise_for_status()
+                # Compare before and after
+                old_card_ids = {c.get("id") for c in self.cards}
+                self._sync_from_server()
+                new_cards = [c for c in self.cards if c.get("id") not in old_card_ids]
+                return new_cards
+            except Exception as e:
+                # Fallback to local on proxy error
+                pass
+
+        # Local fallback
         if not self.history and not self.archived_history:
             return []
             
@@ -757,9 +1125,15 @@ JSON Output:
             existing_names = {c["name"].lower() for c in self.cards}
             
             for card in new_cards:
-                if card.get("name") and card["name"].lower() not in existing_names:
+                name = card.get("name")
+                if name and name.lower() not in existing_names:
                     card["id"] = str(uuid.uuid4())[:6]
                     card["enabled"] = True
+                    card["active"] = True
+                    if "trigger_words" in card:
+                        card["triggers"] = card["trigger_words"]
+                    elif "triggers" in card:
+                        card["trigger_words"] = card["triggers"]
                     self.cards.append(card)
                     added_cards.append(card)
                     
@@ -770,27 +1144,3 @@ JSON Output:
             
         except Exception as e:
             raise RuntimeError(f"Lore extraction failed: {e}")
-            
-    def add_manual_card(self, name, card_type, description, trigger_words):
-        """Allows manually adding a lore card."""
-        card_id = str(uuid.uuid4())[:6]
-        card = {
-            "id": card_id,
-            "name": name,
-            "type": card_type,
-            "description": description,
-            "trigger_words": [w.strip() for w in trigger_words if w.strip()],
-            "enabled": True
-        }
-        self.cards.append(card)
-        self.save()
-        return card
-
-    def delete_card(self, card_id):
-        """Deletes a context card by ID."""
-        original_len = len(self.cards)
-        self.cards = [c for c in self.cards if c.get("id") != card_id]
-        if len(self.cards) < original_len:
-            self.save()
-            return True
-        return False

@@ -8,10 +8,21 @@ import math
 
 def read_key():
     """Reads a single keypress from standard input including escape sequences using unbuffered reads."""
-    fd = sys.stdin.fileno()
-    if not os.isatty(fd):
-        ch = sys.stdin.read(1)
-        return ch
+    try:
+        fd = sys.stdin.fileno()
+        is_tty = os.isatty(fd)
+    except Exception:
+        try:
+            is_tty = os.isatty(0)
+        except Exception:
+            is_tty = False
+
+    if not is_tty:
+        try:
+            ch = sys.stdin.read(1)
+            return ch
+        except Exception:
+            return ""
 
     old_settings = termios.tcgetattr(fd)
     try:
@@ -46,8 +57,16 @@ def read_key():
 
 def read_key_nonblocking():
     """Reads a keypress from standard input without blocking. Returns the key or None."""
-    fd = sys.stdin.fileno()
-    if not os.isatty(fd):
+    try:
+        fd = sys.stdin.fileno()
+        is_tty = os.isatty(fd)
+    except Exception:
+        try:
+            is_tty = os.isatty(0)
+        except Exception:
+            is_tty = False
+
+    if not is_tty:
         return None
 
     old_settings = termios.tcgetattr(fd)
@@ -183,8 +202,16 @@ def get_interactive_edit(prompt_text, default_text=""):
     An interactive input prompt pre-populated with default_text using python's built-in readline.
     Reuses standard terminal input shortcuts (navigation, delete words, etc.) handled natively.
     """
-    fd = sys.stdin.fileno()
-    if not os.isatty(fd) or readline is None:
+    try:
+        fd = sys.stdin.fileno()
+        is_tty = os.isatty(fd)
+    except Exception:
+        try:
+            is_tty = os.isatty(0)
+        except Exception:
+            is_tty = False
+
+    if not is_tty or readline is None:
         # Fallback for non-TTY or environments without readline support
         sys.stdout.write(prompt_text + default_text)
         sys.stdout.flush()
