@@ -4,11 +4,15 @@ import time
 import socket
 import subprocess
 import re
+import shutil
 import pytest
 from playwright.sync_api import sync_playwright, expect
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+# Isolated save directory for E2E tests
+TEST_SAVE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "adventures")
 
 def is_port_open(port):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -22,6 +26,7 @@ def start_server():
     if not is_port_open(port):
         env = os.environ.copy()
         env["MOCK_LLM"] = "1"  # Force mock mode for testing
+        env["SAVE_DIR"] = TEST_SAVE_DIR  # Isolate test saves
         proc = subprocess.Popen(
             ["node", "web/server.js"],
             stdout=subprocess.PIPE,
@@ -44,6 +49,10 @@ def start_server():
             proc.wait(timeout=2)
         except subprocess.TimeoutExpired:
             proc.kill()
+    
+    # Clean up isolated test save directory
+    if os.path.isdir(TEST_SAVE_DIR):
+        shutil.rmtree(TEST_SAVE_DIR, ignore_errors=True)
 
 @pytest.fixture(scope="function")
 def main_page(page):

@@ -20,6 +20,7 @@ router.get('/ping', async (req, res) => {
             host,
             port,
             model: "mock-llm",
+            embedding_model: "mock-embedding-model",
             models: ["mock-llm"],
             base_url: baseURL
         });
@@ -55,11 +56,20 @@ router.get('/ping', async (req, res) => {
                 loadedModel = modelIds[0];
             }
 
+            let loadedEmbeddingModel = null;
+            for (const m of modelsData) {
+                if (m.type === "embedding" && m.loaded_instances && m.loaded_instances.length > 0) {
+                    loadedEmbeddingModel = m.key;
+                    break;
+                }
+            }
+
             return res.json({
                 status: "online",
                 host,
                 port,
                 model: loadedModel || "unknown",
+                embedding_model: loadedEmbeddingModel,
                 models: modelIds,
                 base_url: baseURL
             });
@@ -75,11 +85,20 @@ router.get('/ping', async (req, res) => {
                 const modelIds = modelsData.map(m => m.id);
                 const loadedModel = modelIds.length > 0 ? modelIds[0] : "unknown";
 
+                let loadedEmbeddingModel = null;
+                for (const id of modelIds) {
+                    if (id.toLowerCase().includes("embed") || id.toLowerCase().includes("nomic")) {
+                        loadedEmbeddingModel = id;
+                        break;
+                    }
+                }
+
                 return res.json({
                     status: "online",
                     host,
                     port,
                     model: loadedModel,
+                    embedding_model: loadedEmbeddingModel,
                     models: modelIds,
                     base_url: baseURL
                 });
@@ -90,6 +109,7 @@ router.get('/ping', async (req, res) => {
                 host,
                 port,
                 model: null,
+                embedding_model: null,
                 models: [],
                 error: err.message
             });
@@ -101,6 +121,7 @@ router.get('/ping', async (req, res) => {
         host,
         port,
         model: null,
+        embedding_model: null,
         models: [],
         error: "Failed to ping server"
     });
@@ -108,13 +129,6 @@ router.get('/ping', async (req, res) => {
 
 router.get('/state', async (req, res) => {
     const activeEngine = engine;
-    if (activeEngine.adventureId && (!activeEngine.suggestions || activeEngine.suggestions.length === 0)) {
-        try {
-            await activeEngine.generateSuggestions();
-        } catch (e) {
-            // Ignore suggestions generation failure
-        }
-    }
 
     res.json({
         adventure_id: activeEngine.adventureId,
@@ -126,7 +140,6 @@ router.get('/state', async (req, res) => {
         cards: activeEngine.cards,
         summary: activeEngine.summary,
         system_prompt: activeEngine.systemPrompt,
-        suggestions: activeEngine.suggestions,
         max_tokens: activeEngine.maxTokens,
         model: activeEngine.model
     });

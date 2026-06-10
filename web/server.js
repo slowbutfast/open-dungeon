@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url';
 import gameRouter from './routes/game.js';
 import savesRouter from './routes/saves.js';
 import loreRouter from './routes/lore.js';
+import memoryRouter from './routes/memory.js';
 
 // Load environmental variables
 dotenv.config();
@@ -36,11 +37,78 @@ app.get('/', (req, res) => {
 app.use('/api', gameRouter);
 app.use('/api', savesRouter);
 app.use('/api', loreRouter);
+app.use('/api', memoryRouter);
 
 const PORT = 5001;
 // Bind to 127.0.0.1 in mock mode to avoid firewall popup and socket lookup delay
 const host = process.env.MOCK_LLM === "1" ? "127.0.0.1" : "0.0.0.0";
 
-app.listen(PORT, host, () => {
+app.listen(PORT, host, async () => {
     console.log(`Express server running on http://${host}:${PORT}`);
+    
+    // Preload embedding model on startup
+    if (process.env.MOCK_LLM === "1") {
+        console.log(`[STARTUP] Fetching available models from LM Studio...`);
+        console.log(`[STARTUP] Embedding model 'mock-embedding-model' is already loaded. Skipping load.`);
+    } else {
+        try {
+            const hostIP = process.env.LM_STUDIO_HOST || "127.0.0.1";
+            const portNum = process.env.LM_STUDIO_PORT || "1234";
+            const apiModelsUrl = `http://${hostIP}:${portNum}/api/v1/models`;
+            
+            console.log(`[STARTUP] Fetching available models from LM Studio...`);
+            const resp = await fetch(apiModelsUrl);
+            if (resp.ok) {
+                const data = await resp.json();
+                const models = data.models || [];
+                
+                // Check if there is already a loaded embedding model
+                let alreadyLoaded = false;
+                for (const m of models) {
+                    if (m.type === "embedding" && m.loaded_instances && m.loaded_instances.length > 0) {
+                        console.log(`[STARTUP] Embedding model '${m.key}' is already loaded. Skipping load.`);
+                        alreadyLoaded = true;
+                        break;
+                    }
+                }
+                
+                if (alreadyLoaded) {
+                    // Nothing to do, embedding model is already active
+                } else {
+                    let modelToLoad = null;
+                    for (const m of models) {
+                        if (m.type === "embedding") {
+                            modelToLoad = m.key;
+                            break;
+                        }
+                    }
+                    
+                    if (modelToLoad) {
+                        console.log(`[STARTUP] Preloading embedding model '${modelToLoad}' via REST API...`);
+                        const apiLoadUrl = `http://${hostIP}:${portNum}/api/v1/models/load`;
+                        const loadResp = await fetch(apiLoadUrl, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                model: modelToLoad
+                            })
+                        });
+                        
+                        if (loadResp.ok) {
+                            console.log(`[STARTUP] Embedding model preloaded successfully.`);
+                        } else {
+                            const errorMsg = await loadResp.text();
+                            console.error(`[STARTUP] Failed to preload embedding model via REST API. Status: ${loadResp.status}, Error: ${errorMsg}`);
+                        }
+                    } else {
+                        console.warn(`[STARTUP] No embedding model found in LM Studio list to preload.`);
+                    }
+                }
+            } else {
+                console.warn(`[STARTUP] Failed to query LM Studio models list. Status: ${resp.status}`);
+            }
+        } catch (e) {
+            console.error(`[STARTUP] Error preloading embedding model:`, e.message);
+        }
+    }
 });

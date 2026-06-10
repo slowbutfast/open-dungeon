@@ -4,6 +4,8 @@ import fs from 'fs/promises';
 import { AdventureState } from './state.js';
 import { ContextManager } from './context.js';
 import { LlmOrchestrator } from './llm.js';
+import { MemoryManager } from './memory/memoryManager.js';
+import { EmbeddingService } from './memory/embeddings.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -16,6 +18,7 @@ Only provide longer room descriptions (1-2 paragraphs) when the player enters a 
 Use the second-person perspective ("You").
 Do not write dialogue or actions for the player character ("You").
 Never break character.
+Do not write suggestions, choices, options lists, or any trailing questions asking the player what they want to do next (e.g. do not ask "What do you do?" or "What is your next move?"). Let the player decide entirely on their own.
 
 Example 1:
 Player: open mailbox
@@ -40,7 +43,11 @@ Do not write anything else on the status line.`;
 export class AdventureEngine {
     constructor(saveDir = null) {
         if (!saveDir) {
-            this.saveDir = path.join(__dirname, '..', 'game', 'adventures');
+            if (process.env.SAVE_DIR) {
+                this.saveDir = path.resolve(process.env.SAVE_DIR);
+            } else {
+                this.saveDir = path.join(__dirname, '..', 'game', 'adventures');
+            }
         } else {
             this.saveDir = saveDir;
         }
@@ -50,6 +57,11 @@ export class AdventureEngine {
         this.state = new AdventureState();
         this.context = new ContextManager();
         this.llm = new LlmOrchestrator();
+
+        const dataDir = path.join(this.saveDir, '..', 'data');
+        const embeddingService = new EmbeddingService(this.llm.client);
+        this.memory = new MemoryManager(dataDir, this.llm.client, embeddingService);
+        this.context.memoryManager = this.memory;
     }
 
     // Proxy getters and setters to maintain exactly the same public property access
@@ -75,8 +87,6 @@ export class AdventureEngine {
     get archivedHistory() { return this.state.archivedHistory; }
     set archivedHistory(val) { this.state.archivedHistory = val; }
 
-    get suggestions() { return this.state.suggestions; }
-    set suggestions(val) { this.state.suggestions = val; }
 
     get location() { return this.state.location; }
     set location(val) { this.state.location = val; }
@@ -117,7 +127,6 @@ export class AdventureEngine {
         this.state.summary = "";
         this.state.cards = [];
         this.state.history = [];
-        this.state.suggestions = [];
         this.state.archivedHistory = [];
         this.state.location = "West of House";
         this.state.score = 0;
@@ -126,6 +135,7 @@ export class AdventureEngine {
         const resolved = await this.getLoadedModel();
         this.state.model = typeof resolved === "string" ? resolved : "local-model";
         
+        await this.memory.initialize(this.state.adventureId);
         await this.save();
         return this.state.adventureId;
     }
@@ -136,6 +146,7 @@ export class AdventureEngine {
 
     async load(adventureId) {
         await this.state.load(this.saveDir, adventureId, () => this.getLoadedModel());
+        await this.memory.initialize(adventureId);
     }
 
     async listAdventures() {
@@ -143,12 +154,17 @@ export class AdventureEngine {
     }
 
     async deleteAdventure(adventureId) {
+        try {
+            await this.memory.vectorStore.deleteIndex(adventureId);
+            this.memory.structuredStore.deleteAdventureData(adventureId);
+        } catch (e) {
+            console.error(`Error deleting memory indexes for ${adventureId}:`, e);
+        }
         return this.state.delete(this.saveDir, adventureId);
     }
 
     async undo() {
         const result = this.state.undo();
-        this.state.suggestions = [];
         await this.save();
         return result;
     }
@@ -195,10 +211,16 @@ export class AdventureEngine {
         );
     }
 
-    async generateSuggestions() {
-        const suggestions = await this.llm.generateSuggestions(this.state);
-        this.state.suggestions = suggestions;
-        return suggestions;
+    async getInventory() {
+        return this.memory.getInventory(this.state.adventureId);
+    }
+
+    async getEventLog(limit = 20) {
+        return this.memory.getEventLog(this.state.adventureId, limit);
+    }
+
+    async searchMemories(query, topK = 5) {
+        return this.memory.recallRelevantMemories(query, this.state.adventureId, topK);
     }
 
     async summarizeOldTurns() {

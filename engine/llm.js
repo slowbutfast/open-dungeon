@@ -1,5 +1,8 @@
 import OpenAI from 'openai';
+import dotenv from 'dotenv';
 import { MockOpenAI } from './mockOpenAI.js';
+
+dotenv.config();
 
 export class LlmOrchestrator {
     constructor() {
@@ -73,7 +76,7 @@ export class LlmOrchestrator {
         return "local-model";
     }
 
-    buildSystemMessage(state, activeCards = null) {
+    buildSystemMessage(state, activeCards = null, ragMemories = null) {
         let systemContent = state.systemPrompt;
         systemContent += `\n\n[CURRENT STATUS]\n- Location: ${state.location}\n- Score: ${state.score}\n- Moves: ${state.moves}`;
         
@@ -90,11 +93,19 @@ export class LlmOrchestrator {
                 systemContent += `\n- ${name} (${cardType}): ${desc}`;
             }
         }
+
+        if (ragMemories && ragMemories.length > 0) {
+            systemContent += "\n\n[RECALLED MEMORIES]";
+            systemContent += "\nRelevant past events from your adventure:";
+            for (const mem of ragMemories) {
+                systemContent += `\n- (Turn ${mem.turnIndex}, ${mem.eventType}): ${mem.text}`;
+            }
+        }
+
         return { role: "system", content: systemContent };
     }
 
     async *generateResponseStream(state, actionType, text, contextManager, saveFn) {
-        state.suggestions = [];
         const formatUserInput = (type, val) => {
             if (type === "continue") return "";
             const cleaned = val.trim();
@@ -112,12 +123,6 @@ export class LlmOrchestrator {
             text: formattedText
         });
 
-        let summarizedAny = false;
-        if (state.autoSummarize && state.history.length >= state.summarizeThreshold) {
-            yield { type: "system", content: "COMPRESSING CONTEXT AND RUNNING AUTO-SUMMARIZATION..." };
-            await contextManager.summarizeOldTurns(state, this.client, state.model, saveFn);
-            summarizedAny = true;
-        }
 
         let recentText = formattedText;
         if (state.history.length >= 2) {
@@ -128,6 +133,16 @@ export class LlmOrchestrator {
         if (activeCards && activeCards.length > 0) {
             const triggeredNames = activeCards.map(c => c.name).join(", ");
             yield { type: "system", content: `LORE ACTIVATED: ${triggeredNames}` };
+        }
+
+        let ragMemories = [];
+        try {
+            ragMemories = await contextManager.getRAGContext(recentText, state.adventureId);
+            if (ragMemories && ragMemories.length > 0) {
+                yield { type: "system", content: `MEMORY RECALL: ${ragMemories.length} relevant memories` };
+            }
+        } catch (e) {
+            // Non-fatal: continue without RAG context
         }
 
         let requestMaxTokens = state.maxTokens;
@@ -146,7 +161,7 @@ export class LlmOrchestrator {
         }
 
         const messages = [];
-        const systemMsgObj = this.buildSystemMessage(state, activeCards);
+        const systemMsgObj = this.buildSystemMessage(state, activeCards, ragMemories);
         if (isSimpleAction) {
             systemMsgObj.content += "\n(Reply with a single curt sentence of 15 words or less.)";
         }
@@ -261,6 +276,31 @@ export class LlmOrchestrator {
             await saveFn();
             yield { type: "done", content: cleanedText };
 
+            if (contextManager.memoryManager) {
+                const lastTurns = state.history.slice(-2);
+                if (lastTurns.length === 2) {
+                    contextManager.memoryManager.bufferTurnPair({
+                        turnIndex: state.moves,
+                        player: lastTurns[0].text,
+                        dm: lastTurns[1].text
+                    });
+                }
+            }
+
+            // Run background tasks sequentially: memory extraction, then auto-summarization
+            (async () => {
+                try {
+                    if (contextManager.memoryManager) {
+                        await contextManager.memoryManager.flushIfReady(state, state.model, saveFn);
+                    }
+                    if (state.autoSummarize && state.history.length >= state.summarizeThreshold) {
+                        await contextManager.summarizeOldTurns(state, this.client, state.model, saveFn);
+                    }
+                } catch (e) {
+                    console.error("Async background task execution failed:", e.message);
+                }
+            })();
+
         } catch (err) {
             state.history.pop();
             yield { type: "error", content: String(err) };
@@ -300,58 +340,4 @@ export class LlmOrchestrator {
         }
     }
 
-    async generateSuggestions(state) {
-        const messages = [];
-        messages.push({
-            role: "system",
-            content: "You are the Dungeon Master. Based on the story history, generate exactly 3 brief action suggestions of what the player could attempt next. The suggestions must be active, short (less than 10 words each), and starting with a verb (e.g. 'Search the room', 'Talk to the merchant', 'Draw your sword'). Output them ONLY as a numbered list from 1 to 3, with no introductory or concluding text."
-        });
-        
-        for (const turn of state.history) {
-            messages.push({ role: turn.role, content: turn.text });
-        }
-        
-        messages.push({
-            role: "user",
-            content: "Based on the scene above, list exactly 3 short, active suggestion actions for what I can do next. Format as a numbered list (1., 2., 3.). Do not write anything else."
-        });
-        
-        try {
-            const response = await this.client.chat.completions.create({
-                model: state.model,
-                messages,
-                temperature: 0.7,
-                max_tokens: 64,
-                stream: false
-            });
-            
-            const text = response.choices[0].message.content.trim();
-            const suggestions = [];
-            const lines = text.split('\n');
-            for (let line of lines) {
-                line = line.trim();
-                if (!line) continue;
-                const match = line.match(/^\s*(?:\d+[\.\)\:-]?|[\-\*\•])\s*(.*)/);
-                if (match) {
-                    const cleaned = match[1].trim().replace(/^['"]|['"]$/g, '');
-                    if (cleaned) suggestions.push(cleaned);
-                }
-            }
-            
-            if (suggestions.length === 0) {
-                for (let line of lines) {
-                    const cleaned = line.trim().replace(/^['"]|['"]$/g, '');
-                    if (cleaned) suggestions.push(cleaned);
-                }
-            }
-            
-            const fallbacks = ["Proceed forward", "Look around", "Examine your surroundings"];
-            while (suggestions.length < 3) {
-                suggestions.push(fallbacks[suggestions.length]);
-            }
-            return suggestions.slice(0, 3);
-        } catch (e) {
-            return ["Proceed forward", "Look around", "Examine your surroundings"];
-        }
-    }
 }
