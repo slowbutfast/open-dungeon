@@ -351,22 +351,30 @@ export class LlmOrchestrator {
 
             let cleanedText = assistantText.trim();
             if (buffer) {
-                const statusMatch = buffer.trim().match(/^\[Status:\s*(.*?)\s*\|\s*Score:\s*(\d+)\s*\]$/);
+                const statusMatch = buffer.trim().match(/^\[Status:\s*(.*?)\s*\|\s*Score:\s*(\d+)(?:\s*\|\s*Moves:\s*(\d+))?\s*\]$/);
                 if (statusMatch) {
                     state.location = statusMatch[1].trim();
                     state.score = parseInt(statusMatch[2].trim(), 10);
-                    state.moves += 1;
+                    if (statusMatch[3] !== undefined && !isNaN(parseInt(statusMatch[3].trim(), 10))) {
+                        state.moves = parseInt(statusMatch[3].trim(), 10);
+                    } else {
+                        state.moves += 1;
+                    }
                     cleanedText = assistantText.substring(0, assistantText.length - buffer.length).trim();
                 } else {
                     yield { type: "chunk", content: buffer };
                     state.moves += 1;
                 }
             } else {
-                const statusMatch = cleanedText.match(/\[Status:\s*(.*?)\s*\|\s*Score:\s*(\d+)\s*\]$/);
+                const statusMatch = cleanedText.match(/\[Status:\s*(.*?)\s*\|\s*Score:\s*(\d+)(?:\s*\|\s*Moves:\s*(\d+))?\s*\]$/);
                 if (statusMatch) {
                     state.location = statusMatch[1].trim();
                     state.score = parseInt(statusMatch[2].trim(), 10);
-                    state.moves += 1;
+                    if (statusMatch[3] !== undefined && !isNaN(parseInt(statusMatch[3].trim(), 10))) {
+                        state.moves = parseInt(statusMatch[3].trim(), 10);
+                    } else {
+                        state.moves += 1;
+                    }
                     cleanedText = cleanedText.substring(0, statusMatch.index).trim();
                 } else {
                     state.moves += 1;

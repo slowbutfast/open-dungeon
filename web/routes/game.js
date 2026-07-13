@@ -272,6 +272,15 @@ router.post('/init', async (req, res) => {
         });
     }
 
+    // Buffer the initial turn pair (turnIndex: 1) for immediate force-flush availability
+    if (activeEngine.history.length >= 2) {
+        activeEngine.memory.bufferTurnPair({
+            turnIndex: 1,
+            player: activeEngine.history[0].text,
+            dm: activeEngine.history[1].text
+        });
+    }
+
     await activeEngine.save();
 
     activeEngine.location = "Starting Location";
