@@ -18,6 +18,8 @@ export class MemoryManager {
         this.batchSize = 3;
         this.currentAdventureId = null;
         this.lastExtractedTurnIndex = 0;
+        this.isFlushing = false;
+        this.activeFlushPromise = null;
     }
 
     async initialize(adventureId) {
@@ -43,16 +45,39 @@ export class MemoryManager {
         }
     }
 
-    async flushIfReady(state, modelName = "local-model", saveFn) {
+    async flushIfReady(state, modelName = "local-model", saveFn, options = {}) {
         const adventureId = state.adventureId;
         if (adventureId !== this.currentAdventureId) {
             await this.initialize(adventureId);
         }
 
-        if (this.turnBuffer.length < this.batchSize) {
+        // If a flush is already in progress, return the existing promise so callers wait for it
+        if (this.isFlushing && this.activeFlushPromise) {
+            return this.activeFlushPromise;
+        }
+
+        // Without force, only flush when buffer reaches batch size
+        if (!options.force && this.turnBuffer.length < this.batchSize) {
             return;
         }
 
+        // If buffer is empty, nothing to flush
+        if (this.turnBuffer.length === 0) {
+            return;
+        }
+
+        this.isFlushing = true;
+        this.activeFlushPromise = this._doFlush(state, modelName, saveFn);
+
+        try {
+            return await this.activeFlushPromise;
+        } finally {
+            this.isFlushing = false;
+            this.activeFlushPromise = null;
+        }
+    }
+
+    async _doFlush(state, modelName, saveFn) {
         const batch = this.turnBuffer.slice(0, this.batchSize);
         addDebugLog(`Memory manager: flushing queue buffer for turns ${batch.map(t => t.turnIndex).join(', ')}`);
 

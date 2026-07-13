@@ -98,32 +98,35 @@ class TestMemoryFeatures(unittest.TestCase):
         pass
 
     def test_memory_endpoints_empty_initially(self):
-        """Verify memory endpoints return correct empty structures right after init."""
+        """Verify memory endpoints return correct structures right after init with force-flush."""
         # Initialize adventure
         payload = {"preset_idx": 0}
         res = self.app.post("/api/init", json=payload)
         self.assertEqual(res.status_code, 200)
 
-        # Get inventory
+        # The initial turn pair (character description + opening scene) is now buffered.
+        # Reading inventory/events/stats triggers a force-flush before querying.
+        # The mock extractor may produce a default movement event from the initial turn
+        # if no specific keywords match, but no inventory items should appear.
+
+        # Get inventory - should remain empty (no items mentioned in initial turn texts)
         res = self.app.get("/api/memory/inventory")
         self.assertEqual(res.status_code, 200)
         items = json.loads(res.data)
         self.assertEqual(items, [])
 
-        # Get events
+        # Get events - may contain a default movement event from the initial turn extraction
         res = self.app.get("/api/memory/events")
         self.assertEqual(res.status_code, 200)
         events = json.loads(res.data)
-        self.assertEqual(events, [])
+        # Events may be non-empty due to force-flush of the initial turn
 
-        # Get stats
+        # Get stats - lastExtractedTurnIndex should be > 0 after force-flush
         res = self.app.get("/api/memory/stats")
         self.assertEqual(res.status_code, 200)
         stats = json.loads(res.data)
-        self.assertEqual(stats["events"], 0)
         self.assertEqual(stats["inventory"], 0)
-        self.assertEqual(stats["lore"], 0)
-        self.assertEqual(stats["lastExtractedTurnIndex"], 0)
+        # lastExtractedTurnIndex may be > 0 due to force-flush of initial turn
 
     def test_memory_batch_extraction(self):
         """Verify that playing 3 turns triggers async event extraction, inventory, and lore updates."""
@@ -186,6 +189,97 @@ class TestMemoryFeatures(unittest.TestCase):
         search_results = json.loads(res.data)
         self.assertGreater(len(search_results), 0)
         self.assertTrue(any("korr" in r["text"].lower() or "smuggler" in r["text"].lower() for r in search_results))
+
+    def test_inventory_returns_items_after_first_move(self):
+        """Querying the inventory API returns starting items right after the first move."""
+        # Initialize adventure
+        payload = {"preset_idx": 0}
+        res = self.app.post("/api/init", json=payload)
+        self.assertEqual(res.status_code, 200)
+
+        # Send a single move that should produce items in the mock extractor
+        payload = {"action_type": "do", "text": "I search the room and take the rusty sword."}
+        res = self.app.post("/api/action", json=payload)
+        self.assertEqual(res.status_code, 200)
+
+        # After the first move, inventory should have starting items
+        # (Will fail initially until force-flush is implemented)
+        inventory = []
+        for _ in range(50):
+            res = self.app.get("/api/memory/inventory")
+            if res.status_code == 200:
+                inventory = json.loads(res.data)
+                if len(inventory) > 0:
+                    break
+            time.sleep(0.1)
+
+        self.assertGreater(len(inventory), 0)
+        names = [item["item_name"] for item in inventory]
+        self.assertIn("Rusty Sword", names)
+
+    def test_memory_endpoints_trigger_force_flush(self):
+        """Verify that /api/memory/stats and /api/memory/inventory trigger a force-flush of pending buffered turns."""
+        # Initialize adventure
+        payload = {"preset_idx": 0}
+        res = self.app.post("/api/init", json=payload)
+        self.assertEqual(res.status_code, 200)
+
+        # Send a single move to buffer a turn (without reaching batch size of 3)
+        payload = {"action_type": "do", "text": "I search the room and take the rusty sword."}
+        res = self.app.post("/api/action", json=payload)
+        self.assertEqual(res.status_code, 200)
+
+        # Before the force flush, stats should show lastExtractedTurnIndex == 0 (nothing extracted yet)
+        # After force-flush, lastExtractedTurnIndex should advance
+        stats = {}
+        for _ in range(50):
+            res = self.app.get("/api/memory/stats")
+            if res.status_code == 200:
+                stats = json.loads(res.data)
+                if stats.get("lastExtractedTurnIndex", 0) > 0:
+                    break
+            time.sleep(0.1)
+
+        self.assertGreater(stats.get("lastExtractedTurnIndex", 0), 0,
+            "GET /api/memory/stats should force-flush pending turns")
+
+        # Also verify inventory returns items after the forced flush
+        res = self.app.get("/api/memory/inventory")
+        self.assertEqual(res.status_code, 200)
+        inventory = json.loads(res.data)
+        self.assertGreaterEqual(len(inventory), 1)
+        names = [item["item_name"] for item in inventory]
+        self.assertIn("Rusty Sword", names)
+
+    def test_optional_moves_counter_parsing(self):
+        """Verify moves counter parsing from status line with optional Moves field and backward compatibility."""
+        # Initialize adventure
+        payload = {"preset_idx": 0}
+        res = self.app.post("/api/init", json=payload)
+        self.assertEqual(res.status_code, 200)
+
+        # After init, moves should be set to 1
+        res = self.app.get("/api/state")
+        self.assertEqual(res.status_code, 200)
+        state_before = json.loads(res.data)
+        moves_before = state_before.get("moves", 0)
+
+        # Send a move — mock LLM returns status line WITHOUT Moves field (old format)
+        payload = {"action_type": "do", "text": "go north"}
+        res = self.app.post("/api/action", json=payload)
+        self.assertEqual(res.status_code, 200)
+
+        # Check state after the move — moves should have incremented by 1 (backward compat fallback)
+        res = self.app.get("/api/state")
+        self.assertEqual(res.status_code, 200)
+        state_after = json.loads(res.data)
+        moves_after = state_after.get("moves", 0)
+
+        # The moves counter should have increased by exactly 1 (backward compat:
+        # when status line has no Moves field, fallback is moves += 1)
+        self.assertEqual(moves_after, moves_before + 1,
+            "Moves should increment by 1 when status line lacks Moves field (backward compat)")
+
 
 if __name__ == "__main__":
     unittest.main()
