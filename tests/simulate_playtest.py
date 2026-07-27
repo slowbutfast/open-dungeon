@@ -5,6 +5,7 @@ import unittest
 import io
 import re
 from unittest.mock import MagicMock, patch
+from tests.test_helpers import assert_save_dir_is_safe
 
 # Add game directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "game"))
@@ -18,6 +19,7 @@ class PlaytestSimulator(unittest.TestCase):
 
     def tearDown(self):
         if hasattr(self, "save_dir") and os.path.exists(self.save_dir):
+            assert_save_dir_is_safe(self.save_dir)
             shutil.rmtree(self.save_dir, ignore_errors=True)
 
     def test_complete_gameplay_simulation(self):

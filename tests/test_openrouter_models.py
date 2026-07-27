@@ -6,6 +6,7 @@ import socket
 import subprocess
 import time
 import requests
+from test_helpers import assert_save_dir_is_safe
 
 class HttpClientProxy:
     def __init__(self, base_url="http://127.0.0.1:5003"):
@@ -86,6 +87,9 @@ class TestOpenRouterModels(unittest.TestCase):
                 cls.proc.wait(timeout=2)
             except subprocess.TimeoutExpired:
                 cls.proc.kill()
+        # Safety guard: abort cleanup if save dir is outside tests/ directory
+        assert_save_dir_is_safe(cls.save_dir)
+
         # Clean up isolated test save directory entirely
         import shutil
         if os.path.exists(cls.save_dir):

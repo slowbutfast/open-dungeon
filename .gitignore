@@ -25,3 +25,7 @@ game/presets.json
 # Node.js dependencies
 node_modules/
 
+
+# Test artifact directories and files
+tests/adventures_*/
+tests/presets.json

@@ -5,6 +5,7 @@ import subprocess
 import time
 import unittest
 import select
+from tests.test_helpers import assert_save_dir_is_safe
 
 def read_all_available(fd, timeout=1.0):
     chunks = []
@@ -141,6 +142,7 @@ class TestPtyIntegration(unittest.TestCase):
                 pass
         import shutil
         if os.path.exists(self.save_dir):
+            assert_save_dir_is_safe(self.save_dir)
             try:
                 shutil.rmtree(self.save_dir)
             except OSError:

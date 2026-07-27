@@ -6,9 +6,10 @@ import socket
 import subprocess
 import time
 import requests
+from tests.test_helpers import assert_save_dir_is_safe
 
 class HttpClientProxy:
-    def __init__(self, base_url="http://127.0.0.1:5001"):
+    def __init__(self, base_url="http://127.0.0.1:5004"):
         self.base_url = base_url
         
     def get(self, path):
@@ -59,13 +60,19 @@ class HttpClientProxy:
 class TestApiEndpoints(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.port = 5001
+        cls.port = 5004
         cls.proc = None
         
         tests_dir = os.path.dirname(os.path.abspath(__file__))
         cls.save_dir = os.path.join(tests_dir, "adventures_api_test")
         os.makedirs(cls.save_dir, exist_ok=True)
         os.environ["SAVE_DIR"] = cls.save_dir
+        
+        # Clean up any leftover presets.json from other test suites
+        # (presets are stored in saveDir/../presets.json, which is tests/presets.json for all test suites)
+        presets_file = os.path.join(tests_dir, "presets.json")
+        if os.path.exists(presets_file):
+            os.remove(presets_file)
         
         # Check if port is already open
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -92,7 +99,7 @@ class TestApiEndpoints(unittest.TestCase):
                     break
             time.sleep(0.1)
         else:
-            raise RuntimeError("Express server failed to start on port 5001")
+            raise RuntimeError("Express server failed to start on port 5004")
 
     @classmethod
     def tearDownClass(cls):
@@ -102,6 +109,9 @@ class TestApiEndpoints(unittest.TestCase):
                 cls.proc.wait(timeout=2)
             except subprocess.TimeoutExpired:
                 cls.proc.kill()
+        # Safety guard: abort cleanup if save dir is outside tests/ directory
+        assert_save_dir_is_safe(cls.save_dir)
+
         # Clean up isolated test save directory entirely
         import shutil
         if os.path.exists(cls.save_dir):
@@ -115,6 +125,7 @@ class TestApiEndpoints(unittest.TestCase):
         self.app = HttpClientProxy()
         
     def tearDown(self):
+        assert_save_dir_is_safe(self.save_dir)
         import glob
         for filepath in glob.glob(os.path.join(self.save_dir, "*.json")):
             try:
