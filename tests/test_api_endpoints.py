@@ -302,5 +302,103 @@ class TestApiEndpoints(unittest.TestCase):
         data = json.loads(res.data)
         self.assertEqual(len(data["cards"]), 0)
 
+    # ─── Pre-Action Gating Tests ─────────────────────────────────────────────
+
+    def _assert_rejection_in_stream(self, stream_data, test_name):
+        """Check that the SSE stream contains a rejection message."""
+        self.assertIn("data: ", stream_data)
+        has_rejection = (
+            "You don't have that item" in stream_data
+        )
+        self.assertTrue(has_rejection,
+                        f"Expected pre-action gating rejection in {test_name}")
+
+    def _assert_llm_was_called(self, stream_data):
+        """Check that the SSE stream contains narrative chunks (LLM was called)."""
+        self.assertIn("chunk", stream_data)
+
+    def test_pre_action_gating_use_nonexistent_item(self):
+        """Verify using an item not in inventory is rejected locally ($0 LLM cost)."""
+        self.app.post("/api/init", json={"preset_idx": 0})
+        payload = {"action_type": "do", "text": "use magic potion"}
+        res = self.app.post("/api/action", json=payload)
+        self.assertEqual(res.status_code, 200)
+        self._assert_rejection_in_stream(res.data.decode("utf-8"), "use item")
+
+    def test_pre_action_gating_trade_nonexistent_item(self):
+        """Verify trading an item not in inventory is rejected locally."""
+        self.app.post("/api/init", json={"preset_idx": 0})
+        payload = {"action_type": "do", "text": "trade silver ring to merchant"}
+        res = self.app.post("/api/action", json=payload)
+        self.assertEqual(res.status_code, 200)
+        self._assert_rejection_in_stream(res.data.decode("utf-8"), "trade item")
+
+    def test_pre_action_gating_drop_nonexistent_item(self):
+        """Verify dropping an item not in inventory is rejected locally."""
+        self.app.post("/api/init", json={"preset_idx": 0})
+        payload = {"action_type": "do", "text": "drop nonexistent shield"}
+        res = self.app.post("/api/action", json=payload)
+        self.assertEqual(res.status_code, 200)
+        self._assert_rejection_in_stream(res.data.decode("utf-8"), "drop item")
+
+    def test_pre_action_gating_allows_held_item(self):
+        """Verify using an item that IS in inventory proceeds to LLM."""
+        self.app.post("/api/init", json={"preset_idx": 0})
+
+        # Add a held item to inventory
+        self.app.post("/api/memory/inventory/add", json={
+            "item_name": "Magic Potion",
+            "item_type": "potion",
+            "description": "A glowing potion.",
+            "quantity": 1,
+            "status": "held"
+        })
+
+        # Now try to use the item - should go to LLM
+        payload = {"action_type": "do", "text": "use magic potion"}
+        res = self.app.post("/api/action", json=payload)
+        self.assertEqual(res.status_code, 200)
+
+        stream_data = res.data.decode("utf-8")
+        # Should contain narrative chunks (LLM was called)
+        self.assertIn("chunk", stream_data)
+
+    def test_pre_action_gating_skip_non_item_actions(self):
+        """Verify non-item actions like 'look around' are not gated."""
+        self.app.post("/api/init", json={"preset_idx": 0})
+
+        # Simple movement action - should NOT be gated
+        payload = {"action_type": "do", "text": "look around"}
+        res = self.app.post("/api/action", json=payload)
+        self.assertEqual(res.status_code, 200)
+
+        stream_data = res.data.decode("utf-8")
+        # Should contain narrative chunks (LLM was called)
+        self.assertIn("chunk", stream_data)
+        # Should NOT contain rejection
+        self.assertNotIn("don't have that item", stream_data.lower())
+
+    def test_pre_action_gating_case_insensitive_match(self):
+        """Verify case-insensitive matching allows using an item regardless of capitalization."""
+        self.app.post("/api/init", json={"preset_idx": 0})
+
+        self.app.post("/api/memory/inventory/add", json={
+            "item_name": "Silver Ring",
+            "item_type": "jewelry",
+            "description": "A shiny silver ring.",
+            "quantity": 1,
+            "status": "held"
+        })
+
+        # Try using with different capitalization
+        payload = {"action_type": "do", "text": "trade SILVER RING to merchant"}
+        res = self.app.post("/api/action", json=payload)
+        self.assertEqual(res.status_code, 200)
+
+        stream_data = res.data.decode("utf-8")
+        self.assertIn("chunk", stream_data)
+        self.assertNotIn("don't have that item", stream_data.lower())
+
+
 if __name__ == "__main__":
     unittest.main()
