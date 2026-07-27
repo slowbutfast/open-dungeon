@@ -375,10 +375,13 @@ export class LlmOrchestrator {
                     } else {
                         state.moves += 1;
                     }
-                    cleanedText = cleanedText.substring(0, statusMatch.index).trim();
                 } else {
                     state.moves += 1;
                 }
+            }
+
+            if (!cleanedText && assistantText.trim()) {
+                cleanedText = "Done.";
             }
 
             state.history.push({
