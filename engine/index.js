@@ -6,6 +6,7 @@ import { ContextManager } from './context.js';
 import { LlmOrchestrator } from './llm.js';
 import { MemoryManager } from './memory/memoryManager.js';
 import { EmbeddingService } from './memory/embeddings.js';
+import { loadPresets, savePresets as savePresetsFile } from './storyPresets.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -269,5 +270,13 @@ export class AdventureEngine {
             return true;
         }
         return false;
+    }
+
+    async getPresets() {
+        return loadPresets(this.saveDir);
+    }
+
+    async savePresets(presets) {
+        await savePresetsFile(this.saveDir, presets);
     }
 }
