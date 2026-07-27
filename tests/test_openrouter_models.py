@@ -116,6 +116,7 @@ class TestOpenRouterModels(unittest.TestCase):
         curated_ids = [
             "google/gemini-2.5-flash",
             "deepseek/deepseek-v4-pro",
+            "sao10k/l3.3-euryale-70b",
             "meta-llama/llama-3.3-70b-instruct",
             "qwen/qwen-2.5-72b-instruct",
             "google/gemini-2.5-pro",

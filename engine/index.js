@@ -25,18 +25,18 @@ Only reference or use items that are in the player's [CURRENT INVENTORY] or that
 Example 1:
 Player: open mailbox
 Narrator: Opening the small mailbox reveals a leaflet.
-[Status: West of House | Score: 0]
+[Status: West of House | Score: 0 | Moves: 0]
 
 Example 2:
 Player: take leaflet
 Narrator: Taken.
-[Status: West of House | Score: 0]
+[Status: West of House | Score: 0 | Moves: 1]
 
 Example 3:
 Player: go north
 Narrator: North of House
 You are facing the north side of a white house. A forest stretches to the north.
-[Status: North of House | Score: 0]
+[Status: North of House | Score: 0 | Moves: 2]
 
 At the very end of EVERY response, you MUST append the current status on a new line in this exact format:
 [Status: <Location Name> | Score: <Current Score> | Moves: <Moves>]
