@@ -14,10 +14,11 @@ export async function pingLlm() {
     if (select && data.models) {
       const currentVal = select.value;
       select.innerHTML = "";
-      data.models.forEach(model => {
+      data.models.forEach((model, idx) => {
         const opt = document.createElement("option");
         opt.value = model;
-        opt.innerText = model;
+        const caption = data.modelCaptions && data.modelCaptions[idx] ? data.modelCaptions[idx] : null;
+        opt.innerText = caption ? `${model} — ${caption}` : model;
         select.appendChild(opt);
       });
       if (window.currentGameState && window.currentGameState.model) {
