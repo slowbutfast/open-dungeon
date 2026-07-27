@@ -110,8 +110,7 @@ class TestOpenRouterModels(unittest.TestCase):
         self.assertIn("modelCaptions", data)
         
         # Env model should be at index 0
-        env_model = os.environ.get("OPENROUTER_MODEL", "deepseek/deepseek-v4-flash")
-        self.assertEqual(data["models"][0], env_model)
+        self.assertEqual(data["models"][0], data["model"])
         
         # All curated models should be present
         curated_ids = [

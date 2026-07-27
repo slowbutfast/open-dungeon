@@ -89,14 +89,18 @@ router.get('/ping', async (req, res) => {
         const models = [model];
         const modelCaptions = [];
 
-        // Find caption for env model (or use generic if not in curated list)
+        // Find caption & cost for env model (or use generic if not in curated list)
         const envEntry = OPENROUTER_MODELS.find(m => m.id === model);
-        modelCaptions.push(envEntry ? envEntry.caption : "Custom model");
+        if (envEntry) {
+            modelCaptions.push(`${envEntry.caption} (${envEntry.cost})`);
+        } else {
+            modelCaptions.push("Custom model");
+        }
 
         for (const curated of OPENROUTER_MODELS) {
             if (curated.id !== model) {
                 models.push(curated.id);
-                modelCaptions.push(curated.caption);
+                modelCaptions.push(`${curated.caption} (${curated.cost})`);
             }
         }
 
