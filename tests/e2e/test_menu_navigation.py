@@ -174,11 +174,15 @@ def test_preset_menu_navigation(main_page):
     expect(cards.nth(1)).to_have_class(re.compile(r"active"))
     expect(cards.nth(0)).not_to_have_class(re.compile(r"active"))
     
-    # Hit Enter on active preset card to navigate to Character screen
+    # Hit Enter on active preset card to navigate to Adventure Config screen (Step 2)
     main_page.keyboard.press("Enter")
+    main_page.wait_for_selector("#custom-preset-screen:not(.hidden)")
+    expect(main_page.locator("#custom-preset-screen")).to_have_class(re.compile(r"active"))
+    
+    # Click Next to move to Character Genesis screen (Step 3)
+    main_page.locator("#btn-submit-custom-preset").click()
     main_page.wait_for_selector("#character-screen:not(.hidden)")
     expect(main_page.locator("#character-screen")).to_have_class(re.compile(r"active"))
-    
     main_page.wait_for_selector(".char-card")
 
 def test_custom_preset_navigation(main_page):
@@ -205,6 +209,9 @@ def test_character_genesis_and_launch(main_page):
     main_page.keyboard.press("ArrowRight")
     main_page.wait_for_timeout(200)
     main_page.keyboard.press("Enter")
+    main_page.wait_for_selector("#custom-preset-screen:not(.hidden)")
+    main_page.locator("#btn-submit-custom-preset").click()
+    main_page.wait_for_selector("#character-screen:not(.hidden)")
     
     main_page.wait_for_selector(".char-card")
     char_cards = main_page.locator(".char-card")
@@ -260,6 +267,8 @@ def test_gameplay_exit_and_save(main_page):
     main_page.keyboard.press("ArrowRight")
     main_page.wait_for_timeout(200)
     main_page.keyboard.press("Enter")
+    main_page.wait_for_selector("#custom-preset-screen:not(.hidden)")
+    main_page.locator("#btn-submit-custom-preset").click()
     main_page.wait_for_selector(".char-card")
     main_page.locator("#btn-submit-character").click()
     main_page.wait_for_selector("#gameplay-screen:not(.hidden)", timeout=15000)
@@ -313,6 +322,8 @@ def test_gameplay_console_lockouts_and_utility_loaders(main_page):
     main_page.keyboard.press("ArrowRight")
     main_page.wait_for_timeout(200)
     main_page.keyboard.press("Enter")
+    main_page.wait_for_selector("#custom-preset-screen:not(.hidden)")
+    main_page.locator("#btn-submit-custom-preset").click()
     main_page.wait_for_selector(".char-card")
     main_page.locator("#btn-submit-character").click()
     main_page.wait_for_selector("#gameplay-screen:not(.hidden)", timeout=15000)
@@ -539,24 +550,21 @@ def test_setup_flow_boundary_preset_to_character(main_page):
     main_page.keyboard.press("ArrowRight")
     main_page.wait_for_timeout(200)
     main_page.keyboard.press("Enter")
+    main_page.wait_for_selector("#custom-preset-screen:not(.hidden)")
+    main_page.locator("#btn-submit-custom-preset").click()
     main_page.wait_for_selector("#character-screen:not(.hidden)")
     expect(main_page.locator("#character-screen")).to_have_class(re.compile(r"active"))
     
     # Wait for character cards to render
     main_page.wait_for_selector(".char-card")
     
-    # Verify back button returns to preset-screen (boundary)
+    # Verify back button returns to custom-preset-screen (boundary)
     main_page.locator("#btn-char-back").click()
-    main_page.wait_for_selector("#preset-screen:not(.hidden)")
-    expect(main_page.locator("#preset-screen")).to_have_class(re.compile(r"active"))
+    main_page.wait_for_selector("#custom-preset-screen:not(.hidden)")
+    expect(main_page.locator("#custom-preset-screen")).to_have_class(re.compile(r"active"))
     
-    # Wait for preset cards to render again
-    main_page.wait_for_selector(".preset-card")
-    
-    # Re-select a preset and verify character screen still shows character cards
-    main_page.keyboard.press("ArrowRight")
-    main_page.wait_for_timeout(200)
-    main_page.keyboard.press("Enter")
+    # Re-proceed to character screen
+    main_page.locator("#btn-submit-custom-preset").click()
     main_page.wait_for_selector("#character-screen:not(.hidden)")
     expect(main_page.locator("#character-screen")).to_have_class(re.compile(r"active"))
     main_page.wait_for_selector(".char-card")
