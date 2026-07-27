@@ -139,8 +139,68 @@ export class StructuredStore {
 
     getInventory(adventureId) {
         return this.db.prepare(
-            "SELECT * FROM inventory WHERE adventure_id = ? AND status NOT IN ('dropped','destroyed','used')"
+            "SELECT * FROM inventory WHERE adventure_id = ? AND status NOT IN ('dropped','destroyed','used','traded')"
         ).all(adventureId);
+    }
+
+    // ─── Barter / Trade ────────────────────────────────────────────────────────
+
+    findItemMatches(adventureId, query) {
+        const allHeld = this.db.prepare(
+            "SELECT * FROM inventory WHERE adventure_id = ? AND status = 'held'"
+        ).all(adventureId);
+        const lowerQuery = query.toLowerCase();
+        return allHeld.filter(i =>
+            i.item_name.toLowerCase().includes(lowerQuery) ||
+            lowerQuery.includes(i.item_name.toLowerCase())
+        );
+    }
+
+    hasItem(adventureId, itemName) {
+        const row = this.db.prepare(
+            "SELECT * FROM inventory WHERE adventure_id = ? AND LOWER(item_name) = LOWER(?) AND status = 'held'"
+        ).get(adventureId, itemName);
+        return row || null;
+    }
+
+    executeTrade(adventureId, requiredItemName, offeredItemName, offeredDescription = null, offeredType = 'misc') {
+        const trade = this.db.transaction(() => {
+            // Find the required item (held, case-insensitive)
+            const requiredItem = this.db.prepare(
+                "SELECT * FROM inventory WHERE adventure_id = ? AND LOWER(item_name) = LOWER(?) AND status = 'held' LIMIT 1"
+            ).get(adventureId, requiredItemName);
+            
+            if (!requiredItem) {
+                throw new Error(`Item '${requiredItemName}' not found in inventory or not held.`);
+            }
+
+            // Decrease quantity or mark as traded
+            if (requiredItem.quantity > 1) {
+                this.db.prepare(
+                    "UPDATE inventory SET quantity = quantity - 1 WHERE id = ?"
+                ).run(requiredItem.id);
+            } else {
+                this.db.prepare(
+                    "UPDATE inventory SET status = 'traded' WHERE id = ?"
+                ).run(requiredItem.id);
+            }
+
+            // Insert the offered item as 'held'
+            const offerId = `${adventureId}:${offeredItemName.toLowerCase().replace(/\s+/g, '_')}`;
+            this.db.prepare(`
+                INSERT INTO inventory (id, adventure_id, item_name, item_type, description, quantity, status)
+                VALUES (?, ?, ?, ?, ?, 1, 'held')
+                ON CONFLICT(id) DO UPDATE SET quantity = quantity + 1, status = 'held'
+            `).run(
+                offerId,
+                adventureId,
+                offeredItemName,
+                offeredType,
+                offeredDescription
+            );
+        });
+        
+        return trade();
     }
 
     // ─── Lore ─────────────────────────────────────────────────────────────────
@@ -180,7 +240,7 @@ export class StructuredStore {
         return {
             events: this.getEventCount(adventureId),
             inventory: this.db.prepare(
-                "SELECT COUNT(*) as count FROM inventory WHERE adventure_id = ? AND status NOT IN ('dropped','destroyed','used')"
+                "SELECT COUNT(*) as count FROM inventory WHERE adventure_id = ? AND status NOT IN ('dropped','destroyed','used','traded')"
             ).get(adventureId)?.count || 0,
             lore: this.db.prepare(
                 'SELECT COUNT(*) as count FROM lore WHERE adventure_id = ?'
@@ -194,6 +254,8 @@ export class StructuredStore {
         this.db.prepare('DELETE FROM inventory WHERE adventure_id = ?').run(adventureId);
         this.db.prepare('DELETE FROM lore WHERE adventure_id = ?').run(adventureId);
         this.db.prepare('DELETE FROM extraction_state WHERE adventure_id = ?').run(adventureId);
+        this.db.prepare('DELETE FROM barter_offers WHERE adventure_id = ?').run(adventureId);
+        this.db.prepare('DELETE FROM quest_goals WHERE adventure_id = ?').run(adventureId);
     }
 
     close() {

@@ -213,7 +213,7 @@ export class LlmOrchestrator {
                 requestMaxTokens = Math.max(60, Math.floor(state.maxTokens / 3));
             }
 
-            const itemActionVerbs = ["use ", "drop ", "trade ", "give "];
+            const itemActionVerbs = ["use ", "drop ", "trade ", "give ", "barter ", "exchange "];
             const matchedVerb = itemActionVerbs.find(v => cleanedCmd.startsWith(v));
             if (matchedVerb) {
                 let remainder = text.trim().substring(matchedVerb.length).trim();
@@ -242,17 +242,38 @@ export class LlmOrchestrator {
                 );
 
                 if (!found) {
-                    const rejectionText = `You don't have that item.`;
-                    state.history.push({
-                        role: "assistant",
-                        action_type: "narration",
-                        text: rejectionText
-                    });
-                    state.moves += 1;
-                    await saveFn();
-                    yield { type: "chunk", content: rejectionText };
-                    yield { type: "done", content: rejectionText };
-                    return;
+                    const partialMatches = heldItems.filter(i =>
+                        i.item_name.toLowerCase().includes(itemName.toLowerCase()) ||
+                        itemName.toLowerCase().includes(i.item_name.toLowerCase())
+                    );
+                    if (partialMatches.length > 1) {
+                        const names = partialMatches.map(i => i.item_name).join(', ');
+                        const rejectionText = `Which item did you mean? Found: ${names}`;
+                        state.history.push({
+                            role: "assistant",
+                            action_type: "narration",
+                            text: rejectionText
+                        });
+                        state.moves += 1;
+                        await saveFn();
+                        yield { type: "chunk", content: rejectionText };
+                        yield { type: "done", content: rejectionText };
+                        return;
+                    } else if (partialMatches.length === 1) {
+                        // proceed with the single partial match
+                    } else {
+                        const rejectionText = `You don't have that item.`;
+                        state.history.push({
+                            role: "assistant",
+                            action_type: "narration",
+                            text: rejectionText
+                        });
+                        state.moves += 1;
+                        await saveFn();
+                        yield { type: "chunk", content: rejectionText };
+                        yield { type: "done", content: rejectionText };
+                        return;
+                    }
                 }
             }
         }
