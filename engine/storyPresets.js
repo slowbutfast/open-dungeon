@@ -1,3 +1,6 @@
+import path from 'path';
+import fs from 'fs/promises';
+
 export const STORY_PRESETS = [
     {
         "name": "Lord of the Rings (Middle-earth Fantasy)",
@@ -48,3 +51,46 @@ export const STORY_PRESETS = [
         ]
     }
 ];
+
+/**
+ * Derive the presets.json path from a save directory.
+ * Presets live one level up from the save directory (e.g. game/presets.json for game/adventures saves).
+ */
+function getPresetsPath(saveDir) {
+    return path.join(saveDir, '..', 'presets.json');
+}
+
+/**
+ * Load presets from presets.json file, falling back to the hardcoded STORY_PRESETS.
+ * @param {string} saveDir - The save directory (used to derive presets.json path).
+ * @returns {Promise<Array>} The presets array.
+ */
+export async function loadPresets(saveDir) {
+    const presetsPath = getPresetsPath(saveDir);
+    try {
+        const data = await fs.readFile(presetsPath, 'utf-8');
+        const parsed = JSON.parse(data);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+            return parsed;
+        }
+        return [...STORY_PRESETS];
+    } catch (err) {
+        if (err.code === 'ENOENT') {
+            // File does not exist — write the hardcoded defaults and return them
+            await savePresets(saveDir, STORY_PRESETS);
+            return [...STORY_PRESETS];
+        }
+        throw err;
+    }
+}
+
+/**
+ * Save presets to presets.json file.
+ * @param {string} saveDir - The save directory (used to derive presets.json path).
+ * @param {Array} presets - The presets array to save.
+ * @returns {Promise<void>}
+ */
+export async function savePresets(saveDir, presets) {
+    const presetsPath = getPresetsPath(saveDir);
+    await fs.writeFile(presetsPath, JSON.stringify(presets, null, 2), 'utf-8');
+}

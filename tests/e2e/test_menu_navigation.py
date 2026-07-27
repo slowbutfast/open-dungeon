@@ -8,6 +8,21 @@ import shutil
 import pytest
 from playwright.sync_api import sync_playwright, expect
 
+# Enable console logging for debugging
+@pytest.fixture(scope="function")
+def main_page(page):
+    """Navigates to the main page and ensures a clean state."""
+    errors = []
+    page.on("console", lambda msg: errors.append(f"CONSOLE {msg.type}: {msg.text}"))
+    page.on("pageerror", lambda err: errors.append(f"PAGE ERROR: {err}"))
+    page.goto("http://127.0.0.1:5001")
+    # Wait for the status pill to check connection or mock status
+    page.wait_for_selector("#llm-status-pill:not(.llm-pill-checking)")
+    
+    # Attach errors to page for test access
+    page._test_errors = errors
+    return page
+
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
@@ -54,17 +69,12 @@ def start_server():
         except subprocess.TimeoutExpired:
             proc.kill()
     
-    # Clean up isolated test save directory
+    # Clean up isolated test save directory and generated presets file
     if os.path.isdir(TEST_SAVE_DIR):
         shutil.rmtree(TEST_SAVE_DIR, ignore_errors=True)
-
-@pytest.fixture(scope="function")
-def main_page(page):
-    """Navigates to the main page and ensures a clean state."""
-    page.goto("http://127.0.0.1:5001")
-    # Wait for the status pill to check connection or mock status
-    page.wait_for_selector("#llm-status-pill:not(.llm-pill-checking)")
-    return page
+    presets_file = os.path.join(os.path.dirname(TEST_SAVE_DIR), 'presets.json')
+    if os.path.isfile(presets_file):
+        os.remove(presets_file)
 
 def test_startup_menu_keyboard_navigation(main_page):
     """Validates keyboard focus highlights, wrap-around, and Enter key activation on Startup Screen."""
@@ -164,9 +174,16 @@ def test_preset_menu_navigation(main_page):
     expect(cards.nth(1)).to_have_class(re.compile(r"active"))
     expect(cards.nth(0)).not_to_have_class(re.compile(r"active"))
     
-    # Hit Enter on active preset card to navigate to Character screen
+    # Hit Enter on active preset card to navigate to Adventure Config screen (Step 2)
     main_page.keyboard.press("Enter")
+    main_page.wait_for_selector("#custom-preset-screen:not(.hidden)")
+    expect(main_page.locator("#custom-preset-screen")).to_have_class(re.compile(r"active"))
+    
+    # Click Next to move to Character Genesis screen (Step 3)
+    main_page.locator("#btn-submit-custom-preset").click()
+    main_page.wait_for_selector("#character-screen:not(.hidden)")
     expect(main_page.locator("#character-screen")).to_have_class(re.compile(r"active"))
+    main_page.wait_for_selector(".char-card")
 
 def test_custom_preset_navigation(main_page):
     """Validates configuring a Custom Adventure screen flow."""
@@ -190,7 +207,11 @@ def test_character_genesis_and_launch(main_page):
     main_page.keyboard.press("1")
     main_page.wait_for_selector(".preset-card")
     main_page.keyboard.press("ArrowRight")
+    main_page.wait_for_timeout(200)
     main_page.keyboard.press("Enter")
+    main_page.wait_for_selector("#custom-preset-screen:not(.hidden)")
+    main_page.locator("#btn-submit-custom-preset").click()
+    main_page.wait_for_selector("#character-screen:not(.hidden)")
     
     main_page.wait_for_selector(".char-card")
     char_cards = main_page.locator(".char-card")
@@ -227,6 +248,8 @@ def test_character_genesis_and_launch(main_page):
     expect(custom_toggle).to_be_disabled()
     expect(submit_btn).to_have_text("CONNECTING NEURAL LINK...")
     
+    main_page.wait_for_selector(".char-card")
+    
     # Wait for gameplay screen to load
     main_page.wait_for_selector("#gameplay-screen:not(.hidden)", timeout=15000)
     expect(main_page.locator("#gameplay-screen")).to_have_class(re.compile(r"active"))
@@ -242,7 +265,10 @@ def test_gameplay_exit_and_save(main_page):
     main_page.keyboard.press("1")
     main_page.wait_for_selector(".preset-card")
     main_page.keyboard.press("ArrowRight")
+    main_page.wait_for_timeout(200)
     main_page.keyboard.press("Enter")
+    main_page.wait_for_selector("#custom-preset-screen:not(.hidden)")
+    main_page.locator("#btn-submit-custom-preset").click()
     main_page.wait_for_selector(".char-card")
     main_page.locator("#btn-submit-character").click()
     main_page.wait_for_selector("#gameplay-screen:not(.hidden)", timeout=15000)
@@ -294,7 +320,10 @@ def test_gameplay_console_lockouts_and_utility_loaders(main_page):
     main_page.keyboard.press("1")
     main_page.wait_for_selector(".preset-card")
     main_page.keyboard.press("ArrowRight")
+    main_page.wait_for_timeout(200)
     main_page.keyboard.press("Enter")
+    main_page.wait_for_selector("#custom-preset-screen:not(.hidden)")
+    main_page.locator("#btn-submit-custom-preset").click()
     main_page.wait_for_selector(".char-card")
     main_page.locator("#btn-submit-character").click()
     main_page.wait_for_selector("#gameplay-screen:not(.hidden)", timeout=15000)
@@ -332,4 +361,236 @@ def test_gameplay_console_lockouts_and_utility_loaders(main_page):
     
     # Wait for modal to close
     main_page.wait_for_selector("#modal-system-prompt", state="hidden", timeout=10000)
+
+
+def test_preset_manager_screen_navigation(main_page):
+    """Validates navigating to the preset manager screen from the preset screen and returning."""
+    main_page.keyboard.press("1")
+    main_page.wait_for_selector(".preset-card")
+    
+    # Click the preset manage button to open preset manager screen
+    manage_btn = main_page.locator("#btn-manage-presets")
+    manage_btn.click()
+    
+    # Verify preset manager screen is shown
+    manager_screen = main_page.locator("#preset-manager-screen")
+    expect(manager_screen).to_have_class(re.compile(r"active"))
+    expect(manager_screen).not_to_have_class(re.compile(r"hidden"))
+    
+    # Verify preset list is rendered in the manager
+    main_page.wait_for_selector("#preset-manager-list .preset-card")
+    manager_cards = main_page.locator("#preset-manager-list .preset-card")
+    expect(manager_cards.first).to_be_visible()
+    
+    # Click back button to return to preset screen
+    manager_back_btn = main_page.locator("#btn-manager-back")
+    manager_back_btn.click()
+    expect(main_page.locator("#preset-screen")).to_have_class(re.compile(r"active"))
+
+
+def test_preset_editor_create_flow(main_page):
+    """Validates creating a new preset via the editor screen."""
+    main_page.keyboard.press("1")
+    main_page.wait_for_selector(".preset-card")
+    
+    # Click manage presets button
+    main_page.locator("#btn-manage-presets").click()
+    main_page.wait_for_selector("#preset-manager-screen:not(.hidden)")
+    # Wait for the preset cards to render in the manager
+    main_page.wait_for_selector("#preset-manager-list .preset-card")
+    
+    # Click create new preset button
+    main_page.locator("#btn-create-preset").click()
+    
+    # Verify editor screen is shown
+    main_page.wait_for_selector("#preset-editor-screen:not(.hidden)")
+    expect(main_page.locator("#preset-editor-screen")).to_have_class(re.compile(r"active"))
+    
+    # Verify form fields exist
+    expect(main_page.locator("#editor-preset-name")).to_be_visible()
+    expect(main_page.locator("#editor-preset-title")).to_be_visible()
+    expect(main_page.locator("#editor-preset-summary")).to_be_visible()
+    expect(main_page.locator("#editor-preset-system-prompt")).to_be_visible()
+    
+    # Fill in the form
+    main_page.locator("#editor-preset-name").fill("E2E Test Preset")
+    main_page.locator("#editor-preset-title").fill("E2E Test Adventure")
+    main_page.locator("#editor-preset-summary").fill("An E2E tested adventure.")
+    
+    # Click save button
+    main_page.locator("#btn-editor-save").click()
+    
+    # Verify we return to manager screen
+    main_page.wait_for_selector("#preset-manager-screen:not(.hidden)")
+    expect(main_page.locator("#preset-manager-screen")).to_have_class(re.compile(r"active"))
+    
+    # Verify the new preset appears in the manager list
+    new_card = main_page.locator("#preset-manager-list .preset-card").filter(has_text="E2E Test Preset")
+    expect(new_card.first).to_be_visible()
+    
+    # Cleanup: delete the created preset
+    delete_btn = new_card.first.locator(".btn-delete-preset")
+    delete_btn.click()
+    main_page.wait_for_selector("#modal-confirm:not(.hidden)")
+    main_page.locator("#btn-confirm-yes").click()
+    main_page.wait_for_selector("#modal-confirm", state="hidden")
+
+
+def test_preset_editor_edit_flow(main_page):
+    """Validates editing an existing preset via the editor screen."""
+    main_page.keyboard.press("1")
+    main_page.wait_for_selector(".preset-card")
+    
+    # Navigate to preset manager
+    main_page.locator("#btn-manage-presets").click()
+    main_page.wait_for_selector("#preset-manager-screen:not(.hidden)")
+    # Wait for the preset cards to render in the manager
+    main_page.wait_for_selector("#preset-manager-list .preset-card")
+    
+    # Click edit button on the "Lord of the Rings" preset card
+    lotr_card = main_page.locator("#preset-manager-list .preset-card").filter(has_text="Lord of the Rings")
+    edit_btn = lotr_card.locator(".btn-edit-preset")
+    edit_btn.click()
+    
+    # Verify editor screen is shown in edit mode
+    main_page.wait_for_selector("#preset-editor-screen:not(.hidden)")
+    expect(main_page.locator("#preset-editor-screen")).to_have_class(re.compile(r"active"))
+    
+    # Verify the name field is pre-populated with the correct preset
+    name_input = main_page.locator("#editor-preset-name")
+    expect(name_input).to_have_value("Lord of the Rings (Middle-earth Fantasy)")
+    
+    # Modify the name
+    name_input.fill("Edited E2E Preset")
+    
+    # Save
+    main_page.locator("#btn-editor-save").click()
+    main_page.wait_for_selector("#preset-manager-screen:not(.hidden)")
+    expect(main_page.locator("#preset-manager-screen")).to_have_class(re.compile(r"active"))
+    
+    # Verify the edited preset appears in the manager
+    edited_card = main_page.locator("#preset-manager-list .preset-card").filter(has_text="Edited E2E Preset")
+    expect(edited_card.first).to_be_visible()
+    
+    # Clean up: restore the original name
+    lotr_card = main_page.locator("#preset-manager-list .preset-card").filter(has_text="Edited E2E Preset")
+    lotr_card.locator(".btn-edit-preset").click()
+    main_page.wait_for_selector("#preset-editor-screen:not(.hidden)")
+    main_page.locator("#editor-preset-name").fill("Lord of the Rings (Middle-earth Fantasy)")
+    main_page.locator("#btn-editor-save").click()
+    main_page.wait_for_selector("#preset-manager-screen:not(.hidden)")
+
+
+def test_preset_editor_delete_flow(main_page):
+    """Validates deleting a preset from the preset manager screen."""
+    main_page.keyboard.press("1")
+    main_page.wait_for_selector(".preset-card")
+    
+    # Navigate to preset manager
+    main_page.locator("#btn-manage-presets").click()
+    main_page.wait_for_selector("#preset-manager-screen:not(.hidden)")
+    # Wait for the preset cards to render in the manager
+    main_page.wait_for_selector("#preset-manager-list .preset-card")
+    
+    # Count initial number of preset cards
+    initial_count = main_page.locator("#preset-manager-list .preset-card").count()
+    
+    # Click delete button on the first preset card in the manager list
+    first_card = main_page.locator("#preset-manager-list .preset-card").first
+    delete_btn = first_card.locator(".btn-delete-preset")
+    delete_btn.click()
+    
+    # Verify confirmation modal appears
+    confirm_modal = main_page.locator("#modal-confirm")
+    expect(confirm_modal).not_to_have_class(re.compile(r"hidden"))
+    
+    # Confirm deletion
+    main_page.locator("#btn-confirm-yes").click()
+    expect(confirm_modal).to_have_class(re.compile(r"hidden"))
+    
+    # Verify the preset card count decreased
+    main_page.wait_for_function(
+        f'document.querySelectorAll("#preset-manager-list .preset-card").length === {initial_count - 1}',
+        timeout=5000
+    )
+    new_count = main_page.locator("#preset-manager-list .preset-card").count()
+    assert new_count == initial_count - 1
+
+
+def test_setup_flow_boundary_custom_to_character(main_page):
+    """Validates the boundary between custom-preset-screen and character-screen with state preservation."""
+    main_page.keyboard.press("1")
+    main_page.wait_for_selector(".preset-card")
+    
+    # Enter custom preset screen
+    main_page.locator("#btn-custom-preset").click()
+    expect(main_page.locator("#custom-preset-screen")).to_have_class(re.compile(r"active"))
+    
+    # Fill in custom fields
+    main_page.locator("#custom-title").fill("Boundary Test Adventure")
+    main_page.locator("#custom-summary").fill("Testing boundary transitions.")
+    
+    # Proceed to character screen
+    main_page.locator("#btn-submit-custom-preset").click()
+    expect(main_page.locator("#character-screen")).to_have_class(re.compile(r"active"))
+    
+    # Verify back button returns to custom-preset-screen (boundary)
+    main_page.locator("#btn-char-back").click()
+    expect(main_page.locator("#custom-preset-screen")).to_have_class(re.compile(r"active"))
+    # Verify custom values preserved
+    expect(main_page.locator("#custom-title")).to_have_value("Boundary Test Adventure")
+
+
+def test_setup_flow_boundary_preset_to_character(main_page):
+    """Validates the boundary between preset-screen and character-screen with state preservation."""
+    main_page.keyboard.press("1")
+    main_page.wait_for_selector(".preset-card")
+    
+    # Select a preset
+    main_page.keyboard.press("ArrowRight")
+    main_page.wait_for_timeout(200)
+    main_page.keyboard.press("Enter")
+    main_page.wait_for_selector("#custom-preset-screen:not(.hidden)")
+    main_page.locator("#btn-submit-custom-preset").click()
+    main_page.wait_for_selector("#character-screen:not(.hidden)")
+    expect(main_page.locator("#character-screen")).to_have_class(re.compile(r"active"))
+    
+    # Wait for character cards to render
+    main_page.wait_for_selector(".char-card")
+    
+    # Verify back button returns to custom-preset-screen (boundary)
+    main_page.locator("#btn-char-back").click()
+    main_page.wait_for_selector("#custom-preset-screen:not(.hidden)")
+    expect(main_page.locator("#custom-preset-screen")).to_have_class(re.compile(r"active"))
+    
+    # Re-proceed to character screen
+    main_page.locator("#btn-submit-custom-preset").click()
+    main_page.wait_for_selector("#character-screen:not(.hidden)")
+    expect(main_page.locator("#character-screen")).to_have_class(re.compile(r"active"))
+    main_page.wait_for_selector(".char-card")
+    char_cards = main_page.locator(".char-card")
+    expect(char_cards.first).to_be_visible()
+
+
+def test_setup_flow_progress_indicator(main_page):
+    """Validates retro progress indicator appears on setup screens."""
+    main_page.keyboard.press("1")
+    main_page.wait_for_selector(".preset-card")
+    
+    # Verify progress indicator exists on preset-screen
+    progress = main_page.locator("#preset-screen .progress-indicator")
+    expect(progress).to_be_visible()
+    expect(progress.locator(".progress-step")).to_have_count(3)
+    
+    # Navigate to custom preset screen
+    main_page.locator("#btn-custom-preset").click()
+    progress_custom = main_page.locator("#custom-preset-screen .progress-indicator")
+    expect(progress_custom).to_be_visible()
+    expect(progress_custom.locator(".progress-step")).to_have_count(3)
+    
+    # Navigate to character screen
+    main_page.locator("#btn-submit-custom-preset").click()
+    progress_char = main_page.locator("#character-screen .progress-indicator")
+    expect(progress_char).to_be_visible()
+    expect(progress_char.locator(".progress-step")).to_have_count(3)
 

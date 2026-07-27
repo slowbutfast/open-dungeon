@@ -1,6 +1,5 @@
 import express from 'express';
 import { engine, resetEngine } from '../engineInstance.js';
-import { STORY_PRESETS } from '../../engine/storyPresets.js';
 import { DEFAULT_SYSTEM_PROMPT } from '../../engine/index.js';
 import { llmTracker, getDebugLogs } from '../../engine/llmTracker.js';
 import { getBackendType, getTokenRange } from '../../engine/llm.js';
@@ -8,8 +7,58 @@ import { OPENROUTER_MODELS } from '../openrouterModels.js';
 
 const router = express.Router();
 
-router.get('/presets', (req, res) => {
-    res.json(STORY_PRESETS);
+router.get('/presets', async (req, res) => {
+    const presets = await engine.getPresets();
+    res.json(presets);
+});
+
+router.post('/presets', async (req, res) => {
+    try {
+        const newPreset = req.body;
+        if (!newPreset || !newPreset.name) {
+            return res.status(400).json({ status: "error", message: "Preset must have a name." });
+        }
+        const presets = await engine.getPresets();
+        presets.push(newPreset);
+        await engine.savePresets(presets);
+        res.json({ status: "success", preset: newPreset });
+    } catch (err) {
+        res.status(500).json({ status: "error", message: err.message });
+    }
+});
+
+router.put('/presets/:index', async (req, res) => {
+    try {
+        const index = parseInt(req.params.index, 10);
+        const updatedPreset = req.body;
+        if (!updatedPreset || !updatedPreset.name) {
+            return res.status(400).json({ status: "error", message: "Preset must have a name." });
+        }
+        const presets = await engine.getPresets();
+        if (index < 0 || index >= presets.length) {
+            return res.status(404).json({ status: "error", message: "Preset not found." });
+        }
+        presets[index] = updatedPreset;
+        await engine.savePresets(presets);
+        res.json({ status: "success", preset: updatedPreset });
+    } catch (err) {
+        res.status(500).json({ status: "error", message: err.message });
+    }
+});
+
+router.delete('/presets/:index', async (req, res) => {
+    try {
+        const index = parseInt(req.params.index, 10);
+        const presets = await engine.getPresets();
+        if (index < 0 || index >= presets.length) {
+            return res.status(404).json({ status: "error", message: "Preset not found." });
+        }
+        const removed = presets.splice(index, 1)[0];
+        await engine.savePresets(presets);
+        res.json({ status: "success", preset: removed });
+    } catch (err) {
+        res.status(500).json({ status: "error", message: err.message });
+    }
 });
 
 router.get('/ping', async (req, res) => {
@@ -233,8 +282,9 @@ router.post('/init', async (req, res) => {
     let summary = "You stand at the beginning of a mysterious custom quest.";
     let systemPrompt = DEFAULT_SYSTEM_PROMPT;
 
-    if (presetIdx !== undefined && presetIdx !== null && presetIdx >= 0 && presetIdx < STORY_PRESETS.length) {
-        const preset = STORY_PRESETS[presetIdx];
+    const allPresets = await engine.getPresets();
+    if (presetIdx !== undefined && presetIdx !== null && presetIdx >= 0 && presetIdx < allPresets.length) {
+        const preset = allPresets[presetIdx];
         title = preset.title;
         summary = preset.summary;
         systemPrompt = preset.system_prompt;

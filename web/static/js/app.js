@@ -73,9 +73,66 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   document.getElementById("btn-preset-next").addEventListener("click", () => {
-    window.storyCustomized = false;
-    PresetsAPI.loadCharactersList(window.selectedPresetIdx);
-    Screens.showScreen("character-screen");
+    Screens.showScreen("custom-preset-screen");
+  });
+
+  // Preset Manager navigation
+  document.getElementById("btn-manage-presets").addEventListener("click", () => {
+    PresetsAPI.loadPresetsManager();
+    Screens.showScreen("preset-manager-screen");
+  });
+
+  document.getElementById("btn-manager-back").addEventListener("click", () => {
+    Screens.showScreen("preset-screen");
+  });
+
+  document.getElementById("btn-create-preset").addEventListener("click", () => {
+    PresetsAPI.openPresetEditor(null);
+  });
+
+  // Preset Editor navigation
+  document.getElementById("btn-editor-back").addEventListener("click", () => {
+    window._editingPresetIdx = null;
+    Screens.showScreen("preset-manager-screen");
+  });
+
+  document.getElementById("btn-editor-save").addEventListener("click", PresetsAPI.saveEditorPreset);
+
+  document.getElementById("btn-editor-add-character").addEventListener("click", () => {
+    const container = document.getElementById("editor-characters-list");
+    const idx = container.children.length;
+    const div = document.createElement("div");
+    div.className = "editor-character-form";
+    div.innerHTML = `
+      <div class="char-form-header">
+        <h5>Character ${idx + 1}</h5>
+        <button class="btn-remove-character" data-index="${idx}" type="button">Remove</button>
+      </div>
+      <div class="char-form-row">
+        <div class="form-group">
+          <label>Name</label>
+          <input type="text" class="editor-char-name" placeholder="e.g. Hero">
+        </div>
+        <div class="form-group">
+          <label>Type / Class</label>
+          <input type="text" class="editor-char-type" placeholder="e.g. Warrior">
+        </div>
+      </div>
+      <div class="char-form-row">
+        <div class="form-group">
+          <label>Description</label>
+          <textarea class="editor-char-desc" rows="2" placeholder="Describe the character..."></textarea>
+        </div>
+      </div>
+      <div class="char-form-row">
+        <div class="form-group">
+          <label>Trigger Words (comma separated)</label>
+          <input type="text" class="editor-char-triggers" placeholder="e.g. hero, warrior">
+        </div>
+      </div>
+    `;
+    div.querySelector(".btn-remove-character").addEventListener("click", () => { div.remove(); });
+    container.appendChild(div);
   });
 
   document.getElementById("btn-custom-preset").addEventListener("click", () => {
@@ -139,11 +196,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   document.getElementById("btn-char-back").addEventListener("click", () => {
-    if (window.selectedPresetIdx === null) {
-      Screens.showScreen("custom-preset-screen");
-    } else {
-      Screens.showScreen("preset-screen");
-    }
+    Screens.showScreen("custom-preset-screen");
   });
 
   document.getElementById("btn-submit-character").addEventListener("click", PresetsAPI.launchSimulation);
@@ -355,6 +408,18 @@ document.addEventListener("DOMContentLoaded", () => {
       if (key === "Escape") {
         e.preventDefault();
         Screens.showScreen("preset-screen");
+      }
+
+    } else if (activeScreen === "preset-manager-screen") {
+      if (key === "Escape") {
+        e.preventDefault();
+        Screens.showScreen("preset-screen");
+      }
+
+    } else if (activeScreen === "preset-editor-screen") {
+      if (key === "Escape") {
+        e.preventDefault();
+        Screens.showScreen("preset-manager-screen");
       }
     }
   });
