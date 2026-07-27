@@ -4,6 +4,7 @@ import { STORY_PRESETS } from '../../engine/storyPresets.js';
 import { DEFAULT_SYSTEM_PROMPT } from '../../engine/index.js';
 import { llmTracker, getDebugLogs } from '../../engine/llmTracker.js';
 import { getBackendType, getTokenRange } from '../../engine/llm.js';
+import { OPENROUTER_MODELS } from '../openrouterModels.js';
 
 const router = express.Router();
 
@@ -34,6 +35,22 @@ router.get('/ping', async (req, res) => {
     if (backend === "openrouter") {
         const model = process.env.OPENROUTER_MODEL || "deepseek/deepseek-v4-flash";
         const embedModel = process.env.OPENROUTER_EMBEDDING_MODEL || "nomic-embed-text";
+
+        // Build models array: env model first, then curated models (deduplicated)
+        const models = [model];
+        const modelCaptions = [];
+
+        // Find caption for env model (or use generic if not in curated list)
+        const envEntry = OPENROUTER_MODELS.find(m => m.id === model);
+        modelCaptions.push(envEntry ? envEntry.caption : "Custom model");
+
+        for (const curated of OPENROUTER_MODELS) {
+            if (curated.id !== model) {
+                models.push(curated.id);
+                modelCaptions.push(curated.caption);
+            }
+        }
+
         return res.json({
             status: "online",
             backend: "openrouter",
@@ -41,7 +58,8 @@ router.get('/ping', async (req, res) => {
             port: "443",
             model: model,
             embedding_model: embedModel,
-            models: [model],
+            models: models,
+            modelCaptions: modelCaptions,
             base_url: "https://openrouter.ai/api/v1",
             max_tokens_range: [tokenRange.min, tokenRange.max],
             cost: cost
