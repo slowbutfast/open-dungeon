@@ -400,5 +400,177 @@ class TestApiEndpoints(unittest.TestCase):
         self.assertNotIn("don't have that item", stream_data.lower())
 
 
+class TestBarterApiEndpoints(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.port = 5004
+        cls.proc = None
+        
+        tests_dir = os.path.dirname(os.path.abspath(__file__))
+        cls.save_dir = os.path.join(tests_dir, "adventures_api_test")
+        os.makedirs(cls.save_dir, exist_ok=True)
+        os.environ["SAVE_DIR"] = cls.save_dir
+        
+        presets_file = os.path.join(tests_dir, "presets.json")
+        if os.path.exists(presets_file):
+            os.remove(presets_file)
+        
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            port_open = s.connect_ex(('127.0.0.1', cls.port)) == 0
+
+        if port_open:
+            raise RuntimeError(
+                f"Port {cls.port} is already in use — please stop your server before running tests."
+            )
+
+        env = os.environ.copy()
+        env["MOCK_LLM"] = "1"
+        env["PORT"] = str(cls.port)
+        cls.proc = subprocess.Popen(
+            ["node", "web/server.js"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env
+        )
+        for _ in range(50):
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                if s.connect_ex(('127.0.0.1', cls.port)) == 0:
+                    break
+            time.sleep(0.1)
+        else:
+            raise RuntimeError("Express server failed to start on port 5004")
+
+    @classmethod
+    def tearDownClass(cls):
+        if cls.proc:
+            cls.proc.terminate()
+            try:
+                cls.proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                cls.proc.kill()
+        assert_save_dir_is_safe(cls.save_dir)
+        import shutil
+        if os.path.exists(cls.save_dir):
+            try:
+                shutil.rmtree(cls.save_dir)
+            except OSError:
+                pass
+        time.sleep(0.5)
+
+    def setUp(self):
+        self.app = HttpClientProxy()
+
+    def test_trade_endpoint_returns_sse_stream_on_valid_trade(self):
+        """Verify POST /api/trade returns SSE stream with system event on valid trade."""
+        self.app.post("/api/init", json={"preset_idx": 0})
+        # Add item to inventory
+        self.app.post("/api/memory/inventory/add", json={
+            "item_name": "Silver Ring",
+            "item_type": "jewelry",
+            "description": "A shiny ring.",
+            "quantity": 1,
+            "status": "held"
+        })
+        # Register a barter offer
+        self.app.post("/api/trade/offer", json={
+            "trader_name": "Merchant",
+            "required_item": "Silver Ring",
+            "offered_item": "Steel Sword"
+        })
+        # Execute trade via SSE endpoint
+        res = self.app.post("/api/trade", json={
+            "trader_name": "Merchant",
+            "required_item": "Silver Ring"
+        })
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.mimetype, "text/event-stream")
+        stream_data = res.data.decode("utf-8")
+        self.assertIn("data: ", stream_data)
+        self.assertTrue('"type": "chunk"' in stream_data or '"type":"chunk"' in stream_data)
+        # Should contain system event about successful barter
+        self.assertTrue("SYSTEM EVENT" in stream_data or "Barter successful" in stream_data or "system" in stream_data.lower())
+
+    def test_trade_endpoint_rejects_unowned_item(self):
+        """Verify POST /api/trade rejects trades for items not in inventory."""
+        self.app.post("/api/init", json={"preset_idx": 0})
+        self.app.post("/api/trade/offer", json={
+            "trader_name": "Merchant",
+            "required_item": "Diamond",
+            "offered_item": "Gold Coin"
+        })
+        res = self.app.post("/api/trade", json={
+            "trader_name": "Merchant",
+            "required_item": "Diamond"
+        })
+        # If SSE stream, check for error; if JSON, check status
+        self.assertEqual(res.status_code, 400)
+
+    def test_goals_endpoint_lists_active_goals(self):
+        """Verify GET /api/goals returns active quest goals."""
+        self.app.post("/api/init", json={"preset_idx": 0})
+        # Create a goal first
+        self.app.post("/api/goals", json={
+            "npc_name": "Elder",
+            "goal_title": "Find the Lost Artifact",
+            "required_item": "Lost Artifact",
+            "reward_item": "Gold Crown"
+        })
+        res = self.app.get("/api/goals")
+        self.assertEqual(res.status_code, 200)
+        data = json.loads(res.data)
+        self.assertGreaterEqual(len(data), 1)
+
+    def test_goal_complete_endpoint_returns_sse_stream(self):
+        """Verify POST /api/goals/complete returns SSE stream on completion."""
+        self.app.post("/api/init", json={"preset_idx": 0})
+        # Add required item
+        self.app.post("/api/memory/inventory/add", json={
+            "item_name": "Lost Artifact",
+            "item_type": "artifact",
+            "description": "An ancient artifact.",
+            "quantity": 1,
+            "status": "held"
+        })
+        # Create goal
+        res = self.app.post("/api/goals", json={
+            "npc_name": "Elder",
+            "goal_title": "Find the Lost Artifact",
+            "required_item": "Lost Artifact",
+            "reward_item": "Gold Crown"
+        })
+        data = json.loads(res.data)
+        goal_id = data["goal"]["id"]
+        # Complete goal
+        res = self.app.post("/api/goals/complete", json={"goal_id": goal_id})
+        self.assertEqual(res.status_code, 200)
+        # Should return SSE stream
+        self.assertEqual(res.mimetype, "text/event-stream")
+        stream_data = res.data.decode("utf-8")
+        self.assertIn("data: ", stream_data)
+
+    def test_text_command_trade_with_held_item_proceeds(self):
+        """Verify typing a trade command with a held item proceeds to LLM narration."""
+        self.app.post("/api/init", json={"preset_idx": 0})
+        
+        self.app.post("/api/memory/inventory/add", json={
+            "item_name": "Silver Ring",
+            "item_type": "jewelry",
+            "description": "A shiny ring.",
+            "quantity": 1,
+            "status": "held"
+        })
+        
+        res = self.app.post("/api/action", json={
+            "action_type": "do",
+            "text": "trade Silver Ring to Merchant"
+        })
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.mimetype, "text/event-stream")
+        
+        raw = res.data.decode('utf-8') if isinstance(res.data, bytes) else res.data
+        self.assertNotIn("don't have", raw.lower())
+        self.assertIn("chunk", raw)
+
+
 if __name__ == "__main__":
     unittest.main()

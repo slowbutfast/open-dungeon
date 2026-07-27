@@ -6,6 +6,7 @@ import { ContextManager } from './context.js';
 import { LlmOrchestrator } from './llm.js';
 import { MemoryManager } from './memory/memoryManager.js';
 import { EmbeddingService } from './memory/embeddings.js';
+import { BarterEngine } from './memory/barterEngine.js';
 import { loadPresets, savePresets as savePresetsFile } from './storyPresets.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -65,6 +66,7 @@ export class AdventureEngine {
         const embeddingService = new EmbeddingService(this.llm.client);
         this.memory = new MemoryManager(dataDir, this.llm.client, embeddingService);
         this.context.memoryManager = this.memory;
+        this.barter = new BarterEngine(this.memory.structuredStore);
     }
 
     // Proxy getters and setters to maintain exactly the same public property access
@@ -220,6 +222,41 @@ export class AdventureEngine {
 
     async getEventLog(limit = 20) {
         return this.memory.getEventLog(this.state.adventureId, limit);
+    }
+
+    registerOffer(traderName, requiredItem, offeredItem, description = null) {
+        return this.barter.registerOffer(this.state.adventureId, traderName, requiredItem, offeredItem, description);
+    }
+
+    getOffers(traderName = null) {
+        if (traderName) {
+            return this.barter.getOffersForTrader(this.state.adventureId, traderName);
+        }
+        return this.barter.getAllOffers(this.state.adventureId);
+    }
+
+    executeBarter(traderName, requiredItem) {
+        return this.barter.executeBarter(this.state.adventureId, traderName, requiredItem);
+    }
+
+    createGoal(npcName, goalTitle, requiredItem, rewardItem) {
+        return this.barter.createGoal(this.state.adventureId, npcName, goalTitle, requiredItem, rewardItem);
+    }
+
+    getGoals() {
+        return this.barter.getActiveGoals(this.state.adventureId);
+    }
+
+    acceptGoal(goalId) {
+        return this.barter.acceptGoal(this.state.adventureId, goalId);
+    }
+
+    failGoal(goalId) {
+        return this.barter.failGoal(this.state.adventureId, goalId);
+    }
+
+    completeGoal(goalId) {
+        return this.barter.completeGoal(this.state.adventureId, goalId);
     }
 
     async searchMemories(query, topK = 5) {

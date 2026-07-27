@@ -10,14 +10,19 @@ import * as LoreAPI from './api/lore.js';
 import * as MemoryAPI from './api/memory.js';
 import * as StreamingAPI from './api/streaming.js';
 import * as DebugAPI from './api/debug.js';
+import * as BarterAPI from './api/barter.js';
+import { openBarterModal, closeBarterModal } from './components/barterModal.js';
+import { setCurrentNarration, triggerChipsForNarration } from './components/actionChips.js';
 import { _confirmResolve } from './ui/toast.js';
 
 Object.assign(window, {
   ...Toast, ...Screens, ...Renderers, ...SavesAPI,
   ...SettingsAPI, ...PresetsAPI, ...LoreAPI, ...MemoryAPI,
-  ...StreamingAPI, ...DebugAPI,
+  ...StreamingAPI, ...DebugAPI, ...BarterAPI,
   getState, updateState, subscribe, resetState,
   cleanMarkdownText, scrollToBottom, escapeHtml,
+  openBarterModal, closeBarterModal,
+  setCurrentNarration, triggerChipsForNarration,
   presets: [],
   selectedPresetIdx: null,
   selectedCharacterIdx: null,

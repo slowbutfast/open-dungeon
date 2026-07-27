@@ -48,7 +48,31 @@ graph TD
         *   The status block is trimmed from the saved history.
     *   If it does not match, it is yielded as a standard text chunk.
 
-### 3. Dynamic Local Network (LAN) Binding
+### 4. Universal Barter & Quest Goal Engine
+
+*   **Status**: **Fully Operational**
+*   **Behavior**: Provides a deterministic, SQLite-backed barter trade system and NPC quest goal state machine, supporting item-for-item swaps with no currency and state transitions (`NOT_STARTED` → `COMPLETED`).
+*   **Components**:
+    *   `engine/memory/barterEngine.js` — `BarterEngine` class managing `barter_offers` and `quest_goals` tables.
+    *   `engine/memory/structuredStore.js` — Added `hasItem()`, `executeTrade()` methods for pre-action gating and atomic swaps.
+    *   `engine/index.js` — Exposes `registerOffer()`, `executeBarter()`, `getOffers()`, `createGoal()`, `getGoals()`, `completeGoal()` proxy methods.
+    *   `engine/llm.js` — Pre-action gating now detects `barter X to Y` and `exchange X for Y` patterns in addition to `trade X for Y`.
+*   **Trade Flow**:
+    1. `hasItem()` checks inventory for `status = 'held'` with case-insensitive name match (pre-action gate, $0 LLM cost).
+    2. `executeTrade()` runs an atomic SQLite transaction: marks required item as `'traded'`, inserts/replaces offered item as `'held'`.
+    3. On success, a `[SYSTEM EVENT: Barter successful! Traded 'X' for 'Y'.]` message is injected into the SSE stream before LLM narration.
+*   **Quest Goal Flow**:
+    1. `createGoal()` inserts a goal with `status = 'NOT_STARTED'`.
+    2. `completeGoal()` validates `hasItem()`, transitions to `'COMPLETED'`, and grants the reward item via `executeTrade()`.
+*   **API Endpoints**:
+    *   `POST /api/trade/offer` — Register a barter offer.
+    *   `GET /api/trade/offers?trader=<name>` — List offers for a trader.
+    *   `POST /api/trade` — Execute a trade (SSE stream with system event + LLM narration).
+    *   `POST /api/goals` — Create a quest goal.
+    *   `GET /api/goals` — List active (non-completed) goals.
+    *   `POST /api/goals/complete` — Complete a goal (SSE stream).
+
+### 5. Dynamic Local Network (LAN) Binding
 *   **Status**: **Fully Operational**
 *   **Behavior**: Enables remote devices on the same Wi-Fi/local network to access the web panel without compromising automated test environments.
 *   **Mechanics**:
@@ -63,6 +87,7 @@ graph TD
 *   **`GET /`**: Renders the main retro UI (`index.html`).
 *   **`GET /api/presets`**: Returns available story templates (preset universes, descriptions, and character templates).
 *   **`GET /api/ping`**: Probes the LM Studio port and returns status, active model, and list of all available models.
+*   **`GET /api/debug/info`**: Returns LLM call info and system debug logs.
     *   *Output*:
         ```json
         {
@@ -134,8 +159,10 @@ graph TD
 
 ## 🧪 Testing Coverage
 
-The entire backend status is covered by 40 integration/unit tests:
-1. **API Endpoints (`tests/test_api_endpoints.py`)**: Tests route handling, SSE stream formats, settings updates, save slots, and lore modifications.
-2. **CLI Behavior (`tests/test_cli_behavior.py`)**: Tests context compression threshold, dynamic response length limits (brevity instructions for simple actions), history undos, and prompt creations.
-3. **PTY Integration (`tests/test_pty_integration.py`)**: Tests keyboard input loops in terminal-only modes.
-4. **E2E Playwright Browser (`tests/e2e/test_menu_navigation.py`)**: Tests UI actions (init, character setup, keyboard menus, confirm panels, exits, and loads) interacting with a running mock Node.js Express server process.
+The entire backend status is covered by 45+ integration/unit tests:
+1. **API Endpoints (`tests/test_api_endpoints.py`)**: Tests route handling, SSE stream formats, settings updates, save slots, lore modifications, barter trade SSE streams, goal creation and completion SSE streams.
+2. **Barter Engine (`tests/test_barter_engine.py`)**: Tests barter contract creation, valid trade atomic swap, unowned item rejection, partial quantity trades, goal creation, goal state transitions, goal completion with reward insertion, and active goal listing.
+3. **CLI Behavior (`tests/test_cli_behavior.py`)**: Tests context compression threshold, dynamic response length limits (brevity instructions for simple actions), history undos, and prompt creations.
+4. **PTY Integration (`tests/test_pty_integration.py`)**: Tests keyboard input loops in terminal-only modes.
+5. **E2E Playwright Browser (`tests/e2e/test_menu_navigation.py`)**: Tests UI actions (init, character setup, keyboard menus, confirm panels, exits, and loads) interacting with a running mock Node.js Express server process.
+6. **E2E Barter UI (`tests/e2e/test_barter_ui.py`)**: Tests action chip rendering, Barter Modal open/close, and one-click trade execution in the browser.
