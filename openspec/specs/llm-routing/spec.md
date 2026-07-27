@@ -30,7 +30,7 @@ The orchestrator SHALL construct the OpenAI SDK client instance using the approp
 - **THEN** client is built with baseURL using dynamic `LM_STUDIO_HOST` and `LM_STUDIO_PORT` values, with API key set to "lm-studio"
 
 ### Requirement: Loaded Model Auto-Detection
-The client orchestrator SHALL auto-detect the active model identifier by querying the models REST endpoint, or fallback to returning the default model configurations. For the OpenRouter backend, the `/api/ping` endpoint SHALL return a curated list of default models in the `models` array, with the environment-configured model first.
+The client orchestrator SHALL auto-detect the active model identifier by querying the models REST endpoint, or fallback to returning the default model configurations. For the OpenRouter backend, the `/api/ping` endpoint SHALL return a curated list of default models in the `models` array (including `sao10k/l3.3-euryale-70b`), with the environment-configured model first.
 
 #### Scenario: Detect loaded model in LM Studio
 - **WHEN** backend is LM Studio and models query succeeds
@@ -38,9 +38,9 @@ The client orchestrator SHALL auto-detect the active model identifier by queryin
 
 #### Scenario: Return curated model list for OpenRouter
 - **WHEN** backend is OpenRouter
-- **THEN** the `/api/ping` endpoint SHALL return a `models` array containing the curated list of default OpenRouter models
+- **THEN** the `/api/ping` endpoint SHALL return a `models` array containing the curated list of default OpenRouter models (including `sao10k/l3.3-euryale-70b`)
 - **AND** the environment-configured model (`OPENROUTER_MODEL` or fallback) SHALL be at index 0
-- **AND** a parallel `modelCaptions` array SHALL be returned with one-line descriptions for each model
+- **AND** a parallel `modelCaptions` array SHALL be returned with one-line descriptions and per-MTok pricing for each model
 
 ### Requirement: Failover/Fallback Recovery
 When a streaming completion request fails on the active model, the system SHALL attempt to query the list of available models and automatically fallback to retrying execution on a different loaded model.
