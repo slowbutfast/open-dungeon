@@ -54,6 +54,28 @@ router.post('/memory/search', async (req, res) => {
     }
 });
 
+router.post('/memory/inventory/add', async (req, res) => {
+    try {
+        if (!engine.adventureId) {
+            return res.status(400).json({ error: "No active adventure." });
+        }
+        const item = req.body;
+        if (!item || !item.item_name) {
+            return res.status(400).json({ error: "item_name is required." });
+        }
+        engine.memory.structuredStore.upsertInventoryItem(engine.adventureId, {
+            item_name: item.item_name,
+            item_type: item.item_type || 'misc',
+            description: item.description || null,
+            quantity: item.quantity !== undefined ? item.quantity : 1,
+            status: item.status || 'held'
+        });
+        res.json({ status: "success", item });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 router.get('/memory/stats', async (req, res) => {
     try {
         if (!engine.adventureId) {

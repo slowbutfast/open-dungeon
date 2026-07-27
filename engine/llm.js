@@ -212,6 +212,49 @@ export class LlmOrchestrator {
                 isSimpleAction = true;
                 requestMaxTokens = Math.max(60, Math.floor(state.maxTokens / 3));
             }
+
+            const itemActionVerbs = ["use ", "drop ", "trade ", "give "];
+            const matchedVerb = itemActionVerbs.find(v => cleanedCmd.startsWith(v));
+            if (matchedVerb) {
+                let remainder = text.trim().substring(matchedVerb.length).trim();
+                const toIdx = remainder.toLowerCase().indexOf(" to ");
+                if (toIdx !== -1) {
+                    remainder = remainder.substring(0, toIdx).trim();
+                }
+                const giveIdx = remainder.toLowerCase().indexOf(" to ");
+                if (giveIdx !== -1) {
+                    remainder = remainder.substring(0, giveIdx).trim();
+                }
+                const itemName = remainder.replace(/^(a |an |the )/i, "").trim();
+
+                let gateInventory = [];
+                try {
+                    if (contextManager && contextManager.memoryManager && state.adventureId) {
+                        gateInventory = contextManager.memoryManager.getInventory(state.adventureId) || [];
+                    }
+                } catch (e) {
+                    // ignore
+                }
+
+                const heldItems = gateInventory.filter(i => (i.status || "held") === "held");
+                const found = heldItems.some(i =>
+                    i.item_name && i.item_name.toLowerCase() === itemName.toLowerCase()
+                );
+
+                if (!found) {
+                    const rejectionText = `You don't have that item.`;
+                    state.history.push({
+                        role: "assistant",
+                        action_type: "narration",
+                        text: rejectionText
+                    });
+                    state.moves += 1;
+                    await saveFn();
+                    yield { type: "chunk", content: rejectionText };
+                    yield { type: "done", content: rejectionText };
+                    return;
+                }
+            }
         }
 
         const messages = [];
