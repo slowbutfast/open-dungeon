@@ -1,3 +1,5 @@
+**GitHub Issue**: [#7 (Harden Inventory System with Synchronous SQLite Storage, Atomic Transactions, and RAG Embedding Search)](https://github.com/slowbutfast/open-dungeon/issues/7)
+
 ## Why
 
 The current inventory engine relies on an asynchronous 4-turn background LLM summarization worker (`EventExtractor`), creating a 4-turn memory lag where newly acquired items are missing from system prompts. Furthermore, the engine lacks deterministic pre-action validation, allowing LLM hallucinations, item duplication, and unvalidated trading.
