@@ -7,6 +7,7 @@ import subprocess
 import time
 import requests
 import shutil
+from tests.test_helpers import assert_save_dir_is_safe
 
 class HttpClientProxy:
     def __init__(self, base_url="http://127.0.0.1:5002"):
@@ -79,6 +80,9 @@ class TestMemoryFeatures(unittest.TestCase):
             except subprocess.TimeoutExpired:
                 cls.proc.kill()
 
+        # Safety guard: abort cleanup if save dir is outside tests/ directory
+        assert_save_dir_is_safe(cls.save_dir)
+
         # Clean up isolated test save directory and any derived data artifacts
         if os.path.exists(cls.save_dir):
             shutil.rmtree(cls.save_dir, ignore_errors=True)
@@ -86,6 +90,7 @@ class TestMemoryFeatures(unittest.TestCase):
         # The engine derives dataDir from saveDir as saveDir/../data,
         # so for save_dir=tests/adventures_memory_test, data dir is tests/data/
         test_data_dir = os.path.join(os.path.dirname(cls.save_dir), "data")
+        assert_save_dir_is_safe(test_data_dir)
         if os.path.exists(test_data_dir):
             shutil.rmtree(test_data_dir, ignore_errors=True)
 

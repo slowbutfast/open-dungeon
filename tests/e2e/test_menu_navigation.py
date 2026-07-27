@@ -8,6 +8,10 @@ import shutil
 import pytest
 from playwright.sync_api import sync_playwright, expect
 
+# Add project root to path before importing project-local modules
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from tests.test_helpers import assert_save_dir_is_safe
+
 # Enable console logging for debugging
 @pytest.fixture(scope="function")
 def main_page(page):
@@ -22,12 +26,9 @@ def main_page(page):
     # Attach errors to page for test access
     page._test_errors = errors
     return page
-
-# Add project root to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-
+    
 # Isolated save directory for E2E tests
-TEST_SAVE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "adventures")
+TEST_SAVE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "adventures_e2e_test")
 
 def is_port_open(port):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -69,6 +70,9 @@ def start_server():
         except subprocess.TimeoutExpired:
             proc.kill()
     
+    # Safety guard: abort cleanup if save dir is outside tests/ directory
+    assert_save_dir_is_safe(TEST_SAVE_DIR)
+
     # Clean up isolated test save directory and generated presets file
     if os.path.isdir(TEST_SAVE_DIR):
         shutil.rmtree(TEST_SAVE_DIR, ignore_errors=True)

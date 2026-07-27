@@ -2,6 +2,7 @@ import unittest
 import sys
 import os
 from unittest.mock import MagicMock, patch
+from tests.test_helpers import assert_save_dir_is_safe
 
 # Ensure the root project path and game folder are in sys.path
 root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -31,6 +32,7 @@ class TestCliBehavior(unittest.TestCase):
     def tearDown(self):
         import shutil
         if hasattr(self, "save_dir") and os.path.exists(self.save_dir):
+            assert_save_dir_is_safe(self.save_dir)
             try:
                 shutil.rmtree(self.save_dir)
             except OSError:
