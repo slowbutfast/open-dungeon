@@ -21,13 +21,8 @@ export async function loadPresets() {
       card.innerHTML = `
         <h3>${preset.name}</h3>
         <p>${preset.summary.substring(0, 110)}...</p>
-        <div class="preset-card-actions">
-          <button class="btn-edit-preset" data-index="${idx}" type="button">Edit</button>
-          <button class="btn-delete-preset" data-index="${idx}" type="button">Delete</button>
-        </div>
       `;
-      card.addEventListener("click", (e) => {
-        if (e.target.closest(".btn-edit-preset") || e.target.closest(".btn-delete-preset")) return;
+      card.addEventListener("click", () => {
         document.querySelectorAll(".preset-card").forEach(c => c.classList.remove("active"));
         card.classList.add("active");
         window.selectedPresetIdx = idx;
@@ -36,17 +31,9 @@ export async function loadPresets() {
         document.getElementById("custom-summary").value = preset.summary;
         document.getElementById("custom-system-prompt").value = preset.system_prompt;
 
-        document.getElementById("btn-preset-customize").classList.remove("hidden");
+        const btnCustomize = document.getElementById("btn-preset-customize");
+        if (btnCustomize) btnCustomize.classList.remove("hidden");
         document.getElementById("btn-preset-next").classList.remove("hidden");
-      });
-
-      card.querySelector(".btn-edit-preset").addEventListener("click", (e) => {
-        e.stopPropagation();
-        openPresetEditor(idx);
-      });
-      card.querySelector(".btn-delete-preset").addEventListener("click", (e) => {
-        e.stopPropagation();
-        deletePresetByIdx(idx);
       });
 
       listContainer.appendChild(card);
@@ -61,7 +48,7 @@ export function loadCharactersList(presetIdx) {
   grid.innerHTML = "";
 
   let chars = [];
-  if (presetIdx !== null && window.presets[presetIdx]) {
+  if (presetIdx !== null && window.presets && window.presets[presetIdx]) {
     chars = window.presets[presetIdx].characters;
   } else {
     chars = [
@@ -84,10 +71,11 @@ export function loadCharactersList(presetIdx) {
   });
 
   window.selectedCharacterIdx = 0;
+  window.currentLoadedCharacters = chars;
 
   document.getElementById("custom-character-form").classList.add("hidden");
   document.getElementById("preset-character-section").classList.remove("hidden");
-  document.getElementById("btn-char-custom-toggle").innerText = "Create Custom Hero";
+  document.getElementById("btn-char-custom-toggle").innerText = "Customize Hero";
 }
 
 export function selectCharacterCard(idx) {
@@ -95,6 +83,18 @@ export function selectCharacterCard(idx) {
     c.classList.toggle("active", cIdx === idx);
   });
   window.selectedCharacterIdx = idx;
+}
+
+export function populateCustomCharFromSelected() {
+  const chars = window.currentLoadedCharacters || [];
+  const idx = window.selectedCharacterIdx || 0;
+  const char = chars[idx];
+  if (char) {
+    document.getElementById("char-name").value = char.name || "";
+    document.getElementById("char-role").value = char.type || "";
+    document.getElementById("char-desc").value = char.desc || "";
+    document.getElementById("char-triggers").value = Array.isArray(char.triggers) ? char.triggers.join(", ") : (char.triggers || "");
+  }
 }
 
 export async function loadPresetsManager() {
@@ -119,8 +119,8 @@ export async function loadPresetsManager() {
         <h3>${preset.name}</h3>
         <p>${(preset.summary || "").substring(0, 110)}...</p>
         <div class="preset-card-actions">
-          <button class="btn-edit-preset" data-index="${idx}" type="button">Edit</button>
-          <button class="btn-delete-preset" data-index="${idx}" type="button">Delete</button>
+          <button class="btn-edit-preset btn-icon-action" data-index="${idx}" type="button" title="Edit Preset">✏ Edit</button>
+          <button class="btn-delete-preset btn-icon-action btn-icon-delete" data-index="${idx}" type="button" title="Delete Preset">✕ Delete</button>
         </div>
       `;
       card.querySelector(".btn-edit-preset").addEventListener("click", (e) => {

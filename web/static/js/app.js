@@ -73,9 +73,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   document.getElementById("btn-preset-next").addEventListener("click", () => {
-    window.storyCustomized = false;
-    PresetsAPI.loadCharactersList(window.selectedPresetIdx);
-    Screens.showScreen("character-screen");
+    Screens.showScreen("custom-preset-screen");
   });
 
   // Preset Manager navigation
@@ -198,11 +196,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   document.getElementById("btn-char-back").addEventListener("click", () => {
-    if (window.storyCustomized || window.selectedPresetIdx === null) {
-      Screens.showScreen("custom-preset-screen");
-    } else {
-      Screens.showScreen("preset-screen");
-    }
+    Screens.showScreen("custom-preset-screen");
   });
 
   document.getElementById("btn-submit-character").addEventListener("click", PresetsAPI.launchSimulation);
