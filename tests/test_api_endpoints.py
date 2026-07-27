@@ -19,7 +19,28 @@ class HttpClientProxy:
                 self.data = r.content
                 self.mimetype = r.headers.get("Content-Type", "").split(";")[0]
         return ResponseWrapper(r)
-        
+ 
+    def put(self, path, json=None):
+        if json is not None:
+            r = requests.put(f"{self.base_url}{path}", json=json)
+        else:
+            r = requests.put(f"{self.base_url}{path}")
+        class ResponseWrapper:
+            def __init__(self, r):
+                self.status_code = r.status_code
+                self.data = r.content
+                self.mimetype = r.headers.get("Content-Type", "").split(";")[0]
+        return ResponseWrapper(r)
+ 
+    def delete(self, path):
+        r = requests.delete(f"{self.base_url}{path}")
+        class ResponseWrapper:
+            def __init__(self, r):
+                self.status_code = r.status_code
+                self.data = r.content
+                self.mimetype = r.headers.get("Content-Type", "").split(";")[0]
+        return ResponseWrapper(r)
+ 
     def post(self, path, json=None, data=None):
         if json is not None:
             r = requests.post(f"{self.base_url}{path}", json=json)
@@ -109,6 +130,65 @@ class TestApiEndpoints(unittest.TestCase):
         self.assertGreater(len(data), 0)
         self.assertEqual(data[0]["name"], "Lord of the Rings (Middle-earth Fantasy)")
         
+    def test_preset_crud_endpoints(self):
+        """Verify creating, updating, and deleting presets via POST, PUT, DELETE."""
+        # 1. Create a new preset
+        new_preset = {
+            "name": "Test Preset",
+            "title": "Test Adventure",
+            "summary": "A test adventure for CRUD testing.",
+            "system_prompt": "You are a test narrator.",
+            "characters": [
+                {"name": "Test Hero", "type": "Warrior", "desc": "A test hero.", "triggers": ["test", "hero"]}
+            ]
+        }
+        res = self.app.post("/api/presets", json=new_preset)
+        self.assertEqual(res.status_code, 200)
+        data = json.loads(res.data)
+        self.assertIn("status", data)
+        self.assertEqual(data["status"], "success")
+
+        # 2. Verify list includes the new preset at index 4
+        res_list = self.app.get("/api/presets")
+        self.assertEqual(res_list.status_code, 200)
+        presets = json.loads(res_list.data)
+        self.assertGreaterEqual(len(presets), 5)
+        self.assertEqual(presets[4]["name"], "Test Preset")
+
+        # 3. Update the preset at index 4
+        updated_preset = {
+            "name": "Updated Test Preset",
+            "title": "Updated Adventure",
+            "summary": "An updated test adventure.",
+            "system_prompt": "You are an updated test narrator.",
+            "characters": [
+                {"name": "Updated Hero", "type": "Mage", "desc": "An updated hero.", "triggers": ["updated", "hero"]}
+            ]
+        }
+        res_update = self.app.put("/api/presets/4", json=updated_preset)
+        self.assertEqual(res_update.status_code, 200)
+        data_update = json.loads(res_update.data)
+        self.assertEqual(data_update["status"], "success")
+        self.assertEqual(data_update["preset"]["name"], "Updated Test Preset")
+
+        # 4. Verify list reflects the update
+        res_list2 = self.app.get("/api/presets")
+        self.assertEqual(res_list2.status_code, 200)
+        presets2 = json.loads(res_list2.data)
+        self.assertEqual(presets2[4]["name"], "Updated Test Preset")
+
+        # 5. Delete the preset at index 4
+        res_del = self.app.delete("/api/presets/4")
+        self.assertEqual(res_del.status_code, 200)
+        data_del = json.loads(res_del.data)
+        self.assertEqual(data_del["status"], "success")
+
+        # 6. Verify list no longer has the deleted preset and count is back to 4
+        res_list3 = self.app.get("/api/presets")
+        self.assertEqual(res_list3.status_code, 200)
+        presets3 = json.loads(res_list3.data)
+        self.assertEqual(len(presets3), 4)
+
     def test_init_and_state_api(self):
         """Verify initialization and state sync updates values correctly."""
         payload = {

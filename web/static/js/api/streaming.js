@@ -116,7 +116,13 @@ export async function executeStreamAction(actionType, text) {
 
       for (const line of lines) {
         if (line.startsWith("data: ")) {
-          const event = JSON.parse(line.substring(6));
+          let event;
+          try {
+            event = JSON.parse(line.substring(6));
+          } catch (parseErr) {
+            console.error("[STREAM_PARSE_ERROR] Failed to parse SSE event chunk:", parseErr, { rawLine: line });
+            continue;
+          }
 
           if (event.type === "chunk") {
             fullText += event.content;
@@ -136,6 +142,7 @@ export async function executeStreamAction(actionType, text) {
               scrollToBottom();
             }
           } else if (event.type === "error") {
+            console.error("[STREAM_ERROR_EVENT] Received error payload from stream:", event.content);
             alert("Stream error: " + event.content);
           }
         }
@@ -161,6 +168,7 @@ export async function executeStreamAction(actionType, text) {
     }
 
   } catch (err) {
+    console.error("[STREAM_PROCESSING_ERROR] Critical failure in response stream processing:", err);
     const loaderEl = document.getElementById("stream-loader-indicator");
     if (loaderEl) loaderEl.remove();
     alert("Network action request error: " + err);

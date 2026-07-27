@@ -46,6 +46,13 @@
         
         <!-- 2. NEW GAME WIZARD (PRESET SELECTION) -->
         <div id="preset-screen" class="glass-panel hidden">
+            <div class="progress-indicator" data-step="1">
+                <span class="progress-step active">1. Story Preset</span>
+                <span class="progress-arrow">&#8594;</span>
+                <span class="progress-step">2. Adventure Config</span>
+                <span class="progress-arrow">&#8594;</span>
+                <span class="progress-step">3. Character Genesis</span>
+            </div>
             <header class="panel-header">
                 <h2>[STORY GENESIS PRESETS]</h2>
                 <p>Select a universe simulation template</p>
@@ -54,13 +61,16 @@
                 <!-- Presets will be dynamically populated here -->
             </div>
             <footer class="panel-footer-nav">
-                <button class="btn btn-back" onclick="showScreen('startup-screen')">Back</button>
+                <div class="footer-actions-left">
+                    <button class="btn btn-back" onclick="showScreen('startup-screen')">Back</button>
+                    <button id="btn-manage-presets" class="btn btn-secondary">Manage Presets</button>
+                </div>
                 <div class="footer-actions-right">
                     <div class="secondary-actions-group">
                         <button id="btn-custom-preset" class="btn btn-secondary">Custom Adventure</button>
                         <button id="btn-preset-customize" class="btn btn-secondary hidden">Customize Story</button>
                     </div>
-                    <button id="btn-preset-next" class="btn btn-primary hidden">Next: Character Select</button>
+                    <button id="btn-preset-next" class="btn btn-primary hidden">Next: Adventure Config</button>
                 </div>
             </footer>
             <div class="kbd-hint">&#8592;&#8594; select preset &nbsp;&bull;&nbsp; Enter confirm &nbsp;&bull;&nbsp; Esc back</div>
@@ -68,6 +78,13 @@
         
         <!-- 3. CUSTOM UNIVERSE SETUP MODAL/SCREEN -->
         <div id="custom-preset-screen" class="glass-panel hidden">
+            <div class="progress-indicator" data-step="2">
+                <span class="progress-step completed">1. Story Preset</span>
+                <span class="progress-arrow">&#8594;</span>
+                <span class="progress-step active">2. Adventure Config</span>
+                <span class="progress-arrow">&#8594;</span>
+                <span class="progress-step">3. Character Genesis</span>
+            </div>
             <header class="panel-header">
                 <h2>[CUSTOM UNIVERSE CONFIGURATION]</h2>
                 <p>Define adventure boundaries</p>
@@ -94,6 +111,13 @@
         
         <!-- 4. CHARACTER GENESIS SETUP -->
         <div id="character-screen" class="glass-panel hidden">
+            <div class="progress-indicator" data-step="3">
+                <span class="progress-step completed">1. Story Preset</span>
+                <span class="progress-arrow">&#8594;</span>
+                <span class="progress-step completed">2. Adventure Config</span>
+                <span class="progress-arrow">&#8594;</span>
+                <span class="progress-step active">3. Character Genesis</span>
+            </div>
             <header class="panel-header">
                 <h2>[CHARACTER GENESIS]</h2>
                 <p>Define your hero avatar profile</p>
@@ -149,7 +173,63 @@
             <div class="kbd-hint">Esc back to menu</div>
         </div>
         
-        <!-- 6. MAIN GAMEPLAY CORE DASHBOARD -->
+        <!-- 6. PRESET MANAGER SCREEN (CRUD listing) -->
+        <div id="preset-manager-screen" class="glass-panel hidden">
+            <header class="panel-header">
+                <h2>[PRESET MANAGER]</h2>
+                <p>Create, edit, or delete simulation templates</p>
+            </header>
+            <div class="manager-toolbar">
+                <button id="btn-create-preset" class="btn btn-primary">+ New Preset</button>
+            </div>
+            <div id="preset-manager-list" class="preset-grid">
+                <!-- Preset cards with edit/delete buttons rendered dynamically -->
+            </div>
+            <footer class="panel-footer-nav">
+                <button id="btn-manager-back" class="btn btn-back">Back to Presets</button>
+            </footer>
+        </div>
+
+        <!-- 7. PRESET EDITOR SCREEN (create/edit form with character sub-forms) -->
+        <div id="preset-editor-screen" class="glass-panel hidden">
+            <header class="panel-header">
+                <h2 id="editor-title">[EDIT PRESET]</h2>
+                <p>Configure template details and character roster</p>
+            </header>
+            <div class="editor-scroll-container">
+                <div class="form-container">
+                    <div class="form-group">
+                        <label for="editor-preset-name">Preset Name</label>
+                        <input type="text" id="editor-preset-name" placeholder="e.g. My Custom World">
+                    </div>
+                    <div class="form-group">
+                        <label for="editor-preset-title">Adventure Title</label>
+                        <input type="text" id="editor-preset-title" placeholder="e.g. The Lost Realm">
+                    </div>
+                    <div class="form-group">
+                        <label for="editor-preset-summary">Summary / Starting Scenario</label>
+                        <textarea id="editor-preset-summary" rows="3"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="editor-preset-system-prompt">Narrator System Prompt</label>
+                        <textarea id="editor-preset-system-prompt" class="code-font" rows="6"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Preset Characters</label>
+                        <div id="editor-characters-list">
+                            <!-- Character sub-forms rendered dynamically -->
+                        </div>
+                        <button id="btn-editor-add-character" class="btn btn-secondary btn-sm">+ Add Character</button>
+                    </div>
+                </div>
+            </div>
+            <footer class="panel-footer-nav">
+                <button id="btn-editor-back" class="btn btn-back">Cancel</button>
+                <button id="btn-editor-save" class="btn btn-primary">Save Preset</button>
+            </footer>
+        </div>
+
+        <!-- 8. MAIN GAMEPLAY CORE DASHBOARD -->
         <div id="gameplay-screen" class="game-dashboard hidden">
             
             <!-- TOP STATS BAR -->

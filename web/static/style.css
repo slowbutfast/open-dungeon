@@ -284,6 +284,171 @@ body {
     box-shadow: 0 0 8px rgba(56, 189, 248, 0.3);
 }
 
+/* Progress Indicator for Setup Wizard */
+.progress-indicator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    margin-bottom: 1.25rem;
+    padding: 0.6rem 1rem;
+    background: rgba(7, 9, 13, 0.5);
+    border: 1px solid var(--border-light);
+    border-radius: 4px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+}
+
+.progress-step {
+    color: var(--text-muted);
+    padding: 0.15rem 0.4rem;
+    border-radius: 2px;
+    transition: all var(--transition-fast);
+}
+
+.progress-step.active {
+    color: var(--text-neon);
+    background: rgba(56, 189, 248, 0.12);
+    text-shadow: 0 0 4px rgba(56, 189, 248, 0.4);
+}
+
+.progress-step.completed {
+    color: var(--text-log);
+}
+
+.progress-arrow {
+    color: var(--text-muted);
+    opacity: 0.4;
+    font-size: 0.8rem;
+}
+
+/* Preset Manager Screen */
+#preset-manager-screen, #preset-editor-screen {
+    max-width: 800px;
+    width: 100%;
+}
+
+.manager-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 1rem;
+}
+
+/* Editor Scrollable Container */
+.editor-scroll-container {
+    max-height: 55vh;
+    overflow-y: auto;
+    padding-right: 0.5rem;
+}
+
+/* Character sub-form in editor */
+.editor-character-form {
+    background: rgba(7, 9, 13, 0.35);
+    border: 1px solid var(--border-light);
+    border-radius: 4px;
+    padding: 0.75rem;
+    margin-bottom: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.editor-character-form .char-form-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.editor-character-form .char-form-header h5 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8rem;
+    color: var(--text-neon);
+}
+
+.editor-character-form .char-form-row {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.editor-character-form .char-form-row .form-group {
+    flex: 1;
+    min-width: 120px;
+}
+
+.editor-character-form .char-form-row .form-group label {
+    font-size: 0.7rem;
+}
+
+.editor-character-form .char-form-row .form-group input,
+.editor-character-form .char-form-row .form-group textarea {
+    font-size: 0.82rem;
+    padding: 0.4rem 0.6rem;
+}
+
+.btn-remove-character {
+    background: transparent;
+    border: 1px solid #ef4444;
+    color: #ef4444;
+    font-size: 0.7rem;
+    padding: 0.2rem 0.5rem;
+    border-radius: 3px;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    transition: all var(--transition-fast);
+}
+
+.btn-remove-character:hover {
+    background: rgba(239, 68, 68, 0.15);
+}
+
+/* Preset card action buttons for manager */
+.preset-card-actions {
+    display: flex;
+    gap: 0.4rem;
+    margin-top: 0.75rem;
+}
+
+.btn-edit-preset, .btn-delete-preset, .btn-icon-action {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    padding: 0.25rem 0.6rem;
+    border-radius: 3px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    transition: all var(--transition-fast);
+}
+
+.btn-edit-preset {
+    background: rgba(56, 189, 248, 0.08);
+    border: 1px solid var(--border-light);
+    color: var(--text-neon);
+}
+
+.btn-edit-preset:hover {
+    background: rgba(56, 189, 248, 0.2);
+    border-color: var(--border-glow);
+    box-shadow: 0 0 6px rgba(56, 189, 248, 0.3);
+}
+
+.btn-delete-preset {
+    background: rgba(239, 68, 68, 0.08);
+    border: 1px solid rgba(239, 68, 68, 0.4);
+    color: #ef4444;
+}
+
+.btn-delete-preset:hover {
+    background: rgba(239, 68, 68, 0.2);
+    border-color: #ef4444;
+    box-shadow: 0 0 6px rgba(239, 68, 68, 0.3);
+}
+
+.btn-delete-preset:hover {
+    background: rgba(239, 68, 68, 0.15);
+}
+
 /* Preset Screen & Grid Cards */
 #preset-screen, #custom-preset-screen, #character-screen {
     max-width: 800px;
@@ -359,6 +524,12 @@ body {
     border-top: 1px solid var(--border-light);
     padding-top: 1.25rem;
     margin-top: 1.5rem;
+}
+
+.footer-actions-left {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
 }
 
 .footer-actions-right {

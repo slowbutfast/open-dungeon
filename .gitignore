@@ -20,6 +20,7 @@ tests/data
 # Local game save files
 game/adventures/
 game/data
+game/presets.json
 
 # Node.js dependencies
 node_modules/

@@ -3,7 +3,8 @@ import { scrollToBottom } from '../utils.js';
 
 const SCREEN_IDS = [
   "startup-screen", "preset-screen", "custom-preset-screen",
-  "character-screen", "restore-screen", "gameplay-screen"
+  "character-screen", "restore-screen", "preset-manager-screen",
+  "preset-editor-screen", "gameplay-screen"
 ];
 
 export function toggleCrt() {
@@ -32,6 +33,10 @@ export function showScreen(screenId) {
     }
   });
 
+  // Update progress indicator
+  updateProgressIndicator(screenId);
+
+  // Set focus on the appropriate element
   if (screenId === "gameplay-screen") {
     scrollToBottom();
     document.getElementById("console-input").focus();
@@ -45,6 +50,51 @@ export function showScreen(screenId) {
       btn.classList.remove("menu-focus");
       btn.blur();
     });
+  } else if (screenId === "preset-screen") {
+    focusFirstCard(screenId, ".preset-card", "btn-preset-next");
+  } else if (screenId === "character-screen") {
+    focusFirstCard(screenId, ".char-card", "btn-submit-character");
+  } else if (screenId === "preset-manager-screen") {
+    focusFirstCard(screenId, "#preset-manager-list .preset-card", "btn-create-preset");
+  } else if (screenId === "preset-editor-screen") {
+    const firstInput = document.querySelector("#preset-editor-screen .form-group input, #preset-editor-screen .form-group textarea");
+    if (firstInput) firstInput.focus();
+  } else if (screenId === "custom-preset-screen") {
+    const firstInput = document.querySelector("#custom-preset-screen .form-group input, #custom-preset-screen .form-group textarea");
+    if (firstInput) firstInput.focus();
+  }
+}
+
+function updateProgressIndicator(screenId) {
+  const wizardScreens = ["preset-screen", "custom-preset-screen", "character-screen"];
+  if (!wizardScreens.includes(screenId)) return;
+
+  const indicator = document.querySelector(`#${screenId} .progress-indicator`);
+  if (!indicator) return;
+
+  const steps = indicator.querySelectorAll(".progress-step");
+  const currentStep = parseInt(indicator.dataset.step, 10);
+
+  steps.forEach((step, idx) => {
+    const stepNum = idx + 1;
+    step.classList.remove("active", "completed");
+    if (stepNum === currentStep) {
+      step.classList.add("active");
+    } else if (stepNum < currentStep) {
+      step.classList.add("completed");
+    }
+  });
+}
+
+function focusFirstCard(screenId, cardSelector, fallbackBtnId) {
+  const screen = document.getElementById(screenId);
+  if (!screen) return;
+  const firstCard = screen.querySelector(cardSelector);
+  if (firstCard) {
+    firstCard.focus();
+  } else {
+    const fallback = document.getElementById(fallbackBtnId);
+    if (fallback) fallback.focus();
   }
 }
 
