@@ -456,6 +456,172 @@ router.get('/cost', (req, res) => {
     res.json(cost);
 });
 
+// ─── Barter & Quest Goal Endpoints ─────────────────────────────────────────
+
+router.post('/trade/offer', (req, res) => {
+    try {
+        if (!engine.adventureId) {
+            return res.status(400).json({ error: 'No active adventure.' });
+        }
+        const { trader_name, required_item, offered_item, description } = req.body;
+        if (!trader_name || !required_item || !offered_item) {
+            return res.status(400).json({ error: 'trader_name, required_item, and offered_item are required.' });
+        }
+        const offer = engine.registerOffer(trader_name, required_item, offered_item, description);
+        res.json({ status: 'success', offer });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.get('/trade/offers', (req, res) => {
+    try {
+        if (!engine.adventureId) {
+            return res.status(400).json({ error: 'No active adventure.' });
+        }
+        const trader = req.query.trader;
+        const offers = engine.getOffers(trader || null);
+        res.json(offers);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.post('/trade', async (req, res) => {
+    try {
+        if (!engine.adventureId) {
+            return res.status(400).json({ error: 'No active adventure.' });
+        }
+        const { trader_name, required_item } = req.body;
+        if (!trader_name || !required_item) {
+            return res.status(400).json({ error: 'trader_name and required_item are required.' });
+        }
+
+        // Execute the barter
+        const offer = engine.executeBarter(trader_name, required_item);
+
+        // Set SSE headers
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+
+        // Send system event for successful barter
+        const systemEvent = `[SYSTEM EVENT: Barter successful! Traded '${offer.required_item}' for '${offer.offered_item}'.]`;
+        res.write(`data: ${JSON.stringify({ type: 'system', content: systemEvent })}\n\n`);
+
+        // Stream LLM narration about the trade
+        const stream = engine.generateResponseStream('do', `trade ${offer.required_item} to ${offer.trader_name}`);
+        for await (const event of stream) {
+            res.write(`data: ${JSON.stringify(event)}\n\n`);
+        }
+    } catch (err) {
+        if (res.headersSent) {
+            res.write(`data: ${JSON.stringify({ type: 'error', content: err.message })}\n\n`);
+        } else {
+            return res.status(400).json({ error: err.message });
+        }
+    } finally {
+        res.end();
+    }
+});
+
+router.post('/goals', (req, res) => {
+    try {
+        if (!engine.adventureId) {
+            return res.status(400).json({ error: 'No active adventure.' });
+        }
+        const { npc_name, goal_title, required_item, reward_item } = req.body;
+        if (!npc_name || !goal_title || !required_item || !reward_item) {
+            return res.status(400).json({ error: 'npc_name, goal_title, required_item, and reward_item are required.' });
+        }
+        const goal = engine.createGoal(npc_name, goal_title, required_item, reward_item);
+        res.json({ status: 'success', goal });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.get('/goals', (req, res) => {
+    try {
+        if (!engine.adventureId) {
+            return res.status(400).json({ error: 'No active adventure.' });
+        }
+        const goals = engine.getGoals();
+        res.json(goals);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.post('/goals/accept', (req, res) => {
+    try {
+        if (!engine.adventureId) {
+            return res.status(400).json({ error: 'No active adventure.' });
+        }
+        const { goal_id } = req.body;
+        if (!goal_id) {
+            return res.status(400).json({ error: 'goal_id is required.' });
+        }
+        const goal = engine.acceptGoal(goal_id);
+        res.json({ status: 'success', goal });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.post('/goals/fail', (req, res) => {
+    try {
+        if (!engine.adventureId) {
+            return res.status(400).json({ error: 'No active adventure.' });
+        }
+        const { goal_id } = req.body;
+        if (!goal_id) {
+            return res.status(400).json({ error: 'goal_id is required.' });
+        }
+        const goal = engine.failGoal(goal_id);
+        res.json({ status: 'success', goal });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.post('/goals/complete', async (req, res) => {
+    try {
+        if (!engine.adventureId) {
+            return res.status(400).json({ error: 'No active adventure.' });
+        }
+        const { goal_id } = req.body;
+        if (!goal_id) {
+            return res.status(400).json({ error: 'goal_id is required.' });
+        }
+
+        const goal = engine.completeGoal(goal_id);
+
+        // Set SSE headers
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+
+        // Send system event for goal completion
+        const systemEvent = `[SYSTEM EVENT: Goal '${goal.goal_title}' completed! Reward: ${goal.reward_item} granted.]`;
+        res.write(`data: ${JSON.stringify({ type: 'system', content: systemEvent })}\n\n`);
+
+        // Stream LLM narration about the goal completion
+        const stream = engine.generateResponseStream('do', `complete quest: ${goal.goal_title}`);
+        for await (const event of stream) {
+            res.write(`data: ${JSON.stringify(event)}\n\n`);
+        }
+    } catch (err) {
+        if (res.headersSent) {
+            res.write(`data: ${JSON.stringify({ type: 'error', content: err.message })}\n\n`);
+        } else {
+            return res.status(400).json({ error: err.message });
+        }
+    } finally {
+        res.end();
+    }
+});
+
 router.get('/debug/info', (req, res) => {
     res.json({
         calls: llmTracker.getCalls(),

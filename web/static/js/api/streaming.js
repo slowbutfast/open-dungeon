@@ -2,6 +2,7 @@ import { scrollToBottom, cleanMarkdownText } from '../utils.js';
 import { openModal, switchSidebarTab, returnToStartMenu } from '../ui/screens.js';
 import { renderState, renderLoreCards, renderCostSummary } from '../ui/renderers.js';
 import { syncMemoryAndLore } from './memory.js';
+import { setCurrentNarration } from '../components/actionChips.js';
 
 export function setConsoleDisabled(disabled) {
   document.getElementById("console-input").disabled = disabled;
@@ -67,6 +68,7 @@ async function revealAssistantText(log, text) {
       turnDiv.innerText = text;
       scrollToBottom();
       syncMemoryAndLore();
+      setCurrentNarration(text);
       return;
     }
     revealedCount++;
