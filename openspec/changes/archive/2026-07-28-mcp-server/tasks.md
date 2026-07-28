@@ -60,8 +60,8 @@
 
 - [x] 10.1 Run all unit tests and ensure they pass
 - [x] 10.2 Run MCP protocol integration tests
-- [ ] 10.3 Manual verification: start MCP server and connect with MCP inspector
-- [ ] 10.4 Manual verification: execute 10-turn autonomous playtest with AI agent
-- [ ] 10.5 Manual verification: test barter workflow end-to-end
-- [ ] 10.6 Manual verification: test quest completion workflow
+- [x] 10.3 Manual verification: start MCP server and connect with MCP inspector
+- [x] 10.4 Manual verification: execute 10-turn autonomous playtest with AI agent
+- [x] 10.5 Manual verification: test barter workflow end-to-end
+- [x] 10.6 Manual verification: test quest completion workflow
 - [x] 10.7 Update engine/ARCHITECTURE.md with MCP server documentation
