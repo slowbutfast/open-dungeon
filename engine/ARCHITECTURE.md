@@ -166,3 +166,85 @@ The entire backend status is covered by 45+ integration/unit tests:
 4. **PTY Integration (`tests/test_pty_integration.py`)**: Tests keyboard input loops in terminal-only modes.
 5. **E2E Playwright Browser (`tests/e2e/test_menu_navigation.py`)**: Tests UI actions (init, character setup, keyboard menus, confirm panels, exits, and loads) interacting with a running mock Node.js Express server process.
 6. **E2E Barter UI (`tests/e2e/test_barter_ui.py`)**: Tests action chip rendering, Barter Modal open/close, and one-click trade execution in the browser.
+
+---
+
+## 🧩 MCP Server (`mcp/server.js`)
+
+The MCP (Model Context Protocol) server provides a JSON-RPC interface for AI agents to autonomously playtest and debug the game. It exposes 17 tools organized into 6 categories.
+
+### Architecture
+
+```
+MCP Client (AI Agent)  ←→  JSON-RPC over stdio/SSE  ←→  mcp/server.js  ←→  AdventureEngine
+```
+
+- **Standalone process**: Runs as `node mcp/server.js`, separate from the Express web server.
+- **Independent engine instance**: Creates its own `AdventureEngine` (avoids contention with web UI).
+- **Direct engine access**: Calls `AdventureEngine` methods directly (no HTTP wrapping).
+- **Transports**: Supports stdio (default) and SSE (`--transport sse`).
+- **SDK**: Uses `@modelcontextprotocol/sdk` (official Anthropic SDK).
+
+### Tool Categories
+
+| Category | Tools | File |
+|----------|-------|------|
+| Session Lifecycle | `dungeon_init_session`, `dungeon_list_saves`, `dungeon_load_save` | `mcp/tools/session.js` |
+| Core Gameplay | `dungeon_send_action`, `dungeon_undo_action` | `mcp/tools/gameplay.js` |
+| State Inspection | `dungeon_inspect_state`, `dungeon_inspect_history`, `dungeon_inspect_lore` | `mcp/tools/state.js` |
+| Memory & Inventory | `dungeon_inspect_inventory`, `dungeon_inspect_events`, `dungeon_inspect_stats`, `dungeon_search_memories` | `mcp/tools/memory.js` |
+| Barter & Quests | `dungeon_inspect_offers`, `dungeon_execute_trade`, `dungeon_inspect_goals`, `dungeon_complete_goal` | `mcp/tools/barter.js` |
+| Diagnostics | `dungeon_get_debug_info` | `mcp/tools/diagnostics.js` |
+
+### Usage
+
+```bash
+# Start with stdio transport (default, for MCP-compatible AI agents)
+node mcp/server.js
+
+# Start with SSE transport (for HTTP/EventSource clients)
+node mcp/server.js --transport sse --port 3100
+
+# Via npm script
+npm run mcp
+```
+
+### Key Design Decisions
+
+1. **Force-flush before reads**: Memory inspection tools (`dungeon_inspect_inventory`, `dungeon_inspect_events`, `dungeon_inspect_stats`) call `flushIfReady(state, model, save, { force: true })` before reading to ensure data freshness, mirroring the pattern in `web/routes/memory.js`.
+
+2. **Error handling**: Tool errors are returned as structured error content with `isError: true` rather than JSON-RPC error responses, following MCP SDK conventions.
+
+3. **Stream collection for actions**: `dungeon_send_action` collects the full LLM response stream, parses the status line `[Status: <Location> | Score: <N> | Moves: <N>]`, and returns the narration text alongside structured metrics.
+
+### File Organization
+
+```
+mcp/
+├── server.js              # Entry point, transport setup, engine instantiation
+└── tools/
+    ├── index.js           # Tool registration orchestrator
+    ├── session.js         # Session lifecycle tools
+    ├── gameplay.js        # Core gameplay tools
+    ├── state.js           # State inspection tools
+    ├── memory.js          # Memory and inventory tools
+    ├── barter.js          # Barter and quest tools
+    └── diagnostics.js     # Diagnostics tool
+```
+
+### Testing
+
+93 MCP tests across 7 test files:
+
+| Test File | Coverage |
+|-----------|----------|
+| `tests/test_mcp_protocol.py` | Tool discovery, schema validation, stdio transport, JSON-RPC format |
+| `tests/test_mcp_session.py` | Session lifecycle (init, list saves, load save) |
+| `tests/test_mcp_gameplay.py` | Action execution, undo, status metrics |
+| `tests/test_mcp_state.py` | State inspection (state, history, lore) |
+| `tests/test_mcp_memory.py` | Memory tools (inventory, events, stats, search) |
+| `tests/test_mcp_barter.py` | Barter and quest operations |
+| `tests/test_mcp_diagnostics.py` | Debug info retrieval |
+| `tests/test_mcp_tools.py` | All 17 tools individually |
+
+Run with: `pytest tests/test_mcp_*.py -v`
