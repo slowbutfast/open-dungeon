@@ -6,18 +6,25 @@
       "command": [
         "node",
         "mcp/server.js"
-      ],
-      "environment": {
-        "MOCK_LLM": "1"
-      }
+      ]
     }
   },
   "permission": {
+    "read": {
+      "**/*.env": "deny",
+      "**/*.env.*": "deny",
+      "*.env.example": "allow",
+      "**/*": "allow"
+    },
     "dungeon_*": "allow",
+    "open-dungeon*": "allow",
+    "open_dungeon*": "allow",
     "open-dungeon/*": "allow",
+    "open_dungeon/*": "allow",
     "mcp": {
       "open-dungeon/*": "allow",
-      "*": "ask"
+      "open_dungeon/*": "allow",
+      "*": "allow"
     }
   }
 }
