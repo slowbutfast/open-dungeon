@@ -15,6 +15,15 @@ import { z } from 'zod';
  * @returns {{ narration: string, location: string|null, score: number|null, moves: number|null }}
  */
 function parseStatusLine(text) {
+    if (typeof text !== 'string') {
+        if (Array.isArray(text)) {
+            text = text.map(item => typeof item === 'object' ? (item.content || item.text || JSON.stringify(item)) : String(item)).join('');
+        } else if (typeof text === 'object' && text !== null) {
+            text = text.content || text.text || JSON.stringify(text);
+        } else {
+            text = String(text || '');
+        }
+    }
     const lines = text.split('\n');
     const statusLineRegex = /^\[Status:\s*(.*?)\s*\|\s*Score:\s*(\d+)\s*\|\s*Moves:\s*(\d+)\s*\]$/;
     let narration = text;
@@ -31,7 +40,7 @@ function parseStatusLine(text) {
             moves = parseInt(match[3], 10);
             // Remove the status line from the narration
             lines.splice(i, 1);
-            narration = lines.join('\n').trim();
+            narration = lines.join('\n').trim() || text.trim();
             break;
         }
     }
@@ -67,19 +76,25 @@ export function registerGameplayTools(server, engine) {
                 const actionType = args.action_type || "do";
                 const text = args.text || "";
 
-                // Generate the response stream and collect all chunks
+                // Generate the response stream and collect narration text
                 const stream = engine.generateResponseStream(actionType, text);
                 let fullText = "";
+                let narrationText = "";
                 for await (const chunk of stream) {
-                    fullText += chunk;
+                    if (chunk && chunk.type === 'done' && chunk.content) {
+                        narrationText = chunk.content;
+                    } else if (chunk && chunk.type === 'chunk' && chunk.content) {
+                        fullText += chunk.content;
+                    }
                 }
+                const rawNarration = narrationText || fullText;
 
                 // Parse the status line from the narration
-                const { narration, location, score, moves } = parseStatusLine(fullText);
+                const { narration, location, score, moves } = parseStatusLine(rawNarration);
 
                 // If we parsed status from the text, use it; otherwise use current engine state
                 const result = {
-                    narration: narration || fullText,
+                    narration: narration || rawNarration,
                     location: location || engine.location,
                     score: score !== null ? score : engine.score,
                     moves: moves !== null ? moves : engine.moves
