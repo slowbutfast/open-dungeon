@@ -29,3 +29,7 @@ node_modules/
 # Test artifact directories and files
 tests/adventures_*/
 tests/presets.json
+tests/active_playtest.json
+tests/mcp_test_data/
+tests/test_full_suite_24h.js
+.gemini/
