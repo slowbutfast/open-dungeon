@@ -698,7 +698,7 @@ body {
     flex-direction: column;
     gap: 1.25rem;
     font-family: 'JetBrains Mono', monospace;
-    font-size: 0.95rem;
+    font-size: 0.85rem;
     line-height: 1.6;
     margin-bottom: 1rem;
 }
@@ -715,7 +715,6 @@ body {
 
 .log-turn-assistant {
     color: var(--text-log);
-    font-size: 1.05rem;
     line-height: 1.75;
     white-space: pre-wrap;
     text-shadow: 0 0 4px rgba(74, 222, 128, 0.3);
@@ -723,7 +722,6 @@ body {
 
 .log-turn-system {
     color: var(--text-neon);
-    font-size: 0.85rem;
     background: rgba(56, 189, 248, 0.05);
     padding: 0.4rem 0.75rem;
     border-radius: 4px;
@@ -1732,6 +1730,100 @@ body:not(.crt-effect) .screen-flicker {
         min-height: 44px;
         font-size: 1.1rem;
     }
+
+    /* ─── Mobile Wizard Screen Layouts ─────────────────────────────────────────────── */
+    #startup-screen,
+    #preset-screen,
+    #custom-preset-screen,
+    #character-screen {
+        min-height: 100vh;
+        overflow-y: auto;
+    }
+
+    /* ─── Safe-Area Inset Support ──────────────────────────────────────────────────── */
+    .startup-header {
+        padding-top: env(safe-area-inset-top, 0px);
+    }
+
+    .panel-header {
+        padding-top: env(safe-area-inset-top, 0px);
+    }
+
+    .panel-footer-nav {
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    .app-container {
+        padding-left: env(safe-area-inset-left, 1.5rem);
+        padding-right: env(safe-area-inset-right, 1.5rem);
+    }
+
+    /* ─── Responsive Grids ─────────────────────────────────────────────────────────── */
+    .preset-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .character-grid {
+        grid-template-columns: 1fr;
+    }
+
+    /* ─── Footer Navigation ────────────────────────────────────────────────────────── */
+    .panel-footer-nav {
+        gap: 0.75rem;
+    }
+
+    /* ─── Modal Responsiveness ─────────────────────────────────────────────────────── */
+    .modal-content {
+        max-width: 90vw;
+        max-height: 90vh;
+        padding: 1rem;
+    }
+
+    .barter-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .barter-arrow {
+        display: none;
+    }
+
+    .modal-footer {
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .modal-footer .btn {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    .btn-close {
+        min-width: 44px;
+        min-height: 44px;
+    }
+
+    /* ─── Touch Target Minimum Sizes ───────────────────────────────────────────────── */
+    .btn {
+        min-height: 44px;
+    }
+
+    .preset-card,
+    .char-card {
+        min-height: 44px;
+    }
+
+    input,
+    textarea,
+    select {
+        min-height: 44px;
+    }
+
+    /* ─── Startup Screen Refinements ───────────────────────────────────────────────── */
+    .startup-header .subtitle {
+        overflow-wrap: break-word;
+        word-wrap: break-word;
+        hyphens: auto;
+    }
 }
 
 @media (max-width: 1023px) and (min-width: 768px) {
@@ -1742,6 +1834,15 @@ body:not(.crt-effect) .screen-flicker {
     .sidebar-panel {
         max-height: 40vh;
         overflow-y: auto;
+    }
+
+    /* Tablet grids: 2-column layout for preset and character grids */
+    .preset-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .character-grid {
+        grid-template-columns: repeat(2, 1fr);
     }
 }
 
