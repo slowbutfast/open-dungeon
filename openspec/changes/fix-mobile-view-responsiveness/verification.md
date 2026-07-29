@@ -574,3 +574,46 @@ def test_desktop_view_unchanged(page):
 - [ ] Desktop layout (>= 1024px) completely unchanged
 - [ ] Playwright tests pass for all mobile viewports (iPhone SE, iPhone 12, iPhone 16 Pro, iPad Mini)
 - [ ] Screenshots manually reviewed and approved for each viewport
+
+---
+
+## Pending Manual Verification (Required Before Archive)
+
+**Status**: ⏳ Awaiting manual verification on physical device(s)
+
+**What to verify on your phone**:
+1. **Wizard screens** — Open the app on your phone and navigate through all wizard screens (startup → preset → custom-preset → character → gameplay). Verify:
+   - No horizontal overflow or awkward text wrapping
+   - Buttons are easy to tap (not too small or cramped)
+   - Footer navigation buttons are accessible without excessive scrolling
+   - Safe-area insets work correctly on notched devices (content doesn't overlap with notch or home indicator)
+
+2. **Grid layouts** — On a tablet (iPad or similar), verify:
+   - Preset and character grids display as 2-column layout
+   - Cards are readable and tappable
+
+3. **Modals** — Open the barter modal and system prompt modal on your phone:
+   - Modal content fits within viewport (no overflow)
+   - Barter layout stacks vertically (not side-by-side)
+   - Trade buttons are tappable
+
+4. **Console** — Once in gameplay, verify:
+   - All message types (user, assistant, system) render at the same font size
+   - Text is legible and evenly spaced
+
+**How to test on your phone**:
+```bash
+# Terminal 1: Start the server
+node web/server.js
+
+# Terminal 2: Start a Cloudflare Tunnel (or use ngrok/local network)
+cloudflared tunnel --url http://localhost:5001
+```
+Then open the tunnel URL on your phone.
+
+**Do this before running**:
+```bash
+openspec archive fix-mobile-view-responsiveness
+```
+
+Once verified, check off the items above and proceed to archive.
