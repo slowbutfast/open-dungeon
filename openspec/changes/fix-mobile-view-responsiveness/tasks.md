@@ -66,3 +66,4 @@
 - [x] 10.4 Review screenshots in `tests/e2e/screenshots/` for visual issues at each viewport
 - [x] 10.5 Manual verification of safe-area insets on notched device emulation
 - [x] 10.6 Manual verification of desktop layout (1280px) remains unchanged
+- [ ] 10.7 Manual verification on physical device (phone/tablet) — verify all wizard screens, grids, modals, and console on actual mobile device before archiving (see verification.md "Pending Manual Verification" section)
