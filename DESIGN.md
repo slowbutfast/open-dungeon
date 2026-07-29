@@ -1,5 +1,5 @@
 ---
-version: "1.0"
+version: "alpha"
 name: "OpenDungeon"
 license: "Apache-2.0"
 brand: "Retro terminal cyberpunk — Infocom-era text adventure meets neon CRT monitor"
@@ -48,7 +48,6 @@ typography:
     fontSize: "0.72rem"
     fontWeight: 500
     letterSpacing: "0.05em"
-    textTransform: "uppercase"
 rounded:
   sm: "3px"
   md: "4px"
