@@ -19,6 +19,8 @@ import select
 import threading
 import unittest
 
+from tests.test_helpers import assert_save_dir_is_safe
+
 
 MCP_SERVER_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -46,6 +48,7 @@ class McpClient:
             merged.setdefault("MOCK_LLM", "1")
         tests_dir = os.path.dirname(os.path.abspath(__file__))
         save_dir = os.path.join(tests_dir, "mcp_test_data")
+        assert_save_dir_is_safe(save_dir)
         merged["SAVE_DIR"] = save_dir
         merged.update(self.env)
         return merged
@@ -66,6 +69,7 @@ class McpClient:
         """Start the MCP server subprocess."""
         tests_dir = os.path.dirname(os.path.abspath(__file__))
         save_dir = os.path.join(tests_dir, "mcp_test_data")
+        assert_save_dir_is_safe(save_dir)
         os.makedirs(save_dir, exist_ok=True)
 
         env = self._build_env()

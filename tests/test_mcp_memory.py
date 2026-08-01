@@ -9,10 +9,13 @@ import os
 import sys
 import json
 import unittest
+import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from tests.mcp_client import McpTestCase, assert_tool_result
+
+pytestmark = pytest.mark.integration
 
 
 class TestMcpMemoryInventory(McpTestCase):

@@ -4,8 +4,11 @@ import shutil
 import unittest
 import io
 import re
+import pytest
 from unittest.mock import MagicMock, patch
 from tests.test_helpers import assert_save_dir_is_safe
+
+pytestmark = pytest.mark.integration
 
 # Add game directory to path
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "game"))

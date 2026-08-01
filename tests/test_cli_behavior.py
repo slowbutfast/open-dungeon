@@ -1,8 +1,11 @@
 import unittest
 import sys
 import os
+import pytest
 from unittest.mock import MagicMock, patch
 from tests.test_helpers import assert_save_dir_is_safe
+
+pytestmark = pytest.mark.unit
 
 # Ensure the root project path and game folder are in sys.path
 root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
