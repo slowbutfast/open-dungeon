@@ -93,6 +93,22 @@ Use these utilities to test connectivity or run lightweight chats with LM Studio
 
 ---
 
+## 📱 Mobile Testing
+
+Test the web app on your phone using a Cloudflare Tunnel:
+
+```bash
+# Terminal 1: Start the server
+node web/server.js
+
+# Terminal 2: Start the tunnel
+cloudflared tunnel --url http://localhost:5001
+```
+
+Copy the `https://*.trycloudflare.com` URL and open it on your phone. The URL changes each time you restart the tunnel.
+
+---
+
 ## ⚙️ Host PC Optimization Settings (3060ti + i7-6700k)
 
 For smooth local LLM gameplay on budget host hardware:
