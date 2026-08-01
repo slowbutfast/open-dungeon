@@ -5,7 +5,10 @@ import subprocess
 import time
 import unittest
 import select
+import pytest
 from tests.test_helpers import assert_save_dir_is_safe
+
+pytestmark = pytest.mark.integration
 
 def read_all_available(fd, timeout=1.0):
     chunks = []

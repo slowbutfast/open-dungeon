@@ -4,7 +4,10 @@
   "description": "Node.js refactored backend for Local LLM Retro Adventure Game",
   "main": "web/server.js",
   "scripts": {
-    "start": "node web/server.js"
+    "start": "node web/server.js",
+    "test:fast": "python3 -m pytest -m unit",
+    "test:e2e": "python3 -m pytest -m e2e",
+    "test:all": "python3 -m pytest tests/ -v --ignore=tests/test_cli_behavior.py --ignore=tests/test_pty_integration.py --ignore=tests/simulate_playtest.py"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

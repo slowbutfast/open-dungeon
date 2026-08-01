@@ -8,6 +8,8 @@ import shutil
 import pytest
 from playwright.sync_api import sync_playwright, expect
 
+pytestmark = pytest.mark.e2e
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from tests.test_helpers import assert_save_dir_is_safe
 

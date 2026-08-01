@@ -7,7 +7,10 @@ import subprocess
 import time
 import requests
 import shutil
+import pytest
 from tests.test_helpers import assert_save_dir_is_safe
+
+pytestmark = pytest.mark.unit
 
 class HttpClientProxy:
     def __init__(self, base_url="http://127.0.0.1:5005"):

@@ -1,8 +1,7 @@
-# test-suite Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change isolate-test-save-directories. Update Purpose after archive.
-## Requirements
+> **Merge note:** The existing capability spec at `openspec/specs/test-suite/spec.md` already contains the "Test Save Environment Isolation" requirement (archived from the `isolate-test-save-directories` change). This MODIFIED block **merges new scenarios** into that requirement (fallback default + robust teardown) rather than replacing the existing scenarios, and updates the SHALL clause to reference the new global default. The two new scenarios below ("Automatic fallback for un-configured test environments" and "Robust teardown cleanup on read-only temp files") are ADDITIONS to the existing scenarios ("Isolated E2E save directory" and "Teardown path guard protection").
+
 ### Requirement: Test Save Environment Isolation
 The automated test suite SHALL execute process spawns and save file operations strictly within isolated subdirectories under `tests/` and SHALL NOT mutate or delete production game saves in `game/adventures/`. On test framework initialization, the default `SAVE_DIR` SHALL automatically fall back to an isolated test sandbox (`tests/.tmp_saves/default`) if un-configured by the operator or by a per-suite override. Per-suite `SAVE_DIR` overrides set in a test's `setUp` (or via subprocess environment) SHALL take precedence over the global fallback. Teardown directory deletion SHALL handle POSIX file permission locks safely without raising unhandled errors, while continuing to gate all teardown paths behind the existing `assert_save_dir_is_safe` guard.
 
@@ -26,6 +25,8 @@ The automated test suite SHALL execute process spawns and save file operations s
 - **WHEN** directory cleanup is executed on test temporary directories containing read-only files (e.g. SQLite temp databases)
 - **THEN** the `safe_rmtree` helper modifies file permissions to read-write via `os.chmod(path, stat.S_IWRITE)` prior to unlinking to guarantee complete removal without raising `PermissionError`
 
+## ADDED Requirements
+
 ### Requirement: Tiered Test Execution
 The test suite SHALL support tiered execution markers (`unit`, `integration`, `e2e`) registered in `pytest.ini` at the repository root, to allow running fast component/unit tests independently of slow browser integration tests. The markers SHALL be applied per a fixed module mapping (documented in `tasks.md` §3.2). Notably, MCP stdio subprocess tests (`test_mcp_*.py`) SHALL be classified as `integration`, not `unit`, because they spawn a subprocess.
 
@@ -44,4 +45,3 @@ The test suite SHALL support tiered execution markers (`unit`, `integration`, `e
 #### Scenario: Marker registration silences unknown-mark warnings
 - **WHEN** pytest collects test files decorated with `@pytest.mark.unit` / `integration` / `e2e`
 - **THEN** zero `PytestUnknownMarkWarning` messages are emitted, because the markers are declared in `pytest.ini`'s `markers` block
-

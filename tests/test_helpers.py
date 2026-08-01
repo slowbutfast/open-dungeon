@@ -7,6 +7,8 @@ any cleanup operations occur.
 """
 
 import os
+import shutil
+import stat
 
 
 def assert_save_dir_is_safe(save_dir):
@@ -35,3 +37,17 @@ def assert_save_dir_is_safe(save_dir):
         "Refusing to proceed with teardown cleanup to prevent accidental "
         "production data loss."
     )
+
+
+def _chmod_retry(func, path, exc_info):
+    """Error handler for shutil.rmtree that fixes read-only permissions and retries."""
+    try:
+        os.chmod(path, stat.S_IWRITE)
+        func(path)
+    except OSError:
+        pass
+
+
+def safe_rmtree(path):
+    """Remove a directory tree, handling read-only files via chmod retry."""
+    shutil.rmtree(path, onerror=_chmod_retry)

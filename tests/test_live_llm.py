@@ -3,6 +3,8 @@ import pytest
 import subprocess
 import json
 
+pytestmark = pytest.mark.integration
+
 def is_live_llm_configured():
     api_key = os.environ.get("OPENROUTER_API_KEY", "")
     if not api_key:
