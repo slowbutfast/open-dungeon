@@ -32,4 +32,10 @@ tests/presets.json
 tests/active_playtest.json
 tests/mcp_test_data/
 tests/test_full_suite_24h.js
+tests/.tmp_saves/
 .gemini/
+
+# Local runtime logs
+*.log
+!playtest_run.log
+.tunnel-logs/
