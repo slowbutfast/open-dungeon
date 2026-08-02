@@ -16,6 +16,54 @@ export function getTokenRange() {
     return { min: parts[0] || 50, max: parts[1] || 300 };
 }
 
+/**
+ * Parse the status line from the end of narration text.
+ * Format: [Status: <Location> | Score: <N> | Moves: <N>]
+ *
+ * This is the canonical status parser shared by the engine and the MCP tools.
+ * It scans lines backwards (so trailing content after the status line is
+ * tolerated), is case-insensitive on the `Status` label, and treats the
+ * `Moves` field as optional (the mock LLM emits a two-field line).
+ *
+ * @param {string} text - Full narration text (string, array of chunks, or object)
+ * @returns {{ narration: string, location: string|null, score: number|null, moves: number|null }}
+ */
+export function parseStatusLine(text) {
+    if (typeof text !== 'string') {
+        if (Array.isArray(text)) {
+            text = text.map(item => typeof item === 'object' ? (item.content || item.text || JSON.stringify(item)) : String(item)).join('');
+        } else if (typeof text === 'object' && text !== null) {
+            text = text.content || text.text || JSON.stringify(text);
+        } else {
+            text = String(text || '');
+        }
+    }
+    const lines = text.split('\n');
+    const statusLineRegex = /^\[Status:\s*(.*?)\s*\|\s*Score:\s*(\d+)(?:\s*\|\s*Moves:\s*(\d+))?\s*\]$/i;
+    let narration = text;
+    let location = null;
+    let score = null;
+    let moves = null;
+
+    for (let i = lines.length - 1; i >= 0; i--) {
+        const line = lines[i].trim();
+        const match = line.match(statusLineRegex);
+        if (match) {
+            location = match[1].trim();
+            score = parseInt(match[2], 10);
+            if (match[3] !== undefined) {
+                moves = parseInt(match[3], 10);
+            }
+            // Remove the status line from the narration
+            lines.splice(i, 1);
+            narration = lines.join('\n').trim() || text.trim();
+            break;
+        }
+    }
+
+    return { narration, location, score, moves };
+}
+
 function buildClient() {
     const backend = getBackendType();
 

@@ -111,6 +111,43 @@ class TestMcpStateInspection(McpTestCase):
             self.assertIn("type", entry)
             self.assertIn("description", entry)
 
+    def test_inspect_lore_reflects_pending_extraction(self):
+        """dungeon_inspect_lore returns store-backed cards after a turn producing
+        extractable lore, matching dungeon_inspect_stats.lore."""
+        # A turn whose narration triggers extractable lore (mock: "cantina").
+        self.client.send_action("look")
+        lore_resp = self.client.call_tool("dungeon_inspect_lore")
+        result = assert_tool_result(lore_resp)
+        lore_text = result["content"][0].get("text", "")
+        lore_data = json.loads(lore_text)
+
+        # The store-backed read must return the freshly-extracted lore, not [].
+        self.assertGreater(len(lore_data), 0)
+
+        stats_resp = self.client.call_tool("dungeon_inspect_stats")
+        stats_result = assert_tool_result(stats_resp)
+        stats_text = stats_result["content"][0].get("text", "")
+        stats_data = json.loads(stats_text)
+        self.assertEqual(len(lore_data), stats_data.get("lore", 0))
+
+    def test_inspect_lore_entries_have_full_field_shape(self):
+        """Each lore entry keeps the full output shape (id, name, type,
+        description, triggers, enabled) after the store-backed read."""
+        self.client.send_action("look")
+        response = self.client.call_tool("dungeon_inspect_lore")
+        result = assert_tool_result(response)
+        text = result["content"][0].get("text", "")
+        data = json.loads(text)
+        self.assertGreater(len(data), 0)
+        for entry in data:
+            self.assertIn("id", entry)
+            self.assertIn("name", entry)
+            self.assertIn("type", entry)
+            self.assertIn("description", entry)
+            self.assertIn("triggers", entry)
+            self.assertIn("enabled", entry)
+            self.assertIsInstance(entry["triggers"], list)
+
 
 if __name__ == "__main__":
     unittest.main()

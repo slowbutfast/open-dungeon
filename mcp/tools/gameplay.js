@@ -6,47 +6,7 @@
  */
 
 import { z } from 'zod';
-
-/**
- * Parse the status line from the end of narration text.
- * Format: [Status: <Location> | Score: <N> | Moves: <N>]
- *
- * @param {string} text - Full narration text
- * @returns {{ narration: string, location: string|null, score: number|null, moves: number|null }}
- */
-function parseStatusLine(text) {
-    if (typeof text !== 'string') {
-        if (Array.isArray(text)) {
-            text = text.map(item => typeof item === 'object' ? (item.content || item.text || JSON.stringify(item)) : String(item)).join('');
-        } else if (typeof text === 'object' && text !== null) {
-            text = text.content || text.text || JSON.stringify(text);
-        } else {
-            text = String(text || '');
-        }
-    }
-    const lines = text.split('\n');
-    const statusLineRegex = /^\[Status:\s*(.*?)\s*\|\s*Score:\s*(\d+)\s*\|\s*Moves:\s*(\d+)\s*\]$/;
-    let narration = text;
-    let location = null;
-    let score = null;
-    let moves = null;
-
-    for (let i = lines.length - 1; i >= 0; i--) {
-        const line = lines[i].trim();
-        const match = line.match(statusLineRegex);
-        if (match) {
-            location = match[1].trim();
-            score = parseInt(match[2], 10);
-            moves = parseInt(match[3], 10);
-            // Remove the status line from the narration
-            lines.splice(i, 1);
-            narration = lines.join('\n').trim() || text.trim();
-            break;
-        }
-    }
-
-    return { narration, location, score, moves };
-}
+import { parseStatusLine } from '../../engine/llm.js';
 
 /**
  * Register core gameplay tools on the given MCP server.

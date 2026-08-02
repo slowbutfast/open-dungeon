@@ -34,7 +34,8 @@ export function registerDiagnosticsTools(server, engine) {
                     moves: engine.moves || 0,
                     score: engine.score || 0,
                     location: engine.location || null,
-                    memory_db_path: engine.memory?.structuredStore?.db?.name || null
+                    memory_db_path: engine.memory?.structuredStore?.db?.name || null,
+                    save_dir: engine.saveDir || null
                 };
 
                 // Add mock LLM status

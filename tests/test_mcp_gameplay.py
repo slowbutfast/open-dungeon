@@ -42,6 +42,33 @@ class TestMcpGameplay(McpTestCase):
         self.assertIn("score", data)
         self.assertIn("moves", data)
 
+    def test_send_action_moves_match_engine_committed_state(self):
+        """send_action moves agree with the state the engine committed.
+
+        The shared parser is authoritative for the fields it extracts; when the
+        status line has no Moves field (mock mode), the tool falls back to the
+        engine's committed moves, so the two must agree.
+
+        NOTE: full location/score agreement with persisted state requires the
+        engine to adopt the same shared parser (harden-context-history-integrity,
+        #12). In mock mode the engine's buffered parser does not commit the
+        fragmented status line, so location/score equality is covered at the
+        parser level in tests/test_shared_status_parser.py instead.
+        """
+        resp = self.client.send_action("look around")
+        action_data = json.loads(
+            resp["result"]["content"][0].get("text", "")
+        )
+
+        state_resp = self.client.call_tool("dungeon_inspect_state")
+        state_data = json.loads(
+            assert_tool_result(state_resp)["content"][0].get("text", "")
+        )
+
+        self.assertEqual(action_data.get("moves"), state_data.get("moves"))
+        self.assertIsInstance(action_data.get("score"), int)
+        self.assertTrue(action_data.get("location"))
+
     def test_send_action_increments_moves(self):
         """Each action increments the move counter."""
         resp1 = self.client.send_action("look")

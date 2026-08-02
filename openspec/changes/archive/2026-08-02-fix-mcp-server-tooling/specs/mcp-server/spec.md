@@ -1,8 +1,5 @@
-# mcp-server Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change mcp-server. Update Purpose after archive.
-## Requirements
 ### Requirement: Session Lifecycle Tools
 The MCP server SHALL expose tools for managing adventure session lifecycle: `dungeon_init_session`, `dungeon_list_saves`, and `dungeon_load_save`.
 
@@ -129,4 +126,3 @@ The MCP server SHALL implement the Model Context Protocol specification, support
 #### Scenario: SSE transport connection
 - **WHEN** the MCP server is started with SSE transport mode
 - **THEN** it accepts HTTP connections and streams JSON-RPC messages via Server-Sent Events
-

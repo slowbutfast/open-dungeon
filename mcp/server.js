@@ -52,6 +52,11 @@ async function main() {
     // Create a dedicated AdventureEngine instance (separate from the web server's singleton)
     const engine = new AdventureEngine();
 
+    // Surface the resolved save directory so a mis-configured client (e.g. one
+    // that drops the .mcp.json env block, dropping SAVE_DIR) is visible at
+    // startup instead of silently falling back to the production directory.
+    console.error(`[mcp] SAVE_DIR resolved to: ${engine.saveDir} (env SAVE_DIR=${process.env.SAVE_DIR || '(unset)'})`);
+
     // Create the MCP server with server info
     const server = new McpServer({
         name: "open-dungeon-mcp",

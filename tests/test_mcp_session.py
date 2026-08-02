@@ -131,6 +131,54 @@ class TestMcpSessionLifecycle(McpTestCase):
         state_data = json.loads(state_text)
         self.assertEqual(state_data.get("title"), "Persist Test")
 
+    def test_init_session_writes_to_configured_save_dir_not_production(self):
+        """dungeon_init_session persists under the configured SAVE_DIR and never
+        under the production game/adventures/ directory."""
+        import tempfile
+
+        from tests.mcp_client import McpClient
+        from tests.test_helpers import assert_save_dir_is_safe, safe_rmtree
+
+        tests_dir = os.path.dirname(os.path.abspath(__file__))
+        sandbox = tempfile.mkdtemp(dir=tests_dir, prefix=".tmp_saves_isolation_")
+        assert_save_dir_is_safe(sandbox)
+
+        client = McpClient(env={"SAVE_DIR": sandbox})
+        try:
+            client.start()
+            client.initialize()
+            resp = client.init_session(title="Isolation Test")
+            result = assert_tool_result(resp)
+            data = json.loads(result["content"][0].get("text", ""))
+            adventure_id = data["adventure_id"]
+
+            # Save lands inside the configured sandbox directory.
+            save_path = os.path.join(sandbox, f"{adventure_id}.json")
+            self.assertTrue(
+                os.path.exists(save_path),
+                f"Expected save at {save_path}; sandbox has {os.listdir(sandbox)}",
+            )
+
+            # And not in the production save directory.
+            prod_dir = os.path.join(os.path.dirname(tests_dir), "game", "adventures")
+            self.assertFalse(
+                os.path.exists(os.path.join(prod_dir, f"{adventure_id}.json")),
+                f"Save leaked into production dir {prod_dir}",
+            )
+        finally:
+            client.stop()
+            safe_rmtree(sandbox)
+
+    def test_mcp_json_declares_sandbox_save_dir_without_shell_expansion(self):
+        """The .mcp.json env block declares the playtest sandbox SAVE_DIR and no
+        ${...} shell-style expansion that could make clients drop the env block."""
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(repo_root, ".mcp.json"), encoding="utf-8") as f:
+            mcp_json = json.load(f)
+        env = mcp_json["mcpServers"]["open-dungeon"].get("env", {})
+        self.assertEqual(env.get("SAVE_DIR"), "game/playtest/adventures")
+        self.assertNotIn("${", env.get("MOCK_LLM", ""))
+
 
 if __name__ == "__main__":
     unittest.main()

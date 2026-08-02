@@ -15,7 +15,7 @@ import { z } from 'zod';
  *
  * @param {import('../../engine/index.js').AdventureEngine} engine
  */
-async function forceFlushBeforeRead(engine) {
+export async function forceFlushBeforeRead(engine) {
     if (!engine.adventureId) return;
     try {
         const resolvedModel = await engine.getLoadedModel();
