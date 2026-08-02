@@ -7,6 +7,7 @@
  */
 
 import { z } from 'zod';
+import { forceFlushBeforeRead } from './memory.js';
 
 /**
  * Register state inspection tools on the given MCP server.
@@ -104,14 +105,28 @@ export function registerStateTools(server, engine) {
                     throw new Error("No active adventure. Call dungeon_init_session first.");
                 }
 
-                const lore = engine.cards.map(card => ({
-                    id: card.id,
-                    name: card.name,
-                    type: card.type,
-                    description: card.description,
-                    triggers: card.trigger_words || card.triggers || [],
-                    enabled: card.enabled !== undefined ? card.enabled : card.active
-                }));
+                // Force-flush pending extraction so the read reflects the
+                // authoritative store (consistent with the sibling inspect tools).
+                await forceFlushBeforeRead(engine);
+                const rows = engine.memory.structuredStore.getLore(engine.adventureId);
+                const lore = rows.map(row => {
+                    let triggers = [];
+                    if (row.trigger_words) {
+                        try {
+                            triggers = JSON.parse(row.trigger_words);
+                        } catch (e) {
+                            triggers = [row.name.toLowerCase()];
+                        }
+                    }
+                    return {
+                        id: row.id,
+                        name: row.name,
+                        type: row.type,
+                        description: row.description,
+                        triggers,
+                        enabled: row.enabled === 1
+                    };
+                });
 
                 return {
                     content: [{

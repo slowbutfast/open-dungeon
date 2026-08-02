@@ -72,6 +72,18 @@ class TestMcpDiagnostics(McpTestCase):
         self.assertIn("adventure_id", status)
         self.assertIn("model", status)
 
+    def test_get_debug_info_backend_status_reports_save_dir(self):
+        """backend_status.save_dir reports the resolved save directory."""
+        response = self.client.call_tool("dungeon_get_debug_info")
+        result = assert_tool_result(response)
+        text = result["content"][0].get("text", "")
+        data = json.loads(text)
+        status = data["backend_status"]
+        self.assertIn("save_dir", status)
+        self.assertTrue(status["save_dir"])
+        # The test harness forces SAVE_DIR to tests/mcp_test_data.
+        self.assertTrue(status["save_dir"].endswith("mcp_test_data"))
+
     def test_get_debug_info_updates_after_actions(self):
         """debug info reflects state changes after gameplay."""
         self.client.send_action("look")
