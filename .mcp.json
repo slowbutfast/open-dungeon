@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "open-dungeon": {
+      "command": "node",
+      "args": ["mcp/server.js"],
+      "env": {
+        "SAVE_DIR": "game/playtest/adventures",
+        "MOCK_LLM": "${OPEN_DUNGEON_MOCK_LLM:-0}"
+      }
+    }
+  }
+}
