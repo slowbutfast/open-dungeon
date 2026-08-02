@@ -85,6 +85,16 @@ From prior in-repo work: `structuredStore.executeTrade` already demonstrates the
 
 - **"The sold item is always still held after a narrated trade" (#13 symptom 2 as stated).** Superseded by live repro: this session's extractor marked the sold leaflet `dropped`. The durable defect is not "always held" but "the extraction path has no defined removal semantics and the correct atomic path (`executeBarter`) is never invoked" — which still allows the duplicate-sale exploit because there is no possession check on the narration side.
 
+## Dependency / staleness notes for future agents
+
+- **Name normalization is shared with `validate-memory-extraction` (#14).** The canonical-name matching helper used by `executeBarter` here is the same one designed in that change (D3). Implement once, reuse in both — do not build two normalization paths.
+- **Offer/goal extraction depends on `validate-memory-extraction`.** The extractor output schema grows (`offers`, `goals`, `traded` action) on top of the validation work in #14. Without that validation, over-emission of offers/goals is likely. Land #14 first or together.
+- **This change overlaps #16 at exactly one point** — routing narrated trades through `executeBarter` fixes the sold-item retention *and* is the natural place to register offers. The issue authors explicitly recommended doing them together; this change treats them as one unit.
+- **Offer expiry / per-location scoping is deliberately deferred.** #16 raises it; this change does NOT decide it. Revisit before productionizing.
+- **The `moves` decrement on undo interacts with `harden-context-history-integrity` (#12).** #12 decides the single owner of `moves`. If #12 lands first with engine-as-owner, undo decrement must use the same counter; if it lands after, undo's `moves -= 1` may need revisiting. Coordinate.
+- **Line-number references decay** (`engine/index.js:171`, `engine/state.js:129`, `web/routes/game.js:470,537`). Re-verify against HEAD before implementing.
+- **The extractor's "removes sold item" outcome is model-dependent** (this session marked the leaflet `dropped`; the issue saw it stay `held`). Do not rely on either behavior — the fix must make removal deterministic via `executeBarter`.
+
 ## Links out
 
 - `engine/index.js:171` — undo entry point

@@ -87,6 +87,19 @@ None from external sources. Internal pattern being consolidated: `mcp/tools/game
 
 - **"The MCP parser and engine parser disagree only in the failure case."** Superseded: they also disagree on case (`[Status:` vs `[STATUS:`) and on location semantics — MCP reported `score: 9999, location: Admin Room` (from forged status) while engine committed the same for the injection session, but on the echo turn MCP and engine returned different `moves`. Both are real, and both belong to one parser.
 
+## Dependency / staleness notes for future agents
+
+**PARTIAL FIX ALREADY LANDED (2026-08-02).** The MCP half of #12 was implemented and archived as `fix-mcp-server-tooling` (commit `8b7f7ef`): `engine/llm.js` now **exports** `parseStatusLine` (line-scanning, case-insensitive on `Status`, optional `Moves`) and `mcp/tools/gameplay.js` imports it instead of its own copy. **Do not re-do that part.**
+
+What REMAINS for this change (do not assume the parser unification is complete):
+- The engine's own buffered (`engine/llm.js:418`) and non-buffered (`:433`) branches STILL use end-anchored regexes. Only the MCP side is unified.
+- The `[CURRENT STATUS]`/`[CURRENT INVENTORY]` injection sites referenced as `:125,129,131` in the original issue are now at **`:173,177,179`** (line numbers shifted after the MCP fix added `parseStatusLine` at the top of `engine/llm.js`).
+- The main history push referenced as `:451` is now at **`:499`**; other push sites `:219,300,314`.
+- The shared parser's `moves` return is advisory; the MCP tool falls back to engine state for null moves. The moves-ownership decision (D2 in architecture.md) is still open and this change is where it lands.
+- The MCP change's research documents a **transient divergence**: in mock mode the engine's buffered branch fails to commit fragmented status lines while the shared parser extracts them. Verify the engine's buffered path against the shared parser (see `fix-mcp-server-tooling/research.md` coordination section). This change (task 1.2) closes that window.
+
+Anything stated in this research about `mcp/tools/gameplay.js` having its own case-sensitive parser is now stale — it imports the shared parser. Treat code-line references as approximate and re-verify against HEAD before implementing.
+
 ## Links out
 
 - `engine/llm.js` — history commit sites and status parsing
