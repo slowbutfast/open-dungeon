@@ -64,6 +64,15 @@ None external.
 
 - **"`get_debug_info` returns debug information for the current session"** (tool description). Superseded: it returns process-lifetime aggregates. The description and behavior diverge.
 
+## Dependency / staleness notes for future agents
+
+- **This change is otherwise independent** of the other batches. Its only coordination point is the `engine/mockOpenAI.js` two-field status line, which #17 noted "worth aligning when #12 touches the parser" — so align it with `harden-context-history-integrity` (#12), not here.
+- **The MCP server already gained `save_dir` in `backend_status`** (archived `fix-mcp-server-tooling`, #18). Do not re-add it; that part of diagnostics is done.
+- **`dungeon_inspect_lore` staleness is already fixed** (also #18) — the "stale in-memory lore read" symptom noted in earlier research no longer applies to this batch.
+- **Line-number references decay** (`engine/llmTracker.js`, `mcp/tools/gameplay.js`, `mcp/tools/diagnostics.js`, `engine/mockOpenAI.js`). Re-verify against HEAD.
+- **Usage-capture reliability is unverified** across providers (OpenRouter returns usage for narration; embeddings may not). The design allows "capture-what's-available + honest labeling" — do not assume usage is always present.
+- **Blank-action validation must happen before `formatUserInput`** in the engine, which currently turns `"   "` into `"> "` (a `>` prefix) — validating on the raw text only would miss the engine-side path.
+
 ## Links out
 
 - `engine/llmTracker.js` — tracker implementation

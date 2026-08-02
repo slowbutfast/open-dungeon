@@ -73,6 +73,14 @@ None external. Existing internal pattern to lean on: `structuredStore` already s
 
 - None yet.
 
+## Dependency / staleness notes for future agents
+
+- **This change is a dependency of `close-prompt-injection-backdoor` (#15).** The trigger filtering and extractor validation here are "half of what closes the injection backdoor" per #14/#15. Land this before or with #15, and re-read #15's spec (which references these mechanisms) rather than building assumptions from this research alone.
+- **Name normalization is shared with `make-undo-and-trades-consistent` (#13/#16).** The canonical-name matching helper designed here (D3 in architecture.md) is what #13/#16 uses to make narrated trades resolve. If #13/#16 lands first, reuse its normalization instead of duplicating — treat the two changes' normalization work as one unit.
+- **The `quantity` double-encoding and `Rusty vs Rusted` drift were NOT re-produced live in the 2026-08-02 session** (the leaflet/gem items had quantity 1 and matching names). They rest on the issue's evidence + code inspection. Verify with a live session before treating as certain.
+- **Line-number references decay.** `eventExtractor.js`, `memoryManager.js`, and `context.js` may shift as other batches land. Re-verify against HEAD before implementing.
+- **Mock-mode note:** the extractor's mock path (`eventExtractor.js:14-72`) returns its own fixed fixtures; validation added for the real path should also apply to (or be tested against) the mock fixtures so tests don't mask regressions.
+
 ## Links out
 
 - `engine/memory/eventExtractor.js` — extraction prompt + schema
