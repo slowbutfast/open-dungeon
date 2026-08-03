@@ -140,6 +140,7 @@ export class AdventureEngine {
         
         const resolved = await this.getLoadedModel();
         this.state.model = typeof resolved === "string" ? resolved : "local-model";
+        this.memory.modelName = this.state.model;
         
         await this.memory.initialize(this.state.adventureId);
         await this.save();
@@ -153,6 +154,7 @@ export class AdventureEngine {
     async load(adventureId) {
         await this.state.load(this.saveDir, adventureId, () => this.getLoadedModel());
         await this.memory.initialize(adventureId);
+        this.memory.modelName = this.state.model;
     }
 
     async listAdventures() {

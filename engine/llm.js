@@ -412,7 +412,7 @@ export class LlmOrchestrator {
                 let gateInventory = [];
                 try {
                     if (contextManager && contextManager.memoryManager && state.adventureId) {
-                        gateInventory = contextManager.memoryManager.getInventory(state.adventureId) || [];
+                        gateInventory = await contextManager.memoryManager.getInventory(state.adventureId) || [];
                     }
                 } catch (e) {
                     // ignore
@@ -464,7 +464,7 @@ export class LlmOrchestrator {
         let inventoryItems = [];
         if (contextManager && contextManager.memoryManager && state.adventureId) {
             try {
-                inventoryItems = contextManager.memoryManager.getInventory(state.adventureId) || [];
+                inventoryItems = await contextManager.memoryManager.getInventory(state.adventureId) || [];
             } catch (e) {
                 // ignore
             }
@@ -493,6 +493,9 @@ export class LlmOrchestrator {
         const loadedModel = await this.getLoadedModel();
         if (loadedModel && loadedModel !== "local-model") {
             state.model = loadedModel;
+            if (contextManager && contextManager.memoryManager) {
+                contextManager.memoryManager.modelName = loadedModel;
+            }
             await saveFn();
         }
 
@@ -522,6 +525,9 @@ export class LlmOrchestrator {
                         yield { type: "system", content: `Falling back to model: '${fallbackModel}'` };
                         addDebugLog(`Narration info: falling back to model: '${fallbackModel}'`);
                         state.model = fallbackModel;
+                        if (contextManager && contextManager.memoryManager) {
+                            contextManager.memoryManager.modelName = fallbackModel;
+                        }
                         await saveFn();
                         const retryBody = {
                             model: state.model,

@@ -1,17 +1,22 @@
 /**
  * Memory and inventory MCP tools.
  *
- * - dungeon_inspect_inventory: Current inventory items (force-flushes before read)
- * - dungeon_inspect_events: Event log with limit parameter (force-flushes before read)
- * - dungeon_inspect_stats: Memory statistics (force-flushes before read)
- * - dungeon_search_memories: Vector similarity search
+ * - dungeon_inspect_inventory: Current inventory items (read-through flush)
+ * - dungeon_inspect_events: Event log with limit parameter (read-through flush)
+ * - dungeon_inspect_stats: Memory statistics (read-through flush)
+ * - dungeon_search_memories: Vector similarity search (read-through flush)
  */
 
 import { z } from 'zod';
 
 /**
- * Force-flush memory before reading to ensure data freshness.
- * This mirrors the pattern used in web/routes/memory.js.
+ * Engine-state force-flush before reading engine-derived state (score) or the
+ * store directly (lore). The manager's own reads (`getEventLog`,
+ * `getInventory`, `getStats`, `recallRelevantMemories`) flush internally, so
+ * the memory tools below are thin reads; this helper remains for the callers
+ * that need a flush with engine state — `dungeon_send_action` (score
+ * freshness), `dungeon_inspect_lore` (direct store read), and the web
+ * `GET /api/state` route (score parity with the MCP surface).
  *
  * @param {import('../../engine/index.js').AdventureEngine} engine
  */
@@ -50,7 +55,6 @@ export function registerMemoryTools(server, engine) {
                     throw new Error("No active adventure. Call dungeon_init_session first.");
                 }
 
-                await forceFlushBeforeRead(engine);
                 const items = await engine.getInventory();
 
                 const inventory = items.map(item => ({
@@ -98,7 +102,6 @@ export function registerMemoryTools(server, engine) {
                     throw new Error("No active adventure. Call dungeon_init_session first.");
                 }
 
-                await forceFlushBeforeRead(engine);
                 const limit = args.limit || 20;
                 const events = await engine.getEventLog(limit);
 
@@ -144,8 +147,7 @@ export function registerMemoryTools(server, engine) {
                     throw new Error("No active adventure. Call dungeon_init_session first.");
                 }
 
-                await forceFlushBeforeRead(engine);
-                const stats = engine.memory.getStats(engine.adventureId);
+                const stats = await engine.memory.getStats(engine.adventureId);
 
                 return {
                     content: [{

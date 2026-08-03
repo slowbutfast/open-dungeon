@@ -57,7 +57,8 @@ graph TD
     *   `engine/scoring.js` — pure module. `MILESTONE_WEIGHTS = { discovery: 2, quest: 10, combat: 5, trade: 3 }` (only these four types score). `scoreRule(events, priorScore)` sums each milestone's weight once, deduping on a normalized `type:summary` key (case-insensitive, trimmed); movement/dialogue/death/unknown types contribute 0. Accepts extractor events (`type`) and store rows (`event_type`).
     *   `MemoryManager.computeScore(adventureId)` — full recompute over the store's distinct events (already deduped by event id) with priorScore 0, making scoring idempotent. Called from `_extractAndStore` after each flush (score is persisted with the same `saveFn` that persists extraction), and from `engine.undo()` after `rollbackTurns` so score stays consistent with the rolled-back store.
     *   Persisted score is authoritative on load (no recompute) — save/load round-trip is preserved.
-*   **MCP surface**: `dungeon_send_action` force-flushes pending extraction (`forceFlushBeforeRead`) before building its result so `dungeon_send_action.score` agrees with `dungeon_inspect_state.score` (both report `engine.score`).
+*   **MCP surface**: `dungeon_send_action` force-flushes pending extraction with engine state (`forceFlushBeforeRead`) before building its result so `dungeon_send_action.score` agrees with `dungeon_inspect_state.score` (both report `engine.score`). Web `GET /api/state` does the same, so both transports report the same freshness for `score`.
+*   **Read-through freshness (`memory-freshness-read-through`)**: every `MemoryManager` read (`getEventLog`, `getInventory`, `getStats`, `recallRelevantMemories`) awaits any in-flight flush and then force-flushes the pending buffer before querying the store/vector index. The freshness guarantee lives behind the read interface — no caller-owned flush ritual. The manager flushes with a manager-local state and its tracked `modelName`, so a read never mutates engine `score`/`cards`; engine-state flushes (post-turn background flush, `dungeon_send_action`, `dungeon_inspect_lore`, `GET /api/state`) own those side effects. This makes `dungeon_search_memories` and in-narration RAG recall fresh automatically; the in-flight turn is never extracted early because its `bufferTurnPair` runs after narration completes.
 
 ### 4. Universal Barter & Quest Goal Engine
 
@@ -252,7 +253,7 @@ npm run mcp
 
 ### Key Design Decisions
 
-1. **Force-flush before reads**: Memory inspection tools (`dungeon_inspect_inventory`, `dungeon_inspect_events`, `dungeon_inspect_stats`) call `flushIfReady(state, model, save, { force: true })` before reading to ensure data freshness, mirroring the pattern in `web/routes/memory.js`.
+1. **Read-through freshness instead of per-read flush ceremony**: `MemoryManager`'s read path (`getEventLog`, `getInventory`, `getStats`, `recallRelevantMemories`) force-flushes the pending buffer before querying, so the inspection tools are thin reads. The single shared `forceFlushBeforeRead` helper (in `mcp/tools/memory.js`) remains only where engine-state flush is required: `dungeon_send_action` (engine-computed score), `dungeon_inspect_lore` (direct store read), and web `GET /api/state` (score parity). The former private web twin and the per-read flush calls in the MCP memory tools were removed.
 
 2. **Error handling**: Tool errors are returned as structured error content with `isError: true` rather than JSON-RPC error responses, following MCP SDK conventions.
 

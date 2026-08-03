@@ -3,6 +3,7 @@ import { engine, resetEngine } from '../engineInstance.js';
 import { DEFAULT_SYSTEM_PROMPT } from '../../engine/index.js';
 import { llmTracker, getDebugLogs } from '../../engine/llmTracker.js';
 import { getBackendType, getTokenRange, sanitizeForHistory } from '../../engine/llm.js';
+import { forceFlushBeforeRead } from '../../mcp/tools/memory.js';
 import { OPENROUTER_MODELS } from '../openrouterModels.js';
 
 const router = express.Router();
@@ -237,6 +238,11 @@ router.get('/ping', async (req, res) => {
 
 router.get('/state', async (req, res) => {
     const activeEngine = engine;
+
+    // Score is engine-computed at extraction-flush time. Flush with engine
+    // state before reading so `state.score` reflects the same freshness the
+    // MCP surface (`dungeon_send_action` / `dungeon_inspect_state`) reports.
+    await forceFlushBeforeRead(activeEngine);
 
     res.json({
         adventure_id: activeEngine.adventureId,

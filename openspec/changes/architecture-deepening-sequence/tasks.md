@@ -29,14 +29,14 @@ dependency order (#26 → #32 → #27 → #28); group 7 holds the deferred set.
 
 ## 3. Promote #26 — memory freshness (first)
 
-- [ ] 3.1 Open `memory-freshness-read-through` as its own `tdd-rnd` change
+- [x] 3.1 Open `memory-freshness-read-through` as its own `tdd-rnd` change
       (research → proposal → specs) referencing this program's guardrails
-- [ ] 3.2 TDD-first: failing read-through freshness tests (unit seam 1.3 +
+- [x] 3.2 TDD-first: failing read-through freshness tests (unit seam 1.3 +
       cross-transport score-agreement test)
-- [ ] 3.3 Implement the read-through flush inside `MemoryManager`'s read path;
+- [x] 3.3 Implement the read-through flush inside `MemoryManager`'s read path;
       unify the two `forceFlushBeforeRead` twins; decide the in-narration RAG
       recall skip (flush or document the skip explicitly)
-- [ ] 3.4 Verify tiers + deletion test (guardrails #7/#8)
+- [x] 3.4 Verify tiers + deletion test (guardrails #7/#8)
 
 ## 4. Promote #32 — status-line residue (alongside #26)
 

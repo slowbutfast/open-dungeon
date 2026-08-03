@@ -21,6 +21,7 @@ export class MemoryManager {
         this.turnBuffer = [];
         this.batchSize = 3;
         this.currentAdventureId = null;
+        this.modelName = null;
         this.lastExtractedTurnIndex = 0;
         this.isFlushing = false;
         this.activeFlushPromise = null;
@@ -370,7 +371,33 @@ export class MemoryManager {
         }
     }
 
+    // READ-THROUGH (memory-freshness, #26): the freshness guarantee lives
+    // behind the read interface. Every public read awaits any in-flight flush
+    // and then force-flushes the pending buffer before querying the store, so a
+    // caller can never forget the flush ritual. The flush runs with a
+    // manager-local state (no engine-state mutation: score/cards are untouched
+    // here — engine-state flushes own those side effects), the manager's
+    // tracked model, and no save callback (a read need not persist).
+    async _flushPendingBeforeRead(adventureId) {
+        if (!this.currentAdventureId || adventureId !== this.currentAdventureId) return;
+        if (this.turnBuffer.length === 0) return;
+        try {
+            await this.flushIfReady(
+                { adventureId: this.currentAdventureId, cards: [] },
+                this.modelName || "local-model",
+                null,
+                { force: true }
+            );
+        } catch (e) {
+            // Best-effort like the MCP flush helper: a read never fails on a
+            // flush hiccup; the read proceeds against whatever the store holds.
+            addDebugLog(`Memory manager warning: read-through flush failed: ${e.message}`);
+        }
+    }
+
     async recallRelevantMemories(queryText, adventureId, topK = 5) {
+        await this._flushPendingBeforeRead(adventureId);
+
         if (process.env.MOCK_LLM === "1") {
             const dbCount = await this.vectorStore.count(adventureId);
             if (dbCount === 0) {
@@ -401,11 +428,13 @@ export class MemoryManager {
         }
     }
 
-    getInventory(adventureId) {
+    async getInventory(adventureId) {
+        await this._flushPendingBeforeRead(adventureId);
         return this.structuredStore.getInventory(adventureId);
     }
 
-    getEventLog(adventureId, limit = 20) {
+    async getEventLog(adventureId, limit = 20) {
+        await this._flushPendingBeforeRead(adventureId);
         return this.structuredStore.getEvents(adventureId, limit);
     }
 
@@ -426,7 +455,8 @@ export class MemoryManager {
         return scoreRule(allEvents, 0);
     }
 
-    getStats(adventureId) {
+    async getStats(adventureId) {
+        await this._flushPendingBeforeRead(adventureId);
         return this.structuredStore.getStats(adventureId);
     }
 
