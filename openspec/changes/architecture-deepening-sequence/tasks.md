@@ -6,17 +6,17 @@ dependency order (#26 → #32 → #27 → #28); group 7 holds the deferred set.
 
 ## 1. Test Scaffolding (TDD) — unit seam (guardrail #4)
 
-- [ ] 1.1 Add a `node:test` harness (no new deps) with a `:memory:`/file-backed
+- [x] 1.1 Add a `node:test` harness (no new deps) with a `:memory:`/file-backed
       store; wire an npm script (e.g. `npm run test:unit`) without touching
       `SAVE_DIR` derivation, the port-conflict guard, or `tests/conftest.py`
-- [ ] 1.2 Write failing tests for `StructuredStore` internals: canonical matching
+- [x] 1.2 Write failing tests for `StructuredStore` internals: canonical matching
       (`hasItem`/`executeTrade` via `itemNames`), and the rollback surface —
       `rollbackTurn` must cover lore/offers/goals, not just events/inventory
-- [ ] 1.3 Write failing tests for `MemoryManager` read-through freshness:
+- [x] 1.3 Write failing tests for `MemoryManager` read-through freshness:
       a read reflects every buffered turn without a caller-owned flush
-- [ ] 1.4 Write failing tests for the turn-commit path at module level: forged-status
+- [x] 1.4 Write failing tests for the turn-commit path at module level: forged-status
       guard (`isSuspiciousStatus`), sanitize, and single-owner moves
-- [ ] 1.5 Write failing tests for a single `BarterEngine` instance per engine and
+- [x] 1.5 Write failing tests for a single `BarterEngine` instance per engine and
       one matching regime for "do I hold this item?"
 
 ## 2. Program Definition (this change)
