@@ -81,6 +81,21 @@ None external. Existing internal pattern to lean on: `structuredStore` already s
 - **Line-number references decay.** `eventExtractor.js`, `memoryManager.js`, and `context.js` may shift as other batches land. Re-verify against HEAD before implementing.
 - **Mock-mode note:** the extractor's mock path (`eventExtractor.js:14-72`) returns its own fixed fixtures; validation added for the real path should also apply to (or be tested against) the mock fixtures so tests don't mask regressions.
 
+## Playtest verification evidence (2026-08-02 Datachip Run)
+
+Live reproduction on the 12-act Star Wars playtest (`c27aebc6`, Coruscant Underworld preset, 35 moves, dolphin-mistral-24b). Full narrative in `docs/playtest/2026-08-02-datachip-run.md`.
+
+| Claim | Value | How verified | Date | Volatility |
+| :--- | :--- | :--- | :--- | :--- |
+| #14-adjacent (#20): near-duplicate lore cards with overlapping triggers | Extractor produced `underlevels of Coruscant`, `Coruscant`, `Coruscant underlevels`, `Bureau vault`, `Bureau vault on Level 1313` as separate cards; `dungeon_inspect_stats` → `lore: 16` at move 35 | MCP inspect_stats/lore + debug logs | 2026-08-02 | stable |
+| #14-adjacent (#20): simultaneous card firing | Debug logs show 8-9 `Context cards: active card triggers` firing on a single turn (e.g., `...stormtrooper checkpoint, datarod`) | `dungeon_get_debug_info` debug_logs | 2026-08-02 | stable |
+| #14-adjacent: trigger tokens include mechanical/common words | Cards with triggers like `Coruscant`, `patrols`, `underlevels` (common nouns) fire frequently and inflate context | MCP inspect_lore | 2026-08-02 | stable |
+| Summarizer held second person this run | Generated summaries used "the player"/"you" perspective, not "the protagonist" — the second-person issue (#14 symptom 4) was NOT observed in this run | `dungeon_inspect_state` summary | 2026-08-02 | stable |
+
+**New failure mode beyond #14's filed symptoms:** the extractor's lack of **near-duplicate card deduplication** — same setting described by 3-5 overlapping cards that all fire together. This is GH issue #20. The trigger filtering (D2) and name canonicalization (D3) in this change address the token-level problem; add card-level dedup (skip a new card when a sufficiently-similar one exists) to the validation layer.
+
+**Related GH issue:** #20 (lore trigger inflation).
+
 ## Links out
 
 - `engine/memory/eventExtractor.js` — extraction prompt + schema
