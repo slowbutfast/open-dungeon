@@ -48,13 +48,13 @@ class MockChatCompletions {
                     return;
                 }
                 
-                const narrative = "You walk south into the noisy cantina.\n[Status: Cantina | Score: 5]";
+                const narrative = "You walk south into the noisy cantina.\n[Status: Cantina | Score: 5 | Moves: 0]";
                 const words = narrative.split(" ");
                 for (const word of words) {
                     yield { choices: [{ delta: { content: word + " " } }] };
                     await new Promise(r => setTimeout(r, 10));
                 }
-                yield { choices: [{ delta: { content: "\n[Status: Cantina | Score: 5]" } }] };
+                yield { choices: [{ delta: { content: "\n[Status: Cantina | Score: 5 | Moves: 0]" } }] };
             })();
         } else {
             return (async () => {
@@ -82,7 +82,7 @@ class MockChatCompletions {
                     return new MockCompletionResponse(content);
                 }
                 
-                return new MockCompletionResponse("You walk south into the noisy cantina.\n[Status: Cantina | Score: 5]");
+                return new MockCompletionResponse("You walk south into the noisy cantina.\n[Status: Cantina | Score: 5 | Moves: 0]");
             })();
         }
     }

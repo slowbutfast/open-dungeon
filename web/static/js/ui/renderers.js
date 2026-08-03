@@ -46,9 +46,9 @@ export function renderState(state, skipLastAssistant = false) {
       }
     } else {
       let text = turn.text;
-      const statusMatch = text.match(/\[Status:\s*(.*?)\s*\|\s*Score:\s*(\d+)\s*\]$/m);
+      const statusMatch = text.match(/\[Status:\s*(.*?)\s*\|\s*Score:\s*(\d+)\s*\|\s*Moves:\s*(\d+)\s*\]$/m);
       if (statusMatch) {
-        text = text.replace(/\[Status:\s*(.*?)\s*\|\s*Score:\s*\d+\s*\]\n?/m, '').trim();
+        text = text.replace(/\[Status:\s*(.*?)\s*\|\s*Score:\s*\d+\s*\|\s*Moves:\s*\d+\s*\]\n?/m, '').trim();
       }
       turnDiv.innerText = cleanMarkdownText(text);
     }

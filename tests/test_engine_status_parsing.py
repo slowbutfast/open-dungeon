@@ -41,10 +41,28 @@ from tests.mcp_client import McpTestCase, assert_tool_result
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 INDEX_SOURCE_PATH = os.path.join(REPO_ROOT, "engine", "index.js")
 PRESETS_SOURCE_PATH = os.path.join(REPO_ROOT, "engine", "storyPresets.js")
+STATUS_FORMAT_SOURCE_PATH = os.path.join(REPO_ROOT, "engine", "statusFormat.js")
+MOCK_SOURCE_PATH = os.path.join(REPO_ROOT, "engine", "mockOpenAI.js")
+GAME_ROUTES_SOURCE_PATH = os.path.join(REPO_ROOT, "web", "routes", "game.js")
+RENDERERS_SOURCE_PATH = os.path.join(REPO_ROOT, "web", "static", "js", "ui", "renderers.js")
+APP_JS_SOURCE_PATH = os.path.join(REPO_ROOT, "web", "static", "js", "app.js")
 
 # The exact status-line format every prompt definition must declare. This is
 # the contract the shared parseStatusLine expects.
 STATUS_FORMAT_TEMPLATE = "[Status: <Location Name> | Score: <Current Score> | Moves: <Moves>]"
+
+# The canonical three-field shape every producer must emit and every consumer
+# must strip. This is the regex the frontend strip must express and the shape
+# mock/fallback canned status lines must match.
+CANONICAL_STATUS_LINE = re.compile(
+    r"^\[Status:\s*.*\|\s*Score:\s*\d+\s*\|\s*Moves:\s*\d+\s*\]$"
+)
+
+# Probe: imports the shared STATUS_FORMAT constant and reports its value.
+STATUS_FORMAT_PROBE = """
+import { STATUS_FORMAT } from './engine/statusFormat.js';
+console.log(JSON.stringify({ statusFormat: STATUS_FORMAT }));
+"""
 
 # Engine-level probe: runs an AdventureEngine in mock mode with a scripted
 # narration stream, then reports the committed state, history, and save file.
@@ -419,10 +437,11 @@ class TestMovesSingleOwner(unittest.TestCase):
 class TestMovesAndStateAgreementMCP(McpTestCase):
     """Task 1.4 (MCP side) — dungeon_send_action agrees with dungeon_inspect_state.
 
-    In mock mode the status line is the two-field `[Status: Cantina | Score: 5]`
-    (no Moves), so moves must come from the engine's single deterministic
-    counter, location from the engine-committed parse, and score from the
-    engine's milestone rule (the narrator's `Score: 5` is advisory only).
+    In mock mode the status line is the canonical three-field
+    `[Status: Cantina | Score: 5 | Moves: 0]` (since #32), so moves must come
+    from the engine's single deterministic counter, location from the
+    engine-committed parse, and score from the engine's milestone rule (the
+    narrator's `Score: 5` is advisory only).
     """
 
     def setUp(self):
@@ -463,19 +482,36 @@ class TestMovesAndStateAgreementMCP(McpTestCase):
 
 
 class TestPromptContract(unittest.TestCase):
-    """Task 1.5 — all five prompt definitions declare the status-line format."""
+    """Task 1.5 — all five prompt definitions declare the status-line format.
 
-    def _default_prompt(self):
+    Since status-line-contract-residue, the prompts reference the shared
+    STATUS_FORMAT constant via ${STATUS_FORMAT} interpolation. These helpers
+    resolve the interpolation exactly the way the modules do at runtime, so the
+    literal-presence assertions keep working while the reference test pins that
+    the source points at the shared constant.
+    """
+
+    def _default_prompt_raw(self):
         with open(INDEX_SOURCE_PATH, encoding="utf-8") as f:
             source = f.read()
         match = re.search(r"DEFAULT_SYSTEM_PROMPT\s*=\s*`([\s\S]*?)`", source)
         self.assertIsNotNone(match, "DEFAULT_SYSTEM_PROMPT not found in engine/index.js")
         return match.group(1)
 
-    def _preset_prompts(self):
+    def _default_prompt(self):
+        return self._default_prompt_raw().replace("${STATUS_FORMAT}", STATUS_FORMAT_TEMPLATE)
+
+    def _preset_prompt_raws(self):
         with open(PRESETS_SOURCE_PATH, encoding="utf-8") as f:
             source = f.read()
-        return re.findall(r'"system_prompt"\s*:\s*"((?:[^"\\]|\\.)*)"', source)
+        raws = re.findall(r'"system_prompt"\s*:\s*`([\s\S]*?)`', source)
+        if not raws:
+            # Legacy form: double-quoted JSON-style string with escaped newlines.
+            raws = re.findall(r'"system_prompt"\s*:\s*"((?:[^"\\]|\\.)*)"', source)
+        return raws
+
+    def _preset_prompts(self):
+        return [p.replace("${STATUS_FORMAT}", STATUS_FORMAT_TEMPLATE) for p in self._preset_prompt_raws()]
 
     def test_default_system_prompt_declares_status_format(self):
         self.assertIn(STATUS_FORMAT_TEMPLATE, self._default_prompt())
@@ -485,6 +521,87 @@ class TestPromptContract(unittest.TestCase):
         self.assertEqual(len(presets), 4)
         for prompt in presets:
             self.assertIn(STATUS_FORMAT_TEMPLATE, prompt)
+
+    def test_prompts_reference_shared_status_format_constant(self):
+        """The prompt sources reference ${STATUS_FORMAT}, not a private copy."""
+        self.assertIn("${STATUS_FORMAT}", self._default_prompt_raw())
+        for raw in self._preset_prompt_raws():
+            self.assertIn("${STATUS_FORMAT}", raw)
+
+
+def _status_chunks(source):
+    """Every bracketed `[Status: ...]` literal/regex in a source file."""
+    return re.findall(r"\[Status:[^\]]*\]", source)
+
+
+class TestStatusFormatConstant(unittest.TestCase):
+    """#32 — STATUS_FORMAT is a single shared definition of the canonical line."""
+
+    def test_status_format_constant_is_canonical_three_field_line(self):
+        script = STATUS_FORMAT_PROBE
+        proc = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if proc.returncode != 0:
+            raise AssertionError(
+                f"statusFormat probe failed ({proc.returncode}):\n"
+                f"stdout: {proc.stdout}\nstderr: {proc.stderr}"
+            )
+        result = json.loads(proc.stdout.strip().splitlines()[-1])
+        self.assertEqual(result["statusFormat"], STATUS_FORMAT_TEMPLATE)
+
+    def test_status_format_lives_in_dedicated_module(self):
+        with open(STATUS_FORMAT_SOURCE_PATH, encoding="utf-8") as f:
+            source = f.read()
+        self.assertIn("STATUS_FORMAT", source)
+        self.assertIn(STATUS_FORMAT_TEMPLATE, source)
+
+
+class TestProducersEmitCanonicalStatusLine(unittest.TestCase):
+    """#32 — producers outside llm.js emit the canonical three-field line."""
+
+    def _assert_all_chunks_canonical(self, path):
+        with open(path, encoding="utf-8") as f:
+            source = f.read()
+        chunks = _status_chunks(source)
+        self.assertGreaterEqual(len(chunks), 1, f"no [Status: ...] found in {path}")
+        for chunk in chunks:
+            self.assertRegex(
+                chunk,
+                CANONICAL_STATUS_LINE,
+                f"non-canonical status line in {path}: {chunk}",
+            )
+
+    def test_mock_canned_narrations_emit_three_field_line(self):
+        self._assert_all_chunks_canonical(MOCK_SOURCE_PATH)
+
+    def test_fallback_opening_scene_emits_three_field_line(self):
+        self._assert_all_chunks_canonical(GAME_ROUTES_SOURCE_PATH)
+
+
+class TestFrontendConsumersUseCanonicalStatusLine(unittest.TestCase):
+    """#32 — the frontend strip and default prompt match the canonical format."""
+
+    def test_renderers_status_strip_is_three_field(self):
+        with open(RENDERERS_SOURCE_PATH, encoding="utf-8") as f:
+            source = f.read()
+        chunks = _status_chunks(source)
+        self.assertGreaterEqual(len(chunks), 1)
+        for chunk in chunks:
+            self.assertIn(
+                "Moves",
+                chunk,
+                f"status strip regex in renderers.js does not know Moves: {chunk}",
+            )
+
+    def test_frontend_default_prompt_declares_three_field_format(self):
+        with open(APP_JS_SOURCE_PATH, encoding="utf-8") as f:
+            source = f.read()
+        self.assertIn(STATUS_FORMAT_TEMPLATE, source)
 
 
 if __name__ == "__main__":

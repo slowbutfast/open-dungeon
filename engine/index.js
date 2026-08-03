@@ -8,6 +8,7 @@ import { MemoryManager } from './memory/memoryManager.js';
 import { EmbeddingService } from './memory/embeddings.js';
 import { BarterEngine } from './memory/barterEngine.js';
 import { loadPresets, savePresets as savePresetsFile } from './storyPresets.js';
+import { STATUS_FORMAT } from './statusFormat.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -40,7 +41,7 @@ You are facing the north side of a white house. A forest stretches to the north.
 [Status: North of House | Score: 0 | Moves: 2]
 
 At the very end of EVERY response, you MUST append the current status on a new line in this exact format:
-[Status: <Location Name> | Score: <Current Score> | Moves: <Moves>]
+${STATUS_FORMAT}
 If the player attempts to use, reference, or equip an item that is NOT listed in [CURRENT INVENTORY] and NOT clearly present in the immediate location description, you MUST refuse the action with a short explanation that they do not have that item.
 Do not write anything else on the status line.`;
 

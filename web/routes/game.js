@@ -346,7 +346,7 @@ router.post('/init', async (req, res) => {
         llmTracker.failCall(callId, e);
         activeEngine.history.push({
             role: "assistant",
-            text: sanitizeForHistory(`You wake up in the world of ${title}. ${summary}\n[Status: Starting Location | Score: 0]`)
+            text: sanitizeForHistory(`You wake up in the world of ${title}. ${summary}\n[Status: Starting Location | Score: 0 | Moves: 0]`)
         });
     }
 

@@ -40,14 +40,15 @@ dependency order (#26 → #32 → #27 → #28); group 7 holds the deferred set.
 
 ## 4. Promote #32 — status-line residue (alongside #26)
 
-- [ ] 4.1 TDD-first: source-text contract tests asserting every producer
+- [x] 4.1 TDD-first: source-text contract tests asserting every producer
       (mock, fallback opening scene, presets, `DEFAULT_SYSTEM_PROMPT`, frontend
       default) references one shared `STATUS_FORMAT`
-- [ ] 4.2 Emit/strip the canonical three-field line everywhere
+- [x] 4.2 Emit/strip the canonical three-field line everywhere
       (`mockOpenAI.js`, `web/routes/game.js` fallback, `renderers.js` strip)
-- [ ] 4.3 Introduce the shared `STATUS_FORMAT` constant (prerequisite for #28) and
-      retire the vestigial MCP re-parse only if #26's turn-returns-metrics lands
-- [ ] 4.4 Verify tiers + mock/real parity (guardrails #7/#3)
+- [x] 4.3 Introduce the shared `STATUS_FORMAT` constant (prerequisite for #28);
+      the vestigial MCP re-parse is retained (#26's turn-returns-metrics has not
+      landed)
+- [x] 4.4 Verify tiers + mock/real parity (guardrails #7/#3)
 
 ## 5. Promote #27 — schema boundary + full-surface rollback (next)
 

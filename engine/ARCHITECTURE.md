@@ -37,8 +37,9 @@ graph TD
 
 ### 2. Backend Stream Interception & Buffering
 *   **Status**: **Fully Operational**
-*   **Behavior**: Hides the bracketed game status line `[Status: <Location> | Score: <Score>]` from streaming to the client, parses it via the shared parser, and sanitizes history.
+*   **Behavior**: Hides the bracketed game status line (the canonical three-field `[Status: <Location> | Score: <Score> | Moves: <Moves>]`) from streaming to the client, parses it via the shared parser, and sanitizes history.
 *   **Mechanics**:
+    *   **One status-line format (`status-line-contract-residue`)**: the canonical three-field line is defined once as `STATUS_FORMAT` in `engine/statusFormat.js`. `DEFAULT_SYSTEM_PROMPT` (`engine/index.js`) and the four story presets (`engine/storyPresets.js`) interpolate `${STATUS_FORMAT}` into their composed prompts, the mock narrator (`engine/mockOpenAI.js`) and the web fallback opening scene (`web/routes/game.js`) emit the same three-field line, and the frontend status strip (`web/static/js/ui/renderers.js`) matches the same shape. The zero-build frontend default prompt (`web/static/js/app.js`) declares the identical literal, pinned for agreement by a source-text test. The MCP re-parse in `mcp/tools/gameplay.js` remains as a vestigial fallback (the "turn returns committed metrics" change has not landed).
     *   As chunks arrive from LM Studio, the backend checks for the `[` character.
     *   If `[` is found, the engine pauses streaming and buffers the text.
     *   If the buffer length exceeds `150` characters (meaning it's regular story text), the buffer is flushed and streamed.
