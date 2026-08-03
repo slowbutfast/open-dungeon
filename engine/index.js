@@ -169,7 +169,19 @@ export class AdventureEngine {
     }
 
     async undo() {
+        const preUndoMoves = this.state.moves;
         const result = this.state.undo();
+
+        if (result.userTurn || result.assistantTurn) {
+            // Roll back memory for the undone turn (indexed by the moves value
+            // it held when buffered) before decrementing moves. rollbackTurns
+            // awaits any in-flight flush so it cannot resurrect rolled-back rows.
+            if (preUndoMoves > 0) {
+                await this.memory.rollbackTurns(preUndoMoves);
+            }
+            this.state.moves = Math.max(0, this.state.moves - 1);
+        }
+
         await this.save();
         return result;
     }

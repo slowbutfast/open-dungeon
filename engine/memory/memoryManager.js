@@ -280,4 +280,42 @@ export class MemoryManager {
     getStats(adventureId) {
         return this.structuredStore.getStats(adventureId);
     }
+
+    /**
+     * Roll back memory for an undone turn (turnIndex = the moves value the turn
+     * held when it was buffered). Removes structured rows + vector embeddings
+     * for turns >= turnIndex, rewinds the extraction watermark to turnIndex-1
+     * in both memory and the store, and drops pending buffered turns being
+     * undone so a later flush cannot resurrect them.
+     *
+     * Awaits any in-flight flush first so rows it writes cannot reappear after
+     * the rollback.
+     */
+    async rollbackTurns(turnIndex) {
+        if (!this.currentAdventureId || turnIndex <= 0) return;
+
+        if (this.activeFlushPromise) {
+            try {
+                await this.activeFlushPromise;
+            } catch (e) {
+                addDebugLog(`Memory manager warning: in-flight flush failed during rollback: ${e.message}`);
+            }
+        }
+
+        const adventureId = this.currentAdventureId;
+        const eventIds = this.structuredStore.rollbackTurn(adventureId, turnIndex);
+
+        if (eventIds.length > 0) {
+            try {
+                await this.vectorStore.deleteItems(adventureId, eventIds);
+            } catch (e) {
+                addDebugLog(`Memory manager warning: failed to delete vector items during rollback: ${e.message}`);
+            }
+        }
+
+        // Never advance the in-memory watermark; rewind only as far as needed.
+        this.lastExtractedTurnIndex = Math.min(this.lastExtractedTurnIndex, Math.max(0, turnIndex - 1));
+
+        this.turnBuffer = this.turnBuffer.filter(t => t.turnIndex < turnIndex);
+    }
 }
