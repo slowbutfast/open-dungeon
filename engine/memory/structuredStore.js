@@ -234,6 +234,38 @@ export class StructuredStore {
         ).all(adventureId);
     }
 
+    // ─── Transactional rollback ───────────────────────────────────────────────
+
+    /**
+     * Roll back a reverted turn in a single SQLite transaction:
+     * remove event + inventory rows whose turn is >= turnIndex, rewind the
+     * extraction watermark to turnIndex-1 (never advancing it), and return the
+     * ids of the removed event rows so the caller can delete their vectors.
+     *
+     * @returns {string[]} ids of removed event rows
+     */
+    rollbackTurn(adventureId, turnIndex) {
+        return this.db.transaction(() => {
+            const eventIds = this.db.prepare(
+                'SELECT id FROM events WHERE adventure_id = ? AND turn_index >= ?'
+            ).all(adventureId, turnIndex).map(r => r.id);
+
+            this.db.prepare(
+                'DELETE FROM events WHERE adventure_id = ? AND turn_index >= ?'
+            ).run(adventureId, turnIndex);
+
+            this.db.prepare(
+                'DELETE FROM inventory WHERE adventure_id = ? AND acquired_turn >= ?'
+            ).run(adventureId, turnIndex);
+
+            const current = this.getLastExtractedTurnIndex(adventureId);
+            const rewinded = Math.min(current, Math.max(0, turnIndex - 1));
+            this.setLastExtractedTurnIndex(adventureId, rewinded);
+
+            return eventIds;
+        })();
+    }
+
     // ─── Stats ────────────────────────────────────────────────────────────────
 
     getStats(adventureId) {

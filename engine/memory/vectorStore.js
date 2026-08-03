@@ -80,6 +80,20 @@ export class VectorStore {
     }
 
     /**
+     * Delete documents by their ids (used to remove vector embeddings for
+     * rolled-back turns). Ids that do not exist are silently ignored.
+     */
+    async deleteItems(adventureId, ids) {
+        if (!ids || ids.length === 0) return;
+        try {
+            const idx = await this._getIndex(adventureId);
+            await idx.deleteItems(ids);
+        } catch (e) {
+            // Ignore missing index/items
+        }
+    }
+
+    /**
      * Returns the number of documents in the index for an adventure.
      */
     async count(adventureId) {
