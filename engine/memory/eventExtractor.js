@@ -13,7 +13,7 @@ export class EventExtractor {
 
         if (process.env.MOCK_LLM === "1") {
             const historyText = formattedHistory.toLowerCase();
-            const result = { events: [], inventory_changes: [], lore_facts: [] };
+            const result = { events: [], inventory_changes: [], lore_facts: [], offers: [], goals: [] };
 
             if (historyText.includes("sword") || historyText.includes("blade")) {
                 result.inventory_changes.push({
@@ -60,6 +60,62 @@ export class EventExtractor {
                 });
             }
 
+            // Contract-card mock triggers (deterministic). Keyed on the LATEST
+            // player turn so re-extraction of already-flushed turns cannot
+            // re-fire an acquisition and resurrect a traded item.
+            const playerTurns = turns.filter(t => t.role === 'user');
+            const latestPlayer = playerTurns.length > 0
+                ? String(playerTurns[playerTurns.length - 1].text || "").toLowerCase()
+                : "";
+
+            if (/(take|get)\s+.*leaflet/.test(latestPlayer)) {
+                result.inventory_changes.push({
+                    action: "acquire",
+                    item_name: "Leaflet",
+                    item_type: "misc",
+                    description: "A crumpled leaflet.",
+                    quantity: 1
+                });
+            }
+            if (latestPlayer.includes("bring me") && latestPlayer.includes("leaflet")) {
+                result.offers.push({
+                    trader_name: "Korr",
+                    required_item: "Leaflet",
+                    offered_item: "Gem",
+                    description: "Bring me a leaflet and I'll give you a gem."
+                });
+            }
+            if (latestPlayer.includes("find my daughter") && latestPlayer.includes("locket")) {
+                result.goals.push({
+                    npc_name: "Korr",
+                    goal_title: "Find the locket",
+                    required_item: "Locket",
+                    reward_item: "Gem"
+                });
+            }
+            if (latestPlayer.includes("trade") && latestPlayer.includes("leaflet") && latestPlayer.includes("gem")) {
+                result.inventory_changes.push({
+                    action: "traded",
+                    item_name: "Leaflet",
+                    item_type: "misc",
+                    description: null,
+                    quantity: 1
+                });
+                result.inventory_changes.push({
+                    action: "acquire",
+                    item_name: "Gem",
+                    item_type: "misc",
+                    description: "A small sparkling gem.",
+                    quantity: 1
+                });
+                result.events.push({
+                    type: "trade",
+                    summary: "Traded the leaflet to Korr for a gem.",
+                    entities: ["Korr", "leaflet", "gem"],
+                    location: "Cantina"
+                });
+            }
+
             if (result.events.length === 0) {
                 result.events.push({
                     type: "movement",
@@ -74,8 +130,10 @@ export class EventExtractor {
         const prompt = `You are an expert system that extracts structured gameplay records, inventory changes, and lore from a section of an AI Dungeon game history.
 Analyze the following gameplay turns (which include player actions and DM narration) and extract:
 1. Significant events or plot developments (combat, dialogue, discovery, quest, movement, etc.).
-2. Inventory changes (items acquired, dropped, used, equipped, lost).
+2. Inventory changes (items acquired, dropped, used, equipped, consumed, traded away).
 3. Lore facts (new characters encountered, locations discovered, factions introduced, world rules revealed).
+4. Trade offers (an NPC explicitly proposes a trade, e.g. "bring me X and I'll give you Y").
+5. Quest goals (an NPC states an objective the player can act on, e.g. "find my daughter's locket").
 
 Game history section:
 ---
@@ -95,7 +153,7 @@ You must output a single JSON object with the following structure. Do not output
   ],
   "inventory_changes": [
     {
-      "action": "acquire" | "drop" | "use" | "equip" | "destroy",
+      "action": "acquire" | "drop" | "use" | "equip" | "destroy" | "traded" | "consume",
       "item_name": "Name of the item",
       "item_type": "weapon" | "armor" | "consumable" | "key" | "quest" | "misc",
       "description": "Short description of the item if any, or null",
@@ -109,8 +167,26 @@ You must output a single JSON object with the following structure. Do not output
       "description": "Detailed description of the entity or lore fact",
       "trigger_words": ["word1", "word2"]
     }
+  ],
+  "offers": [
+    {
+      "trader_name": "Name of the NPC proposing the trade",
+      "required_item": "Item the NPC wants in exchange",
+      "offered_item": "Item the NPC gives in return",
+      "description": "Short offer text if any, or null"
+    }
+  ],
+  "goals": [
+    {
+      "npc_name": "Name of the NPC stating the objective",
+      "goal_title": "Short objective title",
+      "required_item": "Item needed to complete the objective",
+      "reward_item": "Item granted on completion"
+    }
   ]
-}`;
+}
+
+Only include an offer when an NPC explicitly proposes a trade in the narration, and only include a goal when an NPC states an objective the player is asked to fulfill. For a trade where the player gave an item away, use "traded" as the inventory change action for the given-away item and "acquire" for the item received.`;
 
         const messages = [
             { role: "system", content: "You extract structured data from text and return only raw JSON." },
@@ -159,7 +235,9 @@ You must output a single JSON object with the following structure. Do not output
             return {
                 events: Array.isArray(parsed.events) ? parsed.events : [],
                 inventory_changes: Array.isArray(parsed.inventory_changes) ? parsed.inventory_changes : [],
-                lore_facts: Array.isArray(parsed.lore_facts) ? parsed.lore_facts : []
+                lore_facts: Array.isArray(parsed.lore_facts) ? parsed.lore_facts : [],
+                offers: Array.isArray(parsed.offers) ? parsed.offers : [],
+                goals: Array.isArray(parsed.goals) ? parsed.goals : []
             };
         } catch (e) {
             // Try to salvage truncated JSON by adding missing closing brackets
@@ -170,14 +248,16 @@ You must output a single JSON object with the following structure. Do not output
                     return {
                         events: Array.isArray(parsed.events) ? parsed.events : [],
                         inventory_changes: Array.isArray(parsed.inventory_changes) ? parsed.inventory_changes : [],
-                        lore_facts: Array.isArray(parsed.lore_facts) ? parsed.lore_facts : []
+                        lore_facts: Array.isArray(parsed.lore_facts) ? parsed.lore_facts : [],
+                        offers: Array.isArray(parsed.offers) ? parsed.offers : [],
+                        goals: Array.isArray(parsed.goals) ? parsed.goals : []
                     };
                 } catch (attemptErr) {
                     // Continue trying next salvage attempt
                 }
             }
             console.error("Failed to parse extracted events JSON. Raw output was:", text);
-            return { events: [], inventory_changes: [], lore_facts: [] };
+            return { events: [], inventory_changes: [], lore_facts: [], offers: [], goals: [] };
         }
     }
 }

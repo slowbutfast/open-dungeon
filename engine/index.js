@@ -67,6 +67,7 @@ export class AdventureEngine {
         this.memory = new MemoryManager(dataDir, this.llm.client, embeddingService);
         this.context.memoryManager = this.memory;
         this.barter = new BarterEngine(this.memory.structuredStore);
+        this.memory.barter = this.barter;
     }
 
     // Proxy getters and setters to maintain exactly the same public property access
