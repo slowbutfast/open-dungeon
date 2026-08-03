@@ -1,5 +1,168 @@
 import { llmTracker } from '../llmTracker.js';
 
+// ─── Extractor output validation ────────────────────────────────────────────
+//
+// The extractor's raw model output is written straight into permanent SQLite
+// state, so every row is schema-checked here BEFORE it reaches the store
+// (validate-memory-extraction). Malformed rows are rejected and counted, valid
+// rows pass through. Trigger tokens are filtered in the same pass: single
+// common words, sub-length tokens, and game-mechanical vocabulary are dropped
+// so a lore card cannot auto-fire on nearly every turn.
+
+// Game-system vocabulary that would over-trigger if accepted as a lore trigger
+// token (`score` on any "check my score", `inventory` on the current-inventory
+// block, `system prompt` on prompt echoes, ...). Matches are made on the
+// lowercased word, and a token containing any stop-listed word is rejected.
+const MECHANICAL_TRIGGER_WORDS = new Set([
+    'score', 'inventory', 'status', 'admin', 'system', 'prompt',
+    'location', 'moves', 'summary', 'quantity', 'trigger', 'current',
+    'history', 'events', 'item', 'items', 'card', 'cards',
+    // Single common words observed over-triggering in live play (GH #14).
+    'trade', 'north', 'door',
+]);
+
+const VALID_EVENT_TYPES = new Set([
+    'combat', 'dialogue', 'discovery', 'quest', 'death', 'trade', 'movement',
+]);
+
+const VALID_INVENTORY_ACTIONS = new Set([
+    'acquire', 'drop', 'use', 'equip', 'destroy', 'traded', 'consume',
+]);
+
+// The documented lore-card types from the extraction prompt.
+const VALID_LORE_TYPES = new Set([
+    'character', 'location', 'item', 'lore', 'faction',
+]);
+
+/**
+ * Filter a lore card's trigger tokens. A token is rejected when it is:
+ *  - not a string, or empty after trimming;
+ *  - shorter than 3 characters;
+ *  - a single common word or game-mechanical vocabulary (its lowercase form
+ *    matches the stop-list, or any of its space-separated words does).
+ *
+ * @param {*} tokens - raw trigger_words value from the extractor
+ * @returns {string[]} the valid trigger tokens
+ */
+export function filterTriggerTokens(tokens) {
+    if (!Array.isArray(tokens)) return [];
+    const kept = [];
+    for (const token of tokens) {
+        if (typeof token !== 'string') continue;
+        const trimmed = token.trim();
+        if (trimmed.length < 3) continue;
+        const words = trimmed.toLowerCase().split(/\s+/);
+        if (words.some(w => MECHANICAL_TRIGGER_WORDS.has(w))) continue;
+        kept.push(trimmed);
+    }
+    return kept;
+}
+
+function isNonEmptyString(value) {
+    return typeof value === 'string' && value.trim().length > 0;
+}
+
+function isValidEvent(event) {
+    if (!event || typeof event !== 'object') return false;
+    if (!isNonEmptyString(event.type) || !VALID_EVENT_TYPES.has(event.type)) return false;
+    if (!isNonEmptyString(event.summary)) return false;
+    if (event.entities !== undefined && event.entities !== null && !Array.isArray(event.entities)) {
+        return false;
+    }
+    return true;
+}
+
+function isValidInventoryChange(change) {
+    if (!change || typeof change !== 'object') return false;
+    if (!isNonEmptyString(change.item_name)) return false;
+    if (!isNonEmptyString(change.action) || !VALID_INVENTORY_ACTIONS.has(change.action)) return false;
+    if (change.quantity !== undefined && change.quantity !== null) {
+        if (typeof change.quantity !== 'number' || !Number.isFinite(change.quantity) || change.quantity < 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/**
+ * Validate and sanitize a single lore fact. The card's trigger tokens are
+ * filtered; a card whose entire trigger list is rejected (or missing) is
+ * invalid and must not be stored — the system SHALL NOT auto-inject a card
+ * whose trigger list is empty or invalid.
+ *
+ * @param {*} fact - raw lore_fact row from the extractor
+ * @returns {{name: string, type: string, description: string, trigger_words: string[]}|null}
+ */
+function validateLoreFact(fact) {
+    if (!fact || typeof fact !== 'object') return null;
+    if (!isNonEmptyString(fact.name)) return null;
+    if (!isNonEmptyString(fact.type) || !VALID_LORE_TYPES.has(fact.type)) return null;
+    const triggerWords = filterTriggerTokens(fact.trigger_words);
+    if (triggerWords.length === 0) return null;
+    return {
+        name: fact.name,
+        type: fact.type,
+        description: typeof fact.description === 'string' ? fact.description : "",
+        trigger_words: triggerWords
+    };
+}
+
+/**
+ * Schema-check the extractor's parsed output before it touches SQLite.
+ *
+ * Malformed `events` / `inventory_changes` / `lore_facts` rows are rejected
+ * (skipped, never persisted) and counted in `result.rejected`; valid rows flow
+ * through. `offers` and `goals` are passed through unchanged — only the three
+ * ground-truth sections are validated.
+ *
+ * @param {object} output - the parsed extractor output
+ * @returns {{
+ *   events: object[], inventory_changes: object[], lore_facts: object[],
+ *   offers: object[], goals: object[],
+ *   rejected: { events: number, inventory_changes: number, lore_facts: number }
+ * }}
+ */
+export function validateExtractorOutput(output) {
+    const result = {
+        events: [],
+        inventory_changes: [],
+        lore_facts: [],
+        offers: [],
+        goals: [],
+        rejected: { events: 0, inventory_changes: 0, lore_facts: 0 }
+    };
+    if (!output || typeof output !== 'object') return result;
+
+    for (const event of Array.isArray(output.events) ? output.events : []) {
+        if (isValidEvent(event)) {
+            result.events.push(event);
+        } else {
+            result.rejected.events += 1;
+        }
+    }
+
+    for (const change of Array.isArray(output.inventory_changes) ? output.inventory_changes : []) {
+        if (isValidInventoryChange(change)) {
+            result.inventory_changes.push(change);
+        } else {
+            result.rejected.inventory_changes += 1;
+        }
+    }
+
+    for (const fact of Array.isArray(output.lore_facts) ? output.lore_facts : []) {
+        const valid = validateLoreFact(fact);
+        if (valid) {
+            result.lore_facts.push(valid);
+        } else {
+            result.rejected.lore_facts += 1;
+        }
+    }
+
+    result.offers = Array.isArray(output.offers) ? output.offers : [];
+    result.goals = Array.isArray(output.goals) ? output.goals : [];
+    return result;
+}
+
 export class EventExtractor {
     constructor(client) {
         this.client = client;

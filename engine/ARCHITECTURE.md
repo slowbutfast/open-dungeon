@@ -93,6 +93,14 @@ graph TD
 *   **Trade Flow**: A classified narrated trade routes through `executeBarter` (possession check + atomic swap). Success releases the sold item as `'traded'` (excluded from `getInventory`) and grants the offered item; a refused or ambiguous trade logs a refusal and applies **neither** side (duplicate-sale protection). With no registered offer, removal is applied directly so the sold item is never silently retained.
 *   **Offer / Goal Flow**: `offers[]` from narration (e.g. "bring me X and I'll give you Y") feed `registerOffer()`; `goals[]` (e.g. "find my daughter's locket") feed `createGoal(..., 'IN_PROGRESS')`, deduplicated by `(npc_name, goal_title)`.
 
+### 4c. Extractor Output Validation (`validate-memory-extraction`)
+
+*   **Status**: **Fully Operational**
+*   **Behavior**: The event extractor's raw model output is schema-checked before anything touches SQLite. `validateExtractorOutput()` (`engine/memory/eventExtractor.js`) validates `events` / `inventory_changes` / `lore_facts` rows (missing fields, invalid types, invalid trigger tokens); malformed rows are skipped and counted in the debug log line, valid rows flow on. `offers[]` / `goals[]` pass through unchanged.
+*   **Trigger filtering**: lore trigger tokens shorter than 3 chars, single common words, and game-mechanical vocabulary (`score`, `inventory`, `status`, `admin`, `system`, `prompt`, plus codebase tokens like `location`/`moves`/`summary`/`quantity`/`trigger`/`current`, and the observed over-triggerers `trade`/`north`/`door`) are rejected before `upsertLore`; a card whose entire trigger list is rejected is dropped (half of the #15 injection defense).
+*   **Quantity parsing & name canonicalization**: `normalizeInventoryChange()` (`engine/memory/structuredStore.js`) parses a leading numeral out of `item_name` into `quantity`; `upsertInventoryItem` keys rows by the canonical (normalized) name while preserving the narrated display spelling, and read lookups (`hasItem`, `executeTrade`) resolve equivalent spellings via the shared `itemNamesMatch` (now stem-aware: "Rusty Gear" == "Rusted Gear", "Gem" == "Gems"). Legacy rows ("2 Coppers") resolve on read.
+*   **Summary voice**: the summarization prompt (`engine/context.js`) mandates second person, and the committed summary is passed through `sanitizeForHistory` so echoed status blocks/lines never re-inject.
+
 ### 5. Dynamic Local Network (LAN) Binding
 *   **Status**: **Fully Operational**
 *   **Behavior**: Enables remote devices on the same Wi-Fi/local network to access the web panel without compromising automated test environments.

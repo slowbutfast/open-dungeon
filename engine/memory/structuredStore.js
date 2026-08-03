@@ -1,6 +1,28 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
+import { normalizeItemName, itemNamesMatch } from './itemNames.js';
+
+// Canonicalize an extractor inventory-change row before it is written:
+//  - a leading quantity numeral ("2 Coppers") is parsed out of `item_name`
+//    into the `quantity` field so counts are not double-encoded (D3);
+//  - `item_name` is normalized (case, articles, punctuation, the numeral) so
+//    equivalent spellings collapse to one canonical identity on read.
+export function normalizeInventoryChange(change) {
+    if (!change || typeof change !== 'object') return null;
+    if (typeof change.item_name !== 'string' || !change.item_name.trim()) return null;
+
+    const quantityMatch = change.item_name.match(/^\s*(\d+)\s+/);
+    let quantity = change.quantity;
+    if (quantityMatch) {
+        quantity = parseInt(quantityMatch[1], 10);
+    }
+    if (typeof quantity !== 'number' || !Number.isFinite(quantity) || quantity < 0) {
+        quantity = 1;
+    }
+
+    return { ...change, item_name: normalizeItemName(change.item_name), quantity };
+}
 
 export class StructuredStore {
     constructor(dataDir) {
@@ -115,7 +137,16 @@ export class StructuredStore {
     // ─── Inventory ────────────────────────────────────────────────────────────
 
     upsertInventoryItem(adventureId, item) {
-        const id = `${adventureId}:${item.item_name.toLowerCase().replace(/\s+/g, '_')}`;
+        // Canonicalize on write (D3): parse any leading quantity numeral into
+        // the `quantity` column and derive the row identity from the canonical
+        // (normalized) name, so "2 Coppers" and "Coppers" (or "Rusty Gear" and
+        // "RUSTY gear") resolve to the same row. The stored display name keeps
+        // the narrated spelling minus the quantity numeral.
+        const change = normalizeInventoryChange(item) || item;
+        const quantity = change.quantity !== undefined ? change.quantity : 1;
+        const displayName = String(item.item_name || change.item_name || '')
+            .replace(/^\s*\d+\s+/, '');
+        const id = `${adventureId}:${normalizeItemName(displayName).replace(/\s+/g, '_')}`;
         this.db.prepare(`
             INSERT INTO inventory
                 (id, adventure_id, item_name, item_type, description, quantity, acquired_at, acquired_turn, status)
@@ -127,10 +158,10 @@ export class StructuredStore {
         `).run(
             id,
             adventureId,
-            item.item_name,
+            displayName,
             item.item_type || 'misc',
             item.description || null,
-            item.quantity !== undefined ? item.quantity : 1,
+            quantity,
             item.acquired_at || null,
             item.acquired_turn || null,
             item.status || 'held'
@@ -157,18 +188,28 @@ export class StructuredStore {
     }
 
     hasItem(adventureId, itemName) {
-        const row = this.db.prepare(
+        // Exact (indexed) SQL match first, then canonical/stem fallback over
+        // held rows so drifted spellings resolve to the stored item (D3):
+        // "Rusted Gear" for stored "Rusty Gear", "Coppers" for stored
+        // "2 Coppers", "the gem" for stored "Gem".
+        const exact = this.db.prepare(
             "SELECT * FROM inventory WHERE adventure_id = ? AND LOWER(item_name) = LOWER(?) AND status = 'held'"
         ).get(adventureId, itemName);
-        return row || null;
+        if (exact) return exact;
+        const held = this.db.prepare(
+            "SELECT * FROM inventory WHERE adventure_id = ? AND status = 'held'"
+        ).all(adventureId);
+        return held.find(i => itemNamesMatch(i.item_name, itemName)) || null;
     }
 
     executeTrade(adventureId, requiredItemName, offeredItemName, offeredDescription = null, offeredType = 'misc') {
         const trade = this.db.transaction(() => {
-            // Find the required item (held, case-insensitive)
-            const requiredItem = this.db.prepare(
-                "SELECT * FROM inventory WHERE adventure_id = ? AND LOWER(item_name) = LOWER(?) AND status = 'held' LIMIT 1"
-            ).get(adventureId, requiredItemName);
+            // Find the required item among held rows by canonical name (D3), so
+            // a variant spelling still resolves and the trade goes through.
+            const held = this.db.prepare(
+                "SELECT * FROM inventory WHERE adventure_id = ? AND status = 'held'"
+            ).all(adventureId);
+            const requiredItem = held.find(i => itemNamesMatch(i.item_name, requiredItemName)) || null;
             
             if (!requiredItem) {
                 throw new Error(`Item '${requiredItemName}' not found in inventory or not held.`);
@@ -185,8 +226,10 @@ export class StructuredStore {
                 ).run(requiredItem.id);
             }
 
-            // Insert the offered item as 'held'
-            const offerId = `${adventureId}:${offeredItemName.toLowerCase().replace(/\s+/g, '_')}`;
+            // Insert the offered item as 'held', keyed by its canonical name so
+            // article/quantity variants collapse to the same row.
+            const offerName = normalizeItemName(offeredItemName) || offeredItemName;
+            const offerId = `${adventureId}:${offerName.replace(/\s+/g, '_')}`;
             this.db.prepare(`
                 INSERT INTO inventory (id, adventure_id, item_name, item_type, description, quantity, status)
                 VALUES (?, ?, ?, ?, ?, 1, 'held')

@@ -43,6 +43,8 @@ The narration text committed to history, the save file, and the extraction queue
 
 The game engine SHALL advance `score` deterministically as the adventure progresses, independent of whether the narrator happens to emit a new Score value on the status line. Score SHALL be computed by an engine-side rule (over extracted milestone events) and committed through the same shared status-line path used for location and moves, so a missed status line cannot silently freeze score.
 
+The memory-extraction path (invoked after turns) SHALL validate the event extractor's output against a schema before any row is written to the structured store. Malformed events, inventory changes, or lore facts SHALL be rejected or quarantined, not persisted as ground truth.
+
 #### Scenario: Processing player action
 - **WHEN** user sends an action of type 'do', 'say', or 'story' with text
 - **THEN** the action is formatted and validated against the synchronous inventory and barter engines, a stream of response chunks is retrieved from the LLM provider, status updates are parsed from the last status line anywhere in the response (Location, Score, Moves), and final narration is appended to history
@@ -70,6 +72,10 @@ The game engine SHALL advance `score` deterministically as the adventure progres
 #### Scenario: Score does not stay frozen across a full arc
 - **WHEN** a multi-act adventure runs to completion
 - **THEN** `score` reflects accumulated milestones (non-zero), rather than remaining at the initial value for the entire session
+
+#### Scenario: Invalid extractor output is rejected
+- **WHEN** the event extractor returns a row that fails schema validation (missing fields, invalid type, invalid trigger words)
+- **THEN** the row is not written to SQLite, the vector index, or `state.cards`, and extraction continues with the valid rows
 
 ### Requirement: Single Ownership of the Moves Counter
 The game engine SHALL track `moves` through a single, defined owner rather than letting the model's status-line number and the engine's fallback increments both mutate the counter independently.

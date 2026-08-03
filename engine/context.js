@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { llmTracker, addDebugLog } from './llmTracker.js';
+import { sanitizeForHistory } from './llm.js';
 
 export class ContextManager {
     constructor() {
@@ -59,7 +60,8 @@ export class ContextManager {
         const prompt = `You are the chronicler of a fantasy text adventure.
 Your job is to update the adventure's running summary.
 Incorporate the new events in the LOG into the EXISTING SUMMARY.
-Produce a single, concise summary (1-2 paragraphs) in the third person. Keep track of characters met, inventory items acquired/lost, locations visited, and the current goal.
+Write the summary from the player's point of view, in the second person ("you"), exactly like the game's own narration. Never refer to the player as "the protagonist", "the player", or "the hero". Keep track of characters met, inventory items acquired/lost, locations visited, and the current goal.
+Produce a single, concise summary (1-2 paragraphs).
 
 EXISTING SUMMARY:
 ${state.summary || "The adventure has just begun."}
@@ -86,7 +88,10 @@ Provide ONLY the updated summary text. Do not write introductory words like "Her
             let summaryContent = response.choices[0].message.content.trim();
             summaryContent = summaryContent.replace(/^```[a-zA-Z]*\n/, "").replace(/\n```$/, "").trim();
             
-            state.summary = summaryContent;
+            // The summary is injected as context, so it is sanitized like every
+            // other assistant text: echoed [CURRENT STATUS]/[CURRENT INVENTORY]
+            // blocks and raw status lines are stripped before commit.
+            state.summary = sanitizeForHistory(summaryContent);
             state.archivedHistory.push(...turnsToSummarize);
             await saveFn();
             llmTracker.endCall(callId, summaryContent);
