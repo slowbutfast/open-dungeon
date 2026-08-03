@@ -2,6 +2,7 @@ import OpenAI from 'openai';
 import dotenv from 'dotenv';
 import { MockOpenAI } from './mockOpenAI.js';
 import { llmTracker, addDebugLog } from './llmTracker.js';
+import { llmCall, formatUserInput } from './llmAdapter.js';
 
 dotenv.config();
 
@@ -339,16 +340,6 @@ export class LlmOrchestrator {
     }
 
     async *generateResponseStream(state, actionType, text, contextManager, saveFn) {
-        const formatUserInput = (type, val) => {
-            if (type === "continue") return "";
-            const cleaned = val.trim();
-            if (type === "do" || type === "say" || type === "story") {
-                if (cleaned.startsWith(">")) return cleaned;
-                return `> ${cleaned}`;
-            }
-            return cleaned;
-        };
-
         const formattedText = formatUserInput(actionType, text);
         state.history.push({
             role: "user",
@@ -501,20 +492,25 @@ export class LlmOrchestrator {
 
         let stream;
         const callId = llmTracker.startCall('narration', messages);
+        // The narration call reuses one tracker record across the primary and
+        // the fallback-model retry, and the caller owns the semantic end
+        // (recordUsage, endCall with the sanitized narration, the error event),
+        // so the streaming llmCall path just needs the request shape + the
+        // create; `callId` is threaded through to keep retry a single record.
+        const narrationCallOpts = () => ({
+            messages,
+            model: state.model,
+            temperature: state.temperature,
+            maxTokens: requestMaxTokens,
+            stream: true,
+            isOpenRouter: this.isOpenRouter,
+            reasoningEffort: this.reasoningEffort,
+            callId
+        });
         try {
             try {
-                const requestBody = {
-                    model: state.model,
-                    messages,
-                    temperature: state.temperature,
-                    max_tokens: requestMaxTokens,
-                    stream: true
-                };
-                if (this.isOpenRouter) {
-                    requestBody.reasoning = { effort: this.reasoningEffort };
-                    requestBody.stream_options = { include_usage: true };
-                }
-                stream = await this.client.chat.completions.create(requestBody);
+                const result = await llmCall(this.client, 'narration', narrationCallOpts());
+                stream = result.stream;
             } catch (err) {
                 const errorMsg = String(err);
                 if (errorMsg.includes("Failed to load model") || errorMsg.includes("400") || errorMsg.toLowerCase().includes("model") || errorMsg.includes("429")) {
@@ -529,18 +525,8 @@ export class LlmOrchestrator {
                             contextManager.memoryManager.modelName = fallbackModel;
                         }
                         await saveFn();
-                        const retryBody = {
-                            model: state.model,
-                            messages,
-                            temperature: state.temperature,
-                            max_tokens: requestMaxTokens,
-                            stream: true
-                        };
-                        if (this.isOpenRouter) {
-                            retryBody.reasoning = { effort: this.reasoningEffort };
-                            retryBody.stream_options = { include_usage: true };
-                        }
-                        stream = await this.client.chat.completions.create(retryBody);
+                        const result = await llmCall(this.client, 'narration', narrationCallOpts());
+                        stream = result.stream;
                     } else {
                         throw err;
                     }

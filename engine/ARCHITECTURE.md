@@ -116,6 +116,52 @@ graph TD
     5. **Lore escape hatch (D3)** — `dungeon_delete_lore_card` (MCP, `mcp/tools/state.js`) removes a card by ID from the SQLite `lore` table (`StructuredStore.deleteLore`) and from `state.cards` (`engine.deleteCard`), so its triggers no longer auto-inject. The frontend `/api/lore` delete path routes through the same `engine.deleteCard`, so both surfaces share the store-backed recovery path.
 *   **Verification**: `tests/test_injection_defense.py` re-runs the full four-step #15 reproduction in mock/replayable mode and asserts all four steps are blocked.
 
+### 4e. LLM Call Adapter (`llm-adapter-unification`)
+
+*   **Status**: **Fully Operational**
+*   **Behavior**: All LLM wire calls route through one deep module,
+    `engine/llmAdapter.js`, which owns request shaping, the tracker wrap, and
+    mock-intent dispatch. The eight pre-adapter `chat.completions.create` /
+    `embeddings.create` call sites (narration + fallback retry in `engine/llm.js`,
+    summarize + cards in `engine/context.js`, extraction in
+    `engine/memory/eventExtractor.js`, opening scene in `web/routes/game.js`,
+    embed/embedBatch in `engine/memory/embeddings.js`) collapsed into
+    `llmCall(client, kind, opts)` and `llmEmbed(client, kind, opts)`.
+*   **Mechanics**:
+    *   `llmCall` builds the request body once — model, messages, temperature,
+      `max_tokens`, `stream`, and the openrouter
+      `reasoning = { effort }` / `stream_options = { include_usage: true }`
+      block — so real-mode request bodies are **byte-identical** to the
+      pre-adapter calls. In mock mode the body is tagged `intent = kind` and the
+      mock (`engine/mockOpenAI.js`) dispatches canned responses **by intent,
+      never by prompt substring** — a prompt edit can no longer silently change
+      mock behavior. Mock and real share the same `client.chat.completions.create`
+      code path.
+    *   **Tracker wrap**: non-streaming chat calls and both embedding calls get
+      the full `startCall`/`endCall`/`failCall` wrap inside the adapter. The
+      streaming `narration` call returns `{ stream, callId }` and the caller
+      owns the semantic end — `recordUsage`, `endCall` with the sanitized
+      narration, the error event — and the fallback-model retry reuses one call
+      record by threading `opts.callId`. `generateResponseStream` keeps its
+      `for await (chunk of stream)` generator loop untouched.
+    *   **Canned responses per intent**: narration → fragmented cantina stream
+      (canonical three-field status line), summarization → "A summary of the
+      adventure.", card_extraction → the Korr JSON, extraction/event_extraction →
+      extraction JSON, opening_scene → the Tatooine text, suggestion → numbered
+      options, embeddings → sin-based mock vectors. The `EventExtractor` mock
+      fixture (history-text-keyed extraction) is a separate deterministic test
+      contract and is untouched.
+    *   **`formatUserInput` consolidated**: the player-input formatter lives once
+      in `engine/llmAdapter.js` and is used by both `AdventureEngine.formatUserInput`
+      (`engine/index.js`) and the live turn path (`engine/llm.js`).
+*   **Error/fallback policy stays at the call sites**: narration fallback-model
+  retry (llm.js), summary-failure history restore (context.js), error-swallow +
+  JSON salvage (eventExtractor.js), canned-text opening-scene fallback
+  (web/routes/game.js), mock-vector embedding fallback (embeddings.js).
+*   **Tracker kind labels unchanged**: 'narration', 'summarization',
+  'card_extraction', 'extraction', 'opening_scene', 'embedding',
+  'embedding_batch'.
+
 ### 5. Dynamic Local Network (LAN) Binding
 *   **Status**: **Fully Operational**
 *   **Behavior**: Enables remote devices on the same Wi-Fi/local network to access the web panel without compromising automated test environments.

@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
-import { llmTracker, addDebugLog } from './llmTracker.js';
+import { addDebugLog } from './llmTracker.js';
 import { sanitizeForHistory } from './llm.js';
+import { llmCall } from './llmAdapter.js';
 
 export class ContextManager {
     constructor() {
@@ -75,14 +76,13 @@ Provide ONLY the updated summary text. Do not write introductory words like "Her
             { role: "system", content: "You are a concise summarizer for a text adventure game." },
             { role: "user", content: prompt }
         ];
-        const callId = llmTracker.startCall('summarization', messages);
 
         try {
-            const response = await client.chat.completions.create({
-                model: model,
+            const response = await llmCall(client, 'summarization', {
                 messages,
+                model,
                 temperature: 0.5,
-                max_tokens: 250
+                maxTokens: 250
             });
             
             let summaryContent = response.choices[0].message.content.trim();
@@ -94,10 +94,8 @@ Provide ONLY the updated summary text. Do not write introductory words like "Her
             state.summary = sanitizeForHistory(summaryContent);
             state.archivedHistory.push(...turnsToSummarize);
             await saveFn();
-            llmTracker.endCall(callId, summaryContent);
             addDebugLog("Context manager: auto-summarization completed. Updated memory summary.");
         } catch (e) {
-            llmTracker.failCall(callId, e);
             state.history = [...turnsToSummarize, ...state.history];
             addDebugLog(`Context manager error: summarization failed: ${e.message}`);
             throw new Error(`Summarization failed: ${e.message}`);
@@ -134,17 +132,15 @@ JSON Output:`;
             { role: "system", content: "You are an assistant that outputs structured data in pure JSON." },
             { role: "user", content: prompt }
         ];
-        const callId = llmTracker.startCall('card_extraction', messages);
         try {
-            const response = await client.chat.completions.create({
-                model: model,
+            const response = await llmCall(client, 'card_extraction', {
                 messages,
+                model,
                 temperature: 0.3,
-                max_tokens: 800
+                maxTokens: 800
             });
             
             let rawOutput = response.choices[0].message.content.trim();
-            llmTracker.endCall(callId, rawOutput);
             rawOutput = rawOutput.replace(/^```[a-zA-Z]*\n/, "").replace(/\n```$/, "").trim();
             
             const startIdx = rawOutput.indexOf('[');
@@ -175,7 +171,6 @@ JSON Output:`;
             }
             return addedCards;
         } catch (e) {
-            llmTracker.failCall(callId, e);
             throw new Error(`Lore extraction failed: ${e.message}`);
         }
     }

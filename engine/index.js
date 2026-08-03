@@ -8,6 +8,7 @@ import { MemoryManager } from './memory/memoryManager.js';
 import { EmbeddingService } from './memory/embeddings.js';
 import { loadPresets, savePresets as savePresetsFile } from './storyPresets.js';
 import { STATUS_FORMAT } from './statusFormat.js';
+import { formatUserInput } from './llmAdapter.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -211,13 +212,9 @@ export class AdventureEngine {
     }
 
     formatUserInput(actionType, text) {
-        if (actionType === "continue") return "";
-        const cleaned = text.trim();
-        if (actionType === "do" || actionType === "say" || actionType === "story") {
-            if (cleaned.startsWith(">")) return cleaned;
-            return `> ${cleaned}`;
-        }
-        return cleaned;
+        // Single shared definition (llm-adapter-unification): the same
+        // formatter the live turn path in engine/llm.js uses.
+        return formatUserInput(actionType, text);
     }
 
     generateResponseStream(actionType, text) {

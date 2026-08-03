@@ -62,13 +62,13 @@ dependency order (#26 → #32 → #27 → #28); group 7 holds the deferred set.
 
 ## 6. Promote #28 — LLM adapter (last of the Strongs)
 
-- [ ] 6.1 TDD-first: failing intent-keyed mock tests + a single
+- [x] 6.1 TDD-first: failing intent-keyed mock tests + a single
       `llmCall(kind, messages, opts)` helper test (unit seam in place)
-- [ ] 6.2 Re-key mock behavior by intent (not prompt substring); re-verify the
+- [x] 6.2 Re-key mock behavior by intent (not prompt substring); re-verify the
       mock-mode suite; run `test_live_llm.py` when a key is available
-- [ ] 6.3 Consolidate the six `chat.completions.create` sites (+ embeddings +
+- [x] 6.3 Consolidate the six `chat.completions.create` sites (+ embeddings +
       tracker wrap + `formatUserInput` duplication)
-- [ ] 6.4 Verify tiers + mock/real parity (guardrails #7/#3)
+- [x] 6.4 Verify tiers + mock/real parity (guardrails #7/#3)
 
 ## 7. Deferred (do not prioritize — not scheduled)
 

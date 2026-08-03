@@ -1,4 +1,4 @@
-import { llmTracker } from '../llmTracker.js';
+import { llmEmbed } from '../llmAdapter.js';
 
 function isOpenRouter() {
     return process.env.LLM_BACKEND === "openrouter" && process.env.MOCK_LLM !== "1";
@@ -92,23 +92,16 @@ export class EmbeddingService {
         }
 
         const model = await this.ensureEmbeddingModelLoaded();
-        const callId = llmTracker.startCall('embedding', text);
         try {
-            const response = await this.client.embeddings.create({
-                model: model,
-                input: text,
-                encoding_format: 'float'
-            });
+            const response = await llmEmbed(this.client, 'embedding', { model, input: text });
             if (response.error) {
                 throw new Error(response.error.message || String(response.error));
             }
             if (!response.data || !response.data[0] || !response.data[0].embedding) {
                 throw new Error(`Unexpected embedding response format: ${JSON.stringify(Object.keys(response))}`);
             }
-            llmTracker.endCall(callId, `[Vector of size ${response.data[0].embedding.length}]`);
             return response.data[0].embedding;
         } catch (e) {
-            llmTracker.failCall(callId, e);
             console.warn(`[Embedding] Failed to embed text: ${e.message}`);
             // Return mock vector as fallback so game flow continues
             return Array(768).fill(0).map((_, i) => Math.sin(i + text.length) * 0.1);
@@ -122,13 +115,8 @@ export class EmbeddingService {
         }
 
         const model = await this.ensureEmbeddingModelLoaded();
-        const callId = llmTracker.startCall('embedding_batch', `Batch of ${texts.length} items:\n` + texts.join('\n'));
         try {
-            const response = await this.client.embeddings.create({
-                model: model,
-                input: texts,
-                encoding_format: 'float'
-            });
+            const response = await llmEmbed(this.client, 'embedding_batch', { model, input: texts });
             if (response.error) {
                 throw new Error(response.error.message || String(response.error));
             }
@@ -137,10 +125,8 @@ export class EmbeddingService {
             }
             const sortedData = [...response.data].sort((a, b) => (a.index || 0) - (b.index || 0));
             const result = sortedData.map(item => item.embedding);
-            llmTracker.endCall(callId, `[${result.length} vectors of size ${result[0]?.length || 0}]`);
             return result;
         } catch (e) {
-            llmTracker.failCall(callId, e);
             console.warn(`[Embedding] Failed to embed batch: ${e.message}`);
             // Return mock vectors as fallback so game flow continues
             return texts.map((_, idx) => Array(768).fill(0).map((_, i) => Math.sin(idx + i + texts.length) * 0.1));

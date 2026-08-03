@@ -3,6 +3,7 @@ import { engine, resetEngine } from '../engineInstance.js';
 import { DEFAULT_SYSTEM_PROMPT } from '../../engine/index.js';
 import { llmTracker, getDebugLogs } from '../../engine/llmTracker.js';
 import { getBackendType, getTokenRange, sanitizeForHistory } from '../../engine/llm.js';
+import { llmCall } from '../../engine/llmAdapter.js';
 import { forceFlushBeforeRead } from '../../mcp/tools/memory.js';
 import { OPENROUTER_MODELS } from '../openrouterModels.js';
 
@@ -327,23 +328,20 @@ router.post('/init', async (req, res) => {
         { role: "system", content: activeEngine.systemPrompt },
         { role: "user", content: prompt }
     ];
-    const callId = llmTracker.startCall('opening_scene', messages);
     try {
-        const response = await activeEngine.client.chat.completions.create({
+        const response = await llmCall(activeEngine.client, 'opening_scene', {
+            messages,
             model: activeEngine.model,
-            messages: messages,
             temperature: 0.8,
-            max_tokens: activeEngine.maxTokens
+            maxTokens: activeEngine.maxTokens
         });
 
         const openingScene = response.choices[0].message.content.trim();
-        llmTracker.endCall(callId, openingScene);
         activeEngine.history.push({
             role: "assistant",
             text: sanitizeForHistory(openingScene)
         });
     } catch (e) {
-        llmTracker.failCall(callId, e);
         activeEngine.history.push({
             role: "assistant",
             text: sanitizeForHistory(`You wake up in the world of ${title}. ${summary}\n[Status: Starting Location | Score: 0 | Moves: 0]`)

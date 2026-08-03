@@ -1,4 +1,4 @@
-import { llmTracker } from '../llmTracker.js';
+import { llmCall } from '../llmAdapter.js';
 
 // ─── Extractor output validation ────────────────────────────────────────────
 //
@@ -355,20 +355,17 @@ Only include an offer when an NPC explicitly proposes a trade in the narration, 
             { role: "system", content: "You extract structured data from text and return only raw JSON." },
             { role: "user", content: prompt }
         ];
-        const callId = llmTracker.startCall('extraction', messages);
         try {
-            const response = await this.client.chat.completions.create({
-                model: modelName,
+            const response = await llmCall(this.client, 'extraction', {
                 messages,
+                model: modelName,
                 temperature: 0.1,
-                max_tokens: 2048
+                maxTokens: 2048
             });
 
             const text = response.choices[0].message.content;
-            llmTracker.endCall(callId, text);
             return this.parseExtractedJson(text);
         } catch (e) {
-            llmTracker.failCall(callId, e);
             console.error("EventExtractor error during API call:", e);
             return { events: [], inventory_changes: [], lore_facts: [] };
         }

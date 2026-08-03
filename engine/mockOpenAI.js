@@ -25,65 +25,80 @@ class MockModels {
     }
 }
 
+// The canned per-intent responses (llm-adapter-unification). The adapter tags
+// each mock-mode request with an `intent`, so dispatch is keyed by intent, not
+// by prompt substring: a prompt edit can no longer silently change or break
+// mock behavior. The narration stream is the fragmented cantina narrative with
+// the canonical three-field status line (status-line-contract-residue).
+const KORR_CARD_JSON = '[{"name": "Korr", "type": "character", "description": "A legendary smuggler.", "trigger_words": ["korr"]}]';
+
+const EVENT_EXTRACTION_JSON = '{"events":[{"type":"movement","summary":"Travelled through the area.","entities":[],"location":"Unknown"}],"inventory_changes":[],"lore_facts":[],"offers":[],"goals":[]}';
+
+const CANONICAL_STATUS_LINE = '[Status: Cantina | Score: 5 | Moves: 0]';
+
+const SUGGESTION_SETS = [
+    ["Search the room", "Open the chest", "Examine the symbols"],
+    ["Attack the shadow", "Cast light spell", "Listen at the door"],
+    ["Talk to the merchant", "Inspect the goods", "Leave the shop"],
+    ["Investigate the wall", "Look for traps", "Push the button"]
+];
+
+function suggestionContent() {
+    const set = SUGGESTION_SETS[Math.floor(Math.random() * SUGGESTION_SETS.length)];
+    return `1. ${set[0]}\n2. ${set[1]}\n3. ${set[2]}`;
+}
+
+function* fragmentedNarrationChunks() {
+    const narrative = `You walk south into the noisy cantina.\n${CANONICAL_STATUS_LINE}`;
+    const words = narrative.split(" ");
+    for (const word of words) {
+        yield { choices: [{ delta: { content: word + " " } }] };
+    }
+    yield { choices: [{ delta: { content: `\n${CANONICAL_STATUS_LINE}` } }] };
+}
+
 class MockChatCompletions {
     create(options) {
         const stream = options.stream;
-        const messages = options.messages || [];
-        const userMsg = messages.length > 0 ? messages[messages.length - 1].content : "";
-        
-        if (stream) {
-            return (async function*() {
-                if (userMsg.includes("JSON array of objects") || userMsg.includes("Lore Card") || userMsg.includes("autoGenerateCards")) {
-                    yield { choices: [{ delta: { content: '[{"name": "Korr", "type": "character", "description": "A legendary smuggler.", "trigger_words": ["korr"]}]' } }] };
-                    return;
+        const intent = options.intent;
+
+        const makeContent = (content) => {
+            if (stream) {
+                return (async function* () {
+                    yield { choices: [{ delta: { content } }] };
+                })();
+            }
+            return new MockCompletionResponse(content);
+        };
+
+        switch (intent) {
+            case 'card_extraction':
+                return makeContent(KORR_CARD_JSON);
+            case 'event_extraction':
+            case 'extraction':
+                return makeContent(EVENT_EXTRACTION_JSON);
+            case 'summarization':
+                return makeContent("A summary of the adventure.");
+            case 'opening_scene':
+                return makeContent("You stand on the desert sands of Tatooine.");
+            case 'suggestion':
+                return makeContent(suggestionContent());
+            case 'narration':
+            default:
+                // Unknown/missing intent falls back to the default narration so
+                // the mock never serves nothing. Non-streaming returns the whole
+                // canned narration; streaming fragments it word-by-word and
+                // repeats the trailing status line (both consumers parse it via
+                // the shared parseStatusLine).
+                if (stream) {
+                    return (async function* () {
+                        for (const chunk of fragmentedNarrationChunks()) {
+                            yield chunk;
+                            await new Promise(r => setTimeout(r, 10));
+                        }
+                    })();
                 }
-                
-                if (userMsg.includes("CHARACTER GENESIS") || userMsg.toLowerCase().includes("starting scene") || userMsg.toLowerCase().includes("character description")) {
-                    yield { choices: [{ delta: { content: "You stand on the desert sands of Tatooine." } }] };
-                    return;
-                }
-                
-                if (userMsg.toLowerCase().includes("compress the following log")) {
-                    yield { choices: [{ delta: { content: "A summary of the adventure." } }] };
-                    return;
-                }
-                
-                const narrative = "You walk south into the noisy cantina.\n[Status: Cantina | Score: 5 | Moves: 0]";
-                const words = narrative.split(" ");
-                for (const word of words) {
-                    yield { choices: [{ delta: { content: word + " " } }] };
-                    await new Promise(r => setTimeout(r, 10));
-                }
-                yield { choices: [{ delta: { content: "\n[Status: Cantina | Score: 5 | Moves: 0]" } }] };
-            })();
-        } else {
-            return (async () => {
-                if (userMsg.includes("JSON array of objects") || userMsg.includes("Lore Card") || userMsg.includes("autoGenerateCards")) {
-                    return new MockCompletionResponse('[{"name": "Korr", "type": "character", "description": "A legendary smuggler.", "trigger_words": ["korr"]}]');
-                }
-                
-                if (userMsg.includes("CHARACTER GENESIS") || userMsg.toLowerCase().includes("starting scene") || userMsg.toLowerCase().includes("character description")) {
-                    return new MockCompletionResponse("You stand on the desert sands of Tatooine.");
-                }
-                
-                if (userMsg.toLowerCase().includes("compress the following log")) {
-                    return new MockCompletionResponse("A summary of the adventure.");
-                }
-                
-                if (userMsg.toLowerCase().includes("suggestion")) {
-                    const options = [
-                        ["Search the room", "Open the chest", "Examine the symbols"],
-                        ["Attack the shadow", "Cast light spell", "Listen at the door"],
-                        ["Talk to the merchant", "Inspect the goods", "Leave the shop"],
-                        ["Investigate the wall", "Look for traps", "Push the button"]
-                    ];
-                    const set = options[Math.floor(Math.random() * options.length)];
-                    const content = `1. ${set[0]}\n2. ${set[1]}\n3. ${set[2]}`;
-                    return new MockCompletionResponse(content);
-                }
-                
-                return new MockCompletionResponse("You walk south into the noisy cantina.\n[Status: Cantina | Score: 5 | Moves: 0]");
-            })();
+                return new MockCompletionResponse(`You walk south into the noisy cantina.\n${CANONICAL_STATUS_LINE}`);
         }
     }
 }
