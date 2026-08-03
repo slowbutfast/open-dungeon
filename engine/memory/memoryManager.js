@@ -123,7 +123,11 @@ export class MemoryManager {
 
             for (const event of extracted.events) {
                 const entities = event.entities || [];
-                const payload = `${adventureId}:${event.type}:${event.summary}:${entities.sort().join(',')}`;
+                // Include the batch end turn in the hash payload so each turn's
+                // event is its own row (memory-schema-boundary): two identical
+                // summaries on different turns previously collapsed to the first
+                // turn's id, so a later rollback could not delete the second.
+                const payload = `${adventureId}:${endTurnIndex}:${event.type}:${event.summary}:${entities.sort().join(',')}`;
                 const eventId = crypto.createHash('sha256').update(payload).digest('hex').slice(0, 16);
 
                 this.structuredStore.insertEvent(
@@ -176,7 +180,8 @@ export class MemoryManager {
                         offer.trader_name || 'Unknown Trader',
                         offer.required_item,
                         offer.offered_item,
-                        offer.description || null
+                        offer.description || null,
+                        endTurnIndex
                     );
                 } catch (e) {
                     addDebugLog(`Memory manager: failed to register narrated offer: ${e.message}`);
@@ -254,9 +259,11 @@ export class MemoryManager {
         if (extracted.goals && extracted.goals.length > 0) {
             for (const goal of extracted.goals) {
                 try {
-                    const existing = this.structuredStore.db.prepare(
-                        'SELECT id FROM quest_goals WHERE adventure_id = ? AND LOWER(npc_name) = LOWER(?) AND LOWER(goal_title) = LOWER(?)'
-                    ).get(adventureId, goal.npc_name || '', goal.goal_title || '');
+                    const existing = this.structuredStore.findGoalByNpcAndTitle(
+                        adventureId,
+                        goal.npc_name || '',
+                        goal.goal_title || ''
+                    );
                     if (!existing) {
                         this.barter.createGoal(
                             adventureId,
@@ -264,7 +271,8 @@ export class MemoryManager {
                             goal.goal_title || 'Untitled objective',
                             goal.required_item || '',
                             goal.reward_item || '',
-                            'IN_PROGRESS'
+                            'IN_PROGRESS',
+                            endTurnIndex
                         );
                     }
                 } catch (e) {
@@ -291,7 +299,8 @@ export class MemoryManager {
                     type,
                     description,
                     triggerWords,
-                    'auto'
+                    'auto',
+                    endTurnIndex
                 );
             }
             // Sync new lore to state cards

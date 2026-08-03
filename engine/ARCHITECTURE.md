@@ -66,12 +66,12 @@ graph TD
 *   **Status**: **Fully Operational**
 *   **Behavior**: Provides a deterministic, SQLite-backed barter trade system and NPC quest goal state machine, supporting item-for-item swaps with no currency and state transitions (`NOT_STARTED` → `COMPLETED`).
 *   **Components**:
-    *   `engine/memory/barterEngine.js` — `BarterEngine` class managing `barter_offers` and `quest_goals` tables.
-    *   `engine/memory/structuredStore.js` — Added `hasItem()`, `executeTrade()` methods for pre-action gating and atomic swaps.
-    *   `engine/index.js` — Exposes `registerOffer()`, `executeBarter()`, `getOffers()`, `createGoal()`, `getGoals()`, `completeGoal()` proxy methods.
+    *   `engine/memory/structuredStore.js` — **single schema owner** (`memory-schema-boundary`, #27): declares `barter_offers` / `quest_goals` (with `turn_index`) and their access methods (`insertOffer`, `getOffersForTrader`, `getAllOffers`, `createQuestGoal`, `getGoalById`, `getActiveGoals`, `getAllGoals`, `acceptQuestGoal`, `failQuestGoal`, `completeQuestGoal`, `findGoalByNpcAndTitle`). Also owns the `turn_index` guarded migration and the full-surface `rollbackTurn`.
+    *   `engine/memory/barterEngine.js` — `BarterEngine` is a **thin state machine** over the store: it calls store methods, never reaches into a raw `db` handle. Public method names (`registerOffer`, `getAllOffers`, `getOffersForTrader`, `executeBarter`, `createGoal`, `acceptGoal`, `failGoal`, `completeGoal`, `getActiveGoals`) are unchanged for callers. `_initSchema` is a retained no-op so the constructor stays the construction-counting seam for the single-instance test.
+    *   `engine/index.js` — Exposes `registerOffer()`, `executeBarter()`, `getOffers()`, `createGoal()`, `getGoals()`, `completeGoal()` proxy methods over the **single** `BarterEngine` instance (`this.barter = this.memory.barter`).
     *   `engine/llm.js` — Pre-action gating now detects `barter X to Y` and `exchange X for Y` patterns in addition to `trade X for Y`.
 *   **Trade Flow**:
-    1. `hasItem()` checks inventory for `status = 'held'` with case-insensitive name match (pre-action gate, $0 LLM cost).
+    1. `hasItem()` checks inventory for `status = 'held'` — exact `LOWER()` SQL fast path, canonical `itemNamesMatch` fallback (single matching regime).
     2. `executeTrade()` runs an atomic SQLite transaction: marks required item as `'traded'`, inserts/replaces offered item as `'held'`.
     3. On success, a `[SYSTEM EVENT: Barter successful! Traded 'X' for 'Y'.]` message is injected into the SSE stream before LLM narration.
 *   **Quest Goal Flow**:
@@ -92,9 +92,10 @@ graph TD
 *   **Components**:
     *   `engine/memory/itemNames.js` — `normalizeItemName()` / `itemNamesMatch()` canonical-name matching (shared with `validate-memory-extraction`).
     *   `engine/memory/barterEngine.js` — `executeBarter()` resolves offers/possession by canonical name; `createGoal()` accepts an explicit status (narrated goals start `IN_PROGRESS`).
-    *   `engine/memory/memoryManager.js` — Registers extracted offers, creates narrated goals, and routes `inventory_changes[].action = "traded"` through `executeBarter`.
+    *   `engine/memory/memoryManager.js` — Registers extracted offers, creates narrated goals, and routes `inventory_changes[].action = "traded"` through `executeBarter`. Narration-created offers/goals/lore carry the batch `endTurnIndex` in their `turn_index` column so full-surface rollback can remove them.
 *   **Trade Flow**: A classified narrated trade routes through `executeBarter` (possession check + atomic swap). Success releases the sold item as `'traded'` (excluded from `getInventory`) and grants the offered item; a refused or ambiguous trade logs a refusal and applies **neither** side (duplicate-sale protection). With no registered offer, removal is applied directly so the sold item is never silently retained.
-*   **Offer / Goal Flow**: `offers[]` from narration (e.g. "bring me X and I'll give you Y") feed `registerOffer()`; `goals[]` (e.g. "find my daughter's locket") feed `createGoal(..., 'IN_PROGRESS')`, deduplicated by `(npc_name, goal_title)`.
+*   **Offer / Goal Flow**: `offers[]` from narration (e.g. "bring me X and I'll give you Y") feed `registerOffer()`; `goals[]` (e.g. "find my daughter's locket") feed `createGoal(..., 'IN_PROGRESS')`, deduplicated by `(npc_name, goal_title)` via `StructuredStore.findGoalByNpcAndTitle`.
+*   **Full-surface rollback (`memory-schema-boundary`)**: `rollbackTurn` deletes events + inventory + lore + `barter_offers` + `quest_goals` for `turn_index >= N`. Narration-created offers/goals/lore are attributed to their batch turn and roll back with it; rows created by the HTTP/MCP endpoints (no narration turn — NULL `turn_index`, or 0 before any extraction) survive undo. A guarded `ALTER TABLE` migration in `StructuredStore._initSchema` adds `turn_index` to existing DBs.
 
 ### 4c. Extractor Output Validation (`validate-memory-extraction`)
 
@@ -268,7 +269,7 @@ Undo and trade behavior across the engine, MCP tools, and tests must satisfy a f
 
 - **Extraction watermark**: `extraction_state.last_extracted_turn_index`, surfaced by `dungeon_inspect_stats` as `lastExtractedTurnIndex`. After undoing turn N: drop store rows with `turn_index >= N`, set the watermark to `N - 1`, and decrement `moves` to the pre-undo value. The watermark must never exceed the committed turn-pair history length.
 
-- **Undo ordering**: `engine.undo` awaits any in-flight flush (drains the turn buffer) before rollback. `rollbackTurns(turnIndex)` removes event/inventory/lore rows and their vector ids (`deleteItems`), so RAG (`dungeon_search_memories`) must not recall the undone turn.
+- **Undo ordering**: `engine.undo` awaits any in-flight flush (drains the turn buffer) before rollback. `rollbackTurns(turnIndex)` removes event/inventory/lore/offer/goal rows and their vector ids (`deleteItems`), so RAG (`dungeon_search_memories`) must not recall the undone turn. Since `memory-schema-boundary` (#27), the rollback surface is full: `rollbackTurn` also deletes `lore`/`barter_offers`/`quest_goals` with `turn_index >= N` (offers/goals additionally `IS NOT NULL`, so hand-created rows survive).
 
 - **Barter**: narrated trades route through `executeBarter` (possession check + atomic swap). A sold item's status transitions to `traded` and is excluded from `getInventory`; re-trading it is rejected. Offer/goal tables are written from narration.
 

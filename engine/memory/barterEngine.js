@@ -1,4 +1,9 @@
-import { v4 as uuidv4 } from 'uuid';
+// Barter and quest-goal state machine (memory-schema-boundary, #27).
+//
+// This is a THIN state machine: all schema and row access for barter_offers /
+// quest_goals lives in StructuredStore (the single schema owner). BarterEngine
+// adds the trade/goal semantics on top of the store's access methods and never
+// reaches into a raw db handle.
 import { itemNamesMatch } from './itemNames.js';
 
 export class BarterEngine {
@@ -7,53 +12,21 @@ export class BarterEngine {
         this._initSchema();
     }
 
-    _initSchema() {
-        this.store.db.exec(`
-            CREATE TABLE IF NOT EXISTS barter_offers (
-                id              TEXT PRIMARY KEY,
-                adventure_id    TEXT NOT NULL,
-                trader_name     TEXT NOT NULL,
-                required_item   TEXT NOT NULL,
-                offered_item    TEXT NOT NULL,
-                description     TEXT
-            );
+    // Retained as a no-op: schema ownership moved to StructuredStore. The
+    // constructor still calls it so it remains the construction-counting seam
+    // for the single-instance unit test (barterEngine.test.mjs).
+    _initSchema() {}
 
-            CREATE TABLE IF NOT EXISTS quest_goals (
-                id              TEXT PRIMARY KEY,
-                adventure_id    TEXT NOT NULL,
-                npc_name        TEXT NOT NULL,
-                goal_title      TEXT NOT NULL,
-                required_item   TEXT NOT NULL,
-                reward_item     TEXT NOT NULL,
-                status          TEXT DEFAULT 'NOT_STARTED',
-                created_turn    INTEGER,
-                completed_turn  INTEGER
-            );
-        `);
-    }
-
-    registerOffer(adventureId, traderName, requiredItem, offeredItem, description = null) {
-        const id = `${adventureId}:${traderName.toLowerCase().replace(/\s+/g, '_')}:${requiredItem.toLowerCase().replace(/\s+/g, '_')}`;
-        this.store.db.prepare(`
-            INSERT INTO barter_offers (id, adventure_id, trader_name, required_item, offered_item, description)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET
-                offered_item = excluded.offered_item,
-                description = COALESCE(excluded.description, description)
-        `).run(id, adventureId, traderName, requiredItem, offeredItem, description || null);
-        return this.store.db.prepare('SELECT * FROM barter_offers WHERE id = ?').get(id);
+    registerOffer(adventureId, traderName, requiredItem, offeredItem, description = null, turnIndex = null) {
+        return this.store.insertOffer(adventureId, traderName, requiredItem, offeredItem, description, turnIndex);
     }
 
     getOffersForTrader(adventureId, traderName) {
-        return this.store.db.prepare(
-            'SELECT * FROM barter_offers WHERE adventure_id = ? AND LOWER(trader_name) = LOWER(?)'
-        ).all(adventureId, traderName);
+        return this.store.getOffersForTrader(adventureId, traderName);
     }
 
     getAllOffers(adventureId) {
-        return this.store.db.prepare(
-            'SELECT * FROM barter_offers WHERE adventure_id = ?'
-        ).all(adventureId);
+        return this.store.getAllOffers(adventureId);
     }
 
     executeBarter(adventureId, traderName, requiredItem) {
@@ -67,38 +40,24 @@ export class BarterEngine {
         }
 
         // Check if player has the required item (canonical match against held rows)
-        const heldItem = this._findHeldItem(adventureId, offer.required_item);
+        const heldItem = this.store.hasItem(adventureId, offer.required_item);
         if (!heldItem) {
             throw new Error(`You don't have ${offer.required_item} to trade.`);
         }
 
-        // Execute the atomic swap using the stored item name so the exact-match
+        // Execute the atomic swap using the stored item name so the canonical
         // lookup inside executeTrade succeeds even if the offer spelled it differently
         this.store.executeTrade(adventureId, heldItem.item_name, offer.offered_item, offer.description || null, 'misc');
 
         return offer;
     }
 
-    _findHeldItem(adventureId, itemName) {
-        const held = this.store.db.prepare(
-            "SELECT * FROM inventory WHERE adventure_id = ? AND status = 'held'"
-        ).all(adventureId);
-        return held.find(i => itemNamesMatch(i.item_name, itemName)) || null;
-    }
-
-    createGoal(adventureId, npcName, goalTitle, requiredItem, rewardItem, status = 'NOT_STARTED') {
-        const id = uuidv4().substring(0, 8);
-        this.store.db.prepare(`
-            INSERT INTO quest_goals (id, adventure_id, npc_name, goal_title, required_item, reward_item, status, created_turn)
-            VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT MAX(turn_index) FROM events WHERE adventure_id = ?), 0))
-        `).run(id, adventureId, npcName, goalTitle, requiredItem, rewardItem, status, adventureId);
-        return this.store.db.prepare('SELECT * FROM quest_goals WHERE id = ?').get(id);
+    createGoal(adventureId, npcName, goalTitle, requiredItem, rewardItem, status = 'NOT_STARTED', turnIndex = null) {
+        return this.store.createQuestGoal(adventureId, npcName, goalTitle, requiredItem, rewardItem, status, turnIndex);
     }
 
     acceptGoal(adventureId, goalId) {
-        const goal = this.store.db.prepare(
-            'SELECT * FROM quest_goals WHERE id = ? AND adventure_id = ?'
-        ).get(goalId, adventureId);
+        const goal = this.store.getGoalById(adventureId, goalId);
 
         if (!goal) {
             throw new Error('Goal not found.');
@@ -108,17 +67,11 @@ export class BarterEngine {
             throw new Error('Goal must be in NOT_STARTED state to accept.');
         }
 
-        this.store.db.prepare(
-            "UPDATE quest_goals SET status = 'IN_PROGRESS' WHERE id = ?"
-        ).run(goalId);
-
-        return this.store.db.prepare('SELECT * FROM quest_goals WHERE id = ?').get(goalId);
+        return this.store.acceptQuestGoal(adventureId, goalId);
     }
 
     failGoal(adventureId, goalId) {
-        const goal = this.store.db.prepare(
-            'SELECT * FROM quest_goals WHERE id = ? AND adventure_id = ?'
-        ).get(goalId, adventureId);
+        const goal = this.store.getGoalById(adventureId, goalId);
 
         if (!goal) {
             throw new Error('Goal not found.');
@@ -128,17 +81,11 @@ export class BarterEngine {
             throw new Error('Goal cannot be failed from its current state.');
         }
 
-        this.store.db.prepare(
-            "UPDATE quest_goals SET status = 'FAILED' WHERE id = ?"
-        ).run(goalId);
-
-        return this.store.db.prepare('SELECT * FROM quest_goals WHERE id = ?').get(goalId);
+        return this.store.failQuestGoal(adventureId, goalId);
     }
 
     completeGoal(adventureId, goalId) {
-        const goal = this.store.db.prepare(
-            'SELECT * FROM quest_goals WHERE id = ? AND adventure_id = ?'
-        ).get(goalId, adventureId);
+        const goal = this.store.getGoalById(adventureId, goalId);
 
         if (!goal) {
             throw new Error('Goal not found.');
@@ -152,7 +99,7 @@ export class BarterEngine {
             throw new Error('Goal has failed and cannot be completed.');
         }
 
-        // Check if player has the required item
+        // Check if player has the required item (canonical match via hasItem)
         const hasItem = this.store.hasItem(adventureId, goal.required_item);
         if (!hasItem) {
             throw new Error(`You don't have ${goal.required_item} needed to complete this goal.`);
@@ -161,24 +108,14 @@ export class BarterEngine {
         // Execute the trade: consume required item, grant reward item
         this.store.executeTrade(adventureId, goal.required_item, goal.reward_item, null, 'misc');
 
-        // Update goal status
-        this.store.db.prepare(`
-            UPDATE quest_goals SET status = 'COMPLETED', completed_turn = COALESCE((SELECT MAX(turn_index) FROM events WHERE adventure_id = ?), 0)
-            WHERE id = ?
-        `).run(adventureId, goalId);
-
-        return this.store.db.prepare('SELECT * FROM quest_goals WHERE id = ?').get(goalId);
+        return this.store.completeQuestGoal(adventureId, goalId);
     }
 
     getActiveGoals(adventureId) {
-        return this.store.db.prepare(
-            "SELECT * FROM quest_goals WHERE adventure_id = ? AND status NOT IN ('COMPLETED', 'FAILED')"
-        ).all(adventureId);
+        return this.store.getActiveGoals(adventureId);
     }
 
     getAllGoals(adventureId) {
-        return this.store.db.prepare(
-            'SELECT * FROM quest_goals WHERE adventure_id = ? ORDER BY created_turn DESC'
-        ).all(adventureId);
+        return this.store.getAllGoals(adventureId);
     }
 }

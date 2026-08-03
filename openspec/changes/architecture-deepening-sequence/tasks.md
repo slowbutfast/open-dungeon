@@ -52,13 +52,13 @@ dependency order (#26 → #32 → #27 → #28); group 7 holds the deferred set.
 
 ## 5. Promote #27 — schema boundary + full-surface rollback (next)
 
-- [ ] 5.1 TDD-first: failing rollback tests for lore/offers/goals (unit seam 1.2)
+- [x] 5.1 TDD-first: failing rollback tests for lore/offers/goals (unit seam 1.2)
       and a single-matching-regime test (`completeGoal` "the Gem" vs held "Gem")
-- [ ] 5.2 Move `barter_offers`/`quest_goals` schema ownership into `StructuredStore`;
+- [x] 5.2 Move `barter_offers`/`quest_goals` schema ownership into `StructuredStore`;
       make `BarterEngine` a thin state machine over it; add `turn_index` to the
       rollback surface
-- [ ] 5.3 Collapse the double-`BarterEngine` construction (coordinate with #29 later)
-- [ ] 5.4 Verify tiers + deletion test (guardrails #7/#8)
+- [x] 5.3 Collapse the double-`BarterEngine` construction (coordinate with #29 later)
+- [x] 5.4 Verify tiers + deletion test (guardrails #7/#8)
 
 ## 6. Promote #28 — LLM adapter (last of the Strongs)
 

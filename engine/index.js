@@ -6,7 +6,6 @@ import { ContextManager } from './context.js';
 import { LlmOrchestrator } from './llm.js';
 import { MemoryManager } from './memory/memoryManager.js';
 import { EmbeddingService } from './memory/embeddings.js';
-import { BarterEngine } from './memory/barterEngine.js';
 import { loadPresets, savePresets as savePresetsFile } from './storyPresets.js';
 import { STATUS_FORMAT } from './statusFormat.js';
 
@@ -67,8 +66,11 @@ export class AdventureEngine {
         const embeddingService = new EmbeddingService(this.llm.client);
         this.memory = new MemoryManager(dataDir, this.llm.client, embeddingService);
         this.context.memoryManager = this.memory;
-        this.barter = new BarterEngine(this.memory.structuredStore);
-        this.memory.barter = this.barter;
+        // Single BarterEngine instance (memory-schema-boundary): MemoryManager
+        // constructs it over its structured store; the engine exposes the same
+        // object so `engine.barter === engine.memory.barter` and
+        // `engine.barter.store === engine.memory.structuredStore`.
+        this.barter = this.memory.barter;
     }
 
     // Proxy getters and setters to maintain exactly the same public property access

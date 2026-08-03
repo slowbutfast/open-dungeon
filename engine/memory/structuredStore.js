@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
+import { v4 as uuidv4 } from 'uuid';
 import { normalizeItemName, itemNamesMatch } from './itemNames.js';
 
 // Canonicalize an extractor inventory-change row before it is written:
@@ -74,9 +75,58 @@ export class StructuredStore {
                 description     TEXT,
                 trigger_words   TEXT,
                 enabled         INTEGER DEFAULT 1,
-                source          TEXT DEFAULT 'auto'
+                source          TEXT DEFAULT 'auto',
+                turn_index      INTEGER
+            );
+
+            -- Barter offers (trader requires an item, offers another). Schema
+            -- ownership lives here (memory-schema-boundary): BarterEngine is a
+            -- thin state machine over these tables and never reaches into the
+            -- raw db handle. turn_index attributes a narration-created offer to
+            -- its batch turn so full-surface rollback can remove it; NULL means
+            -- "no narration turn" (e.g. hand-created) and survives rollback.
+            CREATE TABLE IF NOT EXISTS barter_offers (
+                id              TEXT PRIMARY KEY,
+                adventure_id    TEXT NOT NULL,
+                trader_name     TEXT NOT NULL,
+                required_item   TEXT NOT NULL,
+                offered_item    TEXT NOT NULL,
+                description     TEXT,
+                turn_index      INTEGER
+            );
+
+            -- NPC quest goals (objective state machine). Same ownership and
+            -- turn_index semantics as barter_offers.
+            CREATE TABLE IF NOT EXISTS quest_goals (
+                id              TEXT PRIMARY KEY,
+                adventure_id    TEXT NOT NULL,
+                npc_name        TEXT NOT NULL,
+                goal_title      TEXT NOT NULL,
+                required_item   TEXT NOT NULL,
+                reward_item     TEXT NOT NULL,
+                status          TEXT DEFAULT 'NOT_STARTED',
+                created_turn    INTEGER,
+                completed_turn  INTEGER,
+                turn_index      INTEGER
             );
         `);
+        this._migrateTurnIndexColumns();
+    }
+
+    // Guarded migration for existing DBs created before the turn_index column
+    // existed (memory-schema-boundary). Each rollback-surface table (lore,
+    // barter_offers, quest_goals) gains `turn_index INTEGER` only when the
+    // column is missing. Idempotent: re-constructing the store no-ops. Existing
+    // rows keep their data; their turn_index is NULL, so they survive rollback.
+    _migrateTurnIndexColumns() {
+        const columnNames = (table) => new Set(
+            this.db.prepare(`PRAGMA table_info(${table})`).all().map(c => c.name)
+        );
+        for (const table of ['lore', 'barter_offers', 'quest_goals']) {
+            if (!columnNames(table).has('turn_index')) {
+                this.db.exec(`ALTER TABLE ${table} ADD COLUMN turn_index INTEGER`);
+            }
+        }
     }
 
     // ─── Extraction State ─────────────────────────────────────────────────────
@@ -248,13 +298,14 @@ export class StructuredStore {
 
     // ─── Lore ─────────────────────────────────────────────────────────────────
 
-    upsertLore(adventureId, loreId, name, type, description, triggerWords, source = 'auto') {
+    upsertLore(adventureId, loreId, name, type, description, triggerWords, source = 'auto', turnIndex = null) {
         this.db.prepare(`
-            INSERT INTO lore (id, adventure_id, name, type, description, trigger_words, source)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO lore (id, adventure_id, name, type, description, trigger_words, source, turn_index)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 description = COALESCE(excluded.description, description),
-                trigger_words = excluded.trigger_words
+                trigger_words = excluded.trigger_words,
+                turn_index = excluded.turn_index
         `).run(
             loreId,
             adventureId,
@@ -262,7 +313,8 @@ export class StructuredStore {
             type,
             description || null,
             JSON.stringify(triggerWords || []),
-            source
+            source,
+            this._resolveTurnIndex(adventureId, turnIndex)
         );
     }
 
@@ -291,13 +343,141 @@ export class StructuredStore {
         return info.changes > 0;
     }
 
+    // ─── Barter offers & quest goals ───────────────────────────────────────────
+
+    // Highest turn_index across the adventure's events; the attribution anchor
+    // for rows written without an explicit narration turn (D4).
+    getMaxEventTurnIndex(adventureId) {
+        const row = this.db.prepare(
+            'SELECT MAX(turn_index) AS max_turn FROM events WHERE adventure_id = ?'
+        ).get(adventureId);
+        return row && row.max_turn ? row.max_turn : 0;
+    }
+
+    // Resolve the turn_index to write: an explicit narration turn wins; an
+    // absent one falls back to the current max event turn (0 before any
+    // extraction — equivalent to the NULL marker for rollback, since no
+    // rollback threshold N >= 1 ever matches it).
+    _resolveTurnIndex(adventureId, turnIndex) {
+        if (turnIndex === null || turnIndex === undefined) {
+            return this.getMaxEventTurnIndex(adventureId);
+        }
+        return turnIndex;
+    }
+
+    insertOffer(adventureId, traderName, requiredItem, offeredItem, description = null, turnIndex = null) {
+        const id = `${adventureId}:${traderName.toLowerCase().replace(/\s+/g, '_')}:${requiredItem.toLowerCase().replace(/\s+/g, '_')}`;
+        this.db.prepare(`
+            INSERT INTO barter_offers (id, adventure_id, trader_name, required_item, offered_item, description, turn_index)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                offered_item = excluded.offered_item,
+                description = COALESCE(excluded.description, description),
+                turn_index = excluded.turn_index
+        `).run(
+            id,
+            adventureId,
+            traderName,
+            requiredItem,
+            offeredItem,
+            description || null,
+            this._resolveTurnIndex(adventureId, turnIndex)
+        );
+        return this.db.prepare('SELECT * FROM barter_offers WHERE id = ?').get(id);
+    }
+
+    getOffersForTrader(adventureId, traderName) {
+        return this.db.prepare(
+            'SELECT * FROM barter_offers WHERE adventure_id = ? AND LOWER(trader_name) = LOWER(?)'
+        ).all(adventureId, traderName);
+    }
+
+    getAllOffers(adventureId) {
+        return this.db.prepare(
+            'SELECT * FROM barter_offers WHERE adventure_id = ?'
+        ).all(adventureId);
+    }
+
+    createQuestGoal(adventureId, npcName, goalTitle, requiredItem, rewardItem, status = 'NOT_STARTED', turnIndex = null) {
+        const id = uuidv4().substring(0, 8);
+        const createdTurn = this.getMaxEventTurnIndex(adventureId);
+        this.db.prepare(`
+            INSERT INTO quest_goals (id, adventure_id, npc_name, goal_title, required_item, reward_item, status, created_turn, turn_index)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+            id,
+            adventureId,
+            npcName,
+            goalTitle,
+            requiredItem,
+            rewardItem,
+            status,
+            createdTurn,
+            this._resolveTurnIndex(adventureId, turnIndex)
+        );
+        return this.getGoalById(adventureId, id);
+    }
+
+    getGoalById(adventureId, goalId) {
+        return this.db.prepare(
+            'SELECT * FROM quest_goals WHERE id = ? AND adventure_id = ?'
+        ).get(goalId, adventureId);
+    }
+
+    getActiveGoals(adventureId) {
+        return this.db.prepare(
+            "SELECT * FROM quest_goals WHERE adventure_id = ? AND status NOT IN ('COMPLETED', 'FAILED')"
+        ).all(adventureId);
+    }
+
+    getAllGoals(adventureId) {
+        return this.db.prepare(
+            'SELECT * FROM quest_goals WHERE adventure_id = ? ORDER BY created_turn DESC'
+        ).all(adventureId);
+    }
+
+    acceptQuestGoal(adventureId, goalId) {
+        this.db.prepare(
+            "UPDATE quest_goals SET status = 'IN_PROGRESS' WHERE id = ? AND adventure_id = ?"
+        ).run(goalId, adventureId);
+        return this.getGoalById(adventureId, goalId);
+    }
+
+    failQuestGoal(adventureId, goalId) {
+        this.db.prepare(
+            "UPDATE quest_goals SET status = 'FAILED' WHERE id = ? AND adventure_id = ?"
+        ).run(goalId, adventureId);
+        return this.getGoalById(adventureId, goalId);
+    }
+
+    completeQuestGoal(adventureId, goalId) {
+        const completedTurn = this.getMaxEventTurnIndex(adventureId);
+        this.db.prepare(`
+            UPDATE quest_goals SET status = 'COMPLETED', completed_turn = ? WHERE id = ? AND adventure_id = ?
+        `).run(completedTurn, goalId, adventureId);
+        return this.getGoalById(adventureId, goalId);
+    }
+
+    // Dedup anchor for narrated goals: one goal per (npc_name, goal_title).
+    findGoalByNpcAndTitle(adventureId, npcName, goalTitle) {
+        return this.db.prepare(
+            'SELECT id FROM quest_goals WHERE adventure_id = ? AND LOWER(npc_name) = LOWER(?) AND LOWER(goal_title) = LOWER(?)'
+        ).get(adventureId, npcName, goalTitle);
+    }
+
     // ─── Transactional rollback ───────────────────────────────────────────────
 
     /**
      * Roll back a reverted turn in a single SQLite transaction:
-     * remove event + inventory rows whose turn is >= turnIndex, rewind the
+     * remove rows whose turn is >= turnIndex across the full surface a turn can
+     * write — events, inventory, lore, barter_offers, quest_goals — rewind the
      * extraction watermark to turnIndex-1 (never advancing it), and return the
      * ids of the removed event rows so the caller can delete their vectors.
+     *
+     * Offers/goals/lore are deleted with `turn_index >= ? AND turn_index IS
+     * NOT NULL` (memory-schema-boundary): narration-created rows carry their
+     * batch turn and roll back with it; rows with no narration turn (NULL, or 0
+     * for rows created before any extraction) survive.
      *
      * @returns {string[]} ids of removed event rows
      */
@@ -313,6 +493,18 @@ export class StructuredStore {
 
             this.db.prepare(
                 'DELETE FROM inventory WHERE adventure_id = ? AND acquired_turn >= ?'
+            ).run(adventureId, turnIndex);
+
+            this.db.prepare(
+                'DELETE FROM lore WHERE adventure_id = ? AND turn_index >= ? AND turn_index IS NOT NULL'
+            ).run(adventureId, turnIndex);
+
+            this.db.prepare(
+                'DELETE FROM barter_offers WHERE adventure_id = ? AND turn_index >= ? AND turn_index IS NOT NULL'
+            ).run(adventureId, turnIndex);
+
+            this.db.prepare(
+                'DELETE FROM quest_goals WHERE adventure_id = ? AND turn_index >= ? AND turn_index IS NOT NULL'
             ).run(adventureId, turnIndex);
 
             const current = this.getLastExtractedTurnIndex(adventureId);
