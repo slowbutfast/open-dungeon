@@ -5,8 +5,11 @@ The MCP half of the shared-parser unification is already landed
 (tests/test_shared_status_parser.py probes the exported parser). This file
 locks down the engine's own commit path:
 
-1.  The engine commits location/score/moves from the LAST status line anywhere
-    in a streamed response (trailing content tolerated).
+1.  The engine commits location from the LAST status line anywhere in a
+    streamed response (trailing content tolerated). `score` is NO LONGER
+    adopted from the status line — it is engine-computed over extracted
+    milestone events (fix-score-progression, D2), so it is 0 in these
+    single-turn probes where no milestone extraction has flushed.
 2.  The mock-mode fragmented stream (`cantina.\n[Status:` split across chunks,
     plus a duplicated trailing status line) commits via the shared parser.
 3.  Echoed [CURRENT STATUS]/[CURRENT INVENTORY] blocks and raw status lines are
@@ -148,10 +151,16 @@ class TestEngineCommitsStatusWithTrailingContent(unittest.TestCase):
         "[STATUS: Ashfall Market | Score: 3 | Moves: 7]\nThe barman nods at you.",
     ]
 
-    def test_commits_location_and_score_from_last_status_line(self):
+    def test_commits_location_but_score_is_engine_computed(self):
+        """Location commits from the status line; score is engine-computed.
+
+        The model's `Score: 3` claim is advisory only (D2). In this single-turn
+        probe no milestone extraction has flushed, so the engine-computed score
+        is 0, not 3.
+        """
         result = run_engine_probe(self.CHUNKS)
         self.assertEqual(result["state"]["location"], "Ashfall Market")
-        self.assertEqual(result["state"]["score"], 3)
+        self.assertEqual(result["state"]["score"], 0)
 
     def test_moves_incremented_once_per_turn_not_adopted_from_model(self):
         result = run_engine_probe(self.CHUNKS)
@@ -186,8 +195,10 @@ class TestEngineBufferedFragmentCommit(unittest.TestCase):
 
     def test_fragmented_stream_commits_status(self):
         result = run_engine_probe(self.mock_style_chunks())
+        # Location commits from the status line; the model's Score: 5 claim is
+        # ignored — score is engine-computed and 0 here (no milestone flushed).
         self.assertEqual(result["state"]["location"], "Cantina")
-        self.assertEqual(result["state"]["score"], 5)
+        self.assertEqual(result["state"]["score"], 0)
 
     def test_fragmented_stream_moves_increment_once(self):
         result = run_engine_probe(self.mock_style_chunks())
@@ -242,8 +253,11 @@ class TestHistorySanitization(unittest.TestCase):
 
     def test_save_state_committed_from_parsed_status(self):
         result = run_engine_probe(self.CHUNKS)
+        # Location persists from the parsed status line; score is engine-computed
+        # (0 here — no milestone extraction flushed in a single-turn probe), so
+        # the save carries 0, not the model's `Score: 2` claim.
         self.assertEqual(result["save"]["location"], "Market Square")
-        self.assertEqual(result["save"]["score"], 2)
+        self.assertEqual(result["save"]["score"], 0)
 
     def test_user_turn_with_echoed_block_is_sanitized(self):
         # A user turn containing an echoed block must also be sanitized before
@@ -271,7 +285,8 @@ class TestMovesSingleOwner(unittest.TestCase):
             "[Status: Vault | Score: 3 | Moves: 99]",
         ])
         self.assertEqual(result["state"]["location"], "Vault")
-        self.assertEqual(result["state"]["score"], 3)
+        # Model's Score: 3 claim is ignored; score is engine-computed (0 here).
+        self.assertEqual(result["state"]["score"], 0)
         # Engine owns the counter: exactly one increment per completed turn.
         self.assertEqual(result["state"]["moves"], 1)
 
@@ -291,7 +306,8 @@ class TestMovesAndStateAgreementMCP(McpTestCase):
 
     In mock mode the status line is the two-field `[Status: Cantina | Score: 5]`
     (no Moves), so moves must come from the engine's single deterministic
-    counter, and location/score must come from the engine-committed parse.
+    counter, location from the engine-committed parse, and score from the
+    engine's milestone rule (the narrator's `Score: 5` is advisory only).
     """
 
     def setUp(self):
@@ -310,14 +326,17 @@ class TestMovesAndStateAgreementMCP(McpTestCase):
             self.assertEqual(action["moves"], state["moves"])
 
     def test_send_action_location_score_agree_with_inspect_state(self):
-        """The engine commits the fragmented mock status line, so the MCP
-        surface and persisted state agree on location/score too."""
+        """The engine commits the fragmented mock status line's location, so the
+        MCP surface and persisted state agree on location; score is
+        engine-computed (0 here — "look around" extracts only a zero-weight
+        dialogue event in mock mode), so send_action and inspect_state report
+        the same engine score rather than the narrator's `Score: 5` claim."""
         action = self._json(self.client.send_action("look around"))
         state = self._json(self.client.call_tool("dungeon_inspect_state"))
         self.assertEqual(action["location"], "Cantina")
-        self.assertEqual(action["score"], 5)
         self.assertEqual(action["location"], state["location"])
         self.assertEqual(action["score"], state["score"])
+        self.assertEqual(action["score"], 0)
         self.assertEqual(action["moves"], state["moves"])
 
     def test_history_contains_only_sanitized_narration_via_mcp(self):

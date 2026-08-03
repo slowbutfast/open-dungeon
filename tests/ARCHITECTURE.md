@@ -26,6 +26,7 @@
 | `test_mcp_session.py` | Integration (unittest) | `integration` | MCP session tools — init, list saves, load save. Spawns MCP stdio subprocess. |
 | `test_mcp_state.py` | Integration (unittest) | `integration` | MCP state tools — inspect state, history, lore. Spawns MCP stdio subprocess. |
 | `test_mcp_tools.py` | Integration (unittest) | `integration` | Comprehensive MCP tool handler tests — all 17 tools. Spawns MCP stdio subprocess. |
+| `test_scoring.py` | Mixed (unittest + node probe) | — / `integration` | Engine-driven score progression (`fix-score-progression`): pure `scoreRule` unit tests via a Node probe plus MCP integration for score advancement, save/load round-trip, 10+ turn non-frozen regression (#19), and undo-score recompute. |
 | `e2e/test_menu_navigation.py` | E2E (pytest + Playwright) | `e2e` | Browser-based UI — keyboard nav, hotkeys, preset/character flows, launch states, save/restore, lore scan, system prompt editing. Spawns a Node.js server on port 5001. |
 | `e2e/test_barter_ui.py` | E2E (pytest + Playwright) | `e2e` | Browser-based barter UI — trade offers, execution, inventory. Spawns a Node.js server. |
 | `e2e/test_mobile_viewport.py` | E2E (pytest + Playwright) | `e2e` | Browser-based mobile viewport — responsive layout, touch interactions. Spawns a Node.js server. |

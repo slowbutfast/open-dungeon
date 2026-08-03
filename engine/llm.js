@@ -538,14 +538,15 @@ export class LlmOrchestrator {
             // The engine owns the status parse and the moves counter. Parse the
             // LAST status line anywhere in the accumulated assistant text (the
             // shared parser tolerates trailing content and case), commit
-            // location/score from it, and increment moves exactly once per
-            // completed turn — the model's Moves field is advisory and ignored.
+            // location from it, and increment moves exactly once per completed
+            // turn — the model's Moves field is advisory and ignored. Score is
+            // NOT adopted from the status line: it is engine-computed over
+            // extracted milestone events at extraction-flush time
+            // (fix-score-progression, D2), so the narrator's Score claim is
+            // advisory and never committed.
             const parsed = parseStatusLine(assistantText);
             if (parsed.location !== null) {
                 state.location = parsed.location;
-            }
-            if (parsed.score !== null) {
-                state.score = parsed.score;
             }
             state.moves += 1;
 

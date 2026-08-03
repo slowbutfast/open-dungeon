@@ -7,6 +7,7 @@
 
 import { z } from 'zod';
 import { parseStatusLine } from '../../engine/llm.js';
+import { forceFlushBeforeRead } from './memory.js';
 
 /**
  * Register core gameplay tools on the given MCP server.
@@ -49,18 +50,24 @@ export function registerGameplayTools(server, engine) {
                 }
                 const rawNarration = narrationText || fullText;
 
-                // Parse the status line from the narration
-                const { narration, location, score, moves } = parseStatusLine(rawNarration);
+                // Score is engine-computed at extraction-flush time
+                // (fix-score-progression, D1/D2). Force a flush now so the
+                // tool reports the same engine score dungeon_inspect_state
+                // would — the narrator's status-line Score claim is advisory.
+                await forceFlushBeforeRead(engine);
 
-                // The engine owns the moves counter (it increments exactly once
-                // per completed turn and ignores the model's Moves field), so the
-                // tool reports engine.moves to stay in agreement with
-                // dungeon_inspect_state. Location/score fall back to engine state
-                // when the (already sanitized) narration carries no status line.
+                // Parse the status line from the narration. The engine owns the
+                // moves counter (it increments exactly once per completed turn
+                // and ignores the model's Moves field) and owns the score, so
+                // the tool reports engine.moves / engine.score to stay in
+                // agreement with dungeon_inspect_state. Location falls back to
+                // engine state when the (already sanitized) narration carries
+                // no status line.
+                const { narration, location } = parseStatusLine(rawNarration);
                 const result = {
                     narration: narration || rawNarration,
                     location: location || engine.location,
-                    score: score !== null ? score : engine.score,
+                    score: engine.score,
                     moves: engine.moves
                 };
 

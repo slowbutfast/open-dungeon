@@ -4,6 +4,7 @@ import { StructuredStore } from './structuredStore.js';
 import { EventExtractor } from './eventExtractor.js';
 import { BarterEngine } from './barterEngine.js';
 import { normalizeItemName, itemNamesMatch } from './itemNames.js';
+import { scoreRule } from '../scoring.js';
 import { addDebugLog } from '../llmTracker.js';
 
 export class MemoryManager {
@@ -289,9 +290,17 @@ export class MemoryManager {
             }
             // Sync new lore to state cards
             await this.syncLoreToStateCards(adventureId, state);
-            if (saveFn) {
-                await saveFn();
-            }
+        }
+
+        // 6. Score: recompute from the store's distinct events so state.score
+        //    tracks milestone progression deterministically (D1/D2). The full
+        //    recompute is idempotent (dedup by event id + normalized milestone)
+        //    and undo-safe (engine.undo recomputes after rollback). Persist
+        //    even when this batch extracted no lore, so the saved score always
+        //    reflects the latest store state.
+        state.score = this.computeScore(adventureId);
+        if (saveFn) {
+            await saveFn();
         }
 
         // Update extraction watermark
@@ -393,6 +402,23 @@ export class MemoryManager {
 
     getEventLog(adventureId, limit = 20) {
         return this.structuredStore.getEvents(adventureId, limit);
+    }
+
+    /**
+     * Recompute the engine's score for an adventure from the store's distinct
+     * events (D1). A full recompute over all rows with priorScore 0 makes the
+     * result idempotent: the store already dedups events by id, and scoreRule
+     * additionally dedups by normalized type:summary, so repeated extraction
+     * of the same milestone never inflates the total. Undo rolls rows back and
+     * callers (engine.undo) recompute to stay consistent.
+     *
+     * @param {string} adventureId
+     * @returns {number} engine-computed score
+     */
+    computeScore(adventureId) {
+        if (!adventureId) return 0;
+        const allEvents = this.structuredStore.getEvents(adventureId, 100000);
+        return scoreRule(allEvents, 0);
     }
 
     getStats(adventureId) {

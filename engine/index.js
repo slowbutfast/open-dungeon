@@ -181,6 +181,10 @@ export class AdventureEngine {
                 await this.memory.rollbackTurns(preUndoMoves);
             }
             this.state.moves = Math.max(0, this.state.moves - 1);
+            // Score derives from the store's distinct events; the rollback just
+            // removed the undone turn's milestones, so recompute to keep score
+            // consistent with memory (fix-score-progression, D1).
+            this.state.score = this.memory.computeScore(this.state.adventureId);
         }
 
         await this.save();

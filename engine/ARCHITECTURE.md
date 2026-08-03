@@ -42,10 +42,21 @@ graph TD
     *   As chunks arrive from LM Studio, the backend checks for the `[` character.
     *   If `[` is found, the engine pauses streaming and buffers the text.
     *   If the buffer length exceeds `150` characters (meaning it's regular story text), the buffer is flushed and streamed.
-    *   At the end of the stream, the engine feeds the **full accumulated assistant text** into the shared `parseStatusLine` (the same line-scanning, case-insensitive parser `mcp/tools/gameplay.js` imports — see `engine/llm.js`). It commits `location` and `score` from the *last* status line anywhere in the response, so trailing content (or echoed context blocks) no longer breaks the parse.
+    *   At the end of the stream, the engine feeds the **full accumulated assistant text** into the shared `parseStatusLine` (the same line-scanning, case-insensitive parser `mcp/tools/gameplay.js` imports — see `engine/llm.js`). It commits `location` from the *last* status line anywhere in the response, so trailing content (or echoed context blocks) no longer breaks the parse.
+    *   **`score` ownership (engine-driven)**: score is **engine-computed**, not adopted from the narrator. A deterministic rule over extracted milestone events (`engine/scoring.js`, D1) is recomputed from the store's distinct events at every extraction flush (`MemoryManager.computeScore`) and after every undo. The narrator's `Score:` field on the status line is **advisory and ignored** (D2) — a missed or wrong status line can never freeze or inflate score.
     *   **`moves` ownership**: the engine is the single owner of the counter. It increments exactly once per completed turn and **ignores** the model's `Moves` field (advisory only). The MCP `dungeon_send_action` tool reports `engine.moves`, keeping it in agreement with `dungeon_inspect_state`.
     *   Before anything is committed, `sanitizeForHistory` (exported from `engine/llm.js`) strips status-line-shaped lines and echoed `[CURRENT STATUS]` / `[CURRENT INVENTORY]` blocks. The cleaned narration is what reaches `state.history`, the save file, and the memory extraction queue (`bufferTurnPair`). Raw assistant text is retained only in debug/log paths (`llmTracker`/`addDebugLog`) and streaming chunks — never replayed as context.
     *   The buffered tail is flushed as a plain text chunk if it never formed a status line; a status-line-shaped buffer stays hidden (dropped with the parsed metadata).
+
+### 3. Engine-Driven Score Progression
+
+*   **Status**: **Fully Operational**
+*   **Behavior**: `score` advances deterministically over extracted milestone events, independent of the narrator's status-line wording (`fix-score-progression`). The engine is authoritative; the narrator's `Score:` claim is advisory.
+*   **Mechanics**:
+    *   `engine/scoring.js` — pure module. `MILESTONE_WEIGHTS = { discovery: 2, quest: 10, combat: 5, trade: 3 }` (only these four types score). `scoreRule(events, priorScore)` sums each milestone's weight once, deduping on a normalized `type:summary` key (case-insensitive, trimmed); movement/dialogue/death/unknown types contribute 0. Accepts extractor events (`type`) and store rows (`event_type`).
+    *   `MemoryManager.computeScore(adventureId)` — full recompute over the store's distinct events (already deduped by event id) with priorScore 0, making scoring idempotent. Called from `_extractAndStore` after each flush (score is persisted with the same `saveFn` that persists extraction), and from `engine.undo()` after `rollbackTurns` so score stays consistent with the rolled-back store.
+    *   Persisted score is authoritative on load (no recompute) — save/load round-trip is preserved.
+*   **MCP surface**: `dungeon_send_action` force-flushes pending extraction (`forceFlushBeforeRead`) before building its result so `dungeon_send_action.score` agrees with `dungeon_inspect_state.score` (both report `engine.score`).
 
 ### 4. Universal Barter & Quest Goal Engine
 
@@ -225,7 +236,7 @@ npm run mcp
 
 2. **Error handling**: Tool errors are returned as structured error content with `isError: true` rather than JSON-RPC error responses, following MCP SDK conventions.
 
-3. **Stream collection for actions**: `dungeon_send_action` collects the full LLM response stream, parses the status line with the shared `parseStatusLine`, and returns the narration text alongside structured metrics. Since the engine owns the moves counter (one deterministic increment per completed turn) and now commits `location`/`score` through the same shared parser, the tool reports `engine.moves` and falls back to `engine.location` / `engine.score` when the (sanitized) narration carries no status line — so `dungeon_send_action` and `dungeon_inspect_state` always agree.
+3. **Stream collection for actions**: `dungeon_send_action` collects the full LLM response stream, parses the status line with the shared `parseStatusLine`, and returns the narration text alongside structured metrics. Since the engine owns the moves counter (one deterministic increment per completed turn), owns the score (engine-computed over extracted milestones), and commits `location` through the same shared parser, the tool force-flushes pending extraction and reports `engine.moves` / `engine.score` (falling back to `engine.location` when the sanitized narration carries no status line) — so `dungeon_send_action` and `dungeon_inspect_state` always agree.
 
 ### Consistency Contract (`make-undo-and-trades-consistent`)
 
