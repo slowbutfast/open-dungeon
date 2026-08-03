@@ -73,6 +73,20 @@ None external.
 - **Usage-capture reliability is unverified** across providers (OpenRouter returns usage for narration; embeddings may not). The design allows "capture-what's-available + honest labeling" — do not assume usage is always present.
 - **Blank-action validation must happen before `formatUserInput`** in the engine, which currently turns `"   "` into `"> "` (a `>` prefix) — validating on the raw text only would miss the engine-side path.
 
+## Playtest verification evidence (2026-08-02 Datachip Run)
+
+Live reproduction on the 12-act Star Wars playtest (`c27aebc6`, Coruscant Underworld preset, 35 moves, dolphin-mistral-24b). Full narrative in `docs/playtest/2026-08-02-datachip-run.md`.
+
+| Claim | Value | How verified | Date | Volatility |
+| :--- | :--- | :--- | :--- | :--- |
+| #17.2: tracker aggregates across adventures | `dungeon_get_debug_info` for `c27aebc6` showed the full process-lifetime call list/cost (136 calls, incl. prior sessions) with `backend_status.adventure_id` correctly = `c27aebc6` | MCP get_debug_info | 2026-08-02 | stable |
+| #17.3: only narration carries tokens | All extraction/summarization/embedding/embedding_batch entries at `tokens: {input:0, output:0}`; narration calls carry real counts; reported `$0.0265` for 56.8k tokens is narration-only | MCP get_debug_info llm_calls | 2026-08-02 | stable |
+| Blank-action rejection (task 2.1) not yet present | A whitespace action would still be accepted — this run did not re-trigger it, but the code path is unchanged | Code read | 2026-08-02 | stable |
+
+**Note:** the `save_dir` diagnostics from the archived `fix-mcp-server-tooling` (#18) are present, and they surfaced a NEW gap → #21 (saves still land in production when the MCP client reads `opencode.jsonc`, which lacks `SAVE_DIR`). That issue is a config-surface follow-up, not part of this change.
+
+**Related GH issue:** #21 (playtest saves land in production via `opencode.jsonc`).
+
 ## Links out
 
 - `engine/llmTracker.js` — tracker implementation

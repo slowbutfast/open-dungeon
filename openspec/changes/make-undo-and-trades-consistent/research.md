@@ -95,6 +95,21 @@ From prior in-repo work: `structuredStore.executeTrade` already demonstrates the
 - **Line-number references decay** (`engine/index.js:171`, `engine/state.js:129`, `web/routes/game.js:470,537`). Re-verify against HEAD before implementing.
 - **The extractor's "removes sold item" outcome is model-dependent** (this session marked the leaflet `dropped`; the issue saw it stay `held`). Do not rely on either behavior — the fix must make removal deterministic via `executeBarter`.
 
+## Playtest verification evidence (2026-08-02 Datachip Run)
+
+Live reproduction on the 12-act Star Wars playtest (`c27aebc6`, Coruscant Underworld preset, 35 moves, dolphin-mistral-24b). Full narrative in `docs/playtest/2026-08-02-datachip-run.md`.
+
+| Claim | Value | How verified | Date | Volatility |
+| :--- | :--- | :--- | :--- | :--- |
+| #16: narrated trade offer never registers | Liss offered a forged ident chip; `dungeon_inspect_offers` → `[]`; `dungeon_execute_trade(energy cell, Liss)` → `No barter offer found` | MCP inspect + execute_trade | 2026-08-02 | stable |
+| #16: quest event but no quest goal | Mors' datachip quest extracted as a `quest` event; `dungeon_inspect_goals` → `[]` | MCP inspect events/goals | 2026-08-02 | stable |
+| #13 (#22): undo loses acquired items + watermark ahead of history | After undoing a "stash" turn: history reached index 3 (4 turns), `last_extracted_turn_index: 9`, datapad+datarod (acquired turn 3) gone from inventory; only energy cell + dirty cloth remained | MCP inspect history/inventory/stats | 2026-08-02 | stable |
+| #13: narrated handoff never releases the item | Datachip narrated as handed to Mors and datarod as left in the vault keypad — both still `held` in inventory at run end | MCP inspect inventory | 2026-08-02 | stable |
+
+**Sharper than #13 as filed:** undo does not merely leave orphaned memory — it can *destroy* earlier legitimate acquisitions (items marked `dropped` by extraction are not restored on revert). This is issue #22. The proposed fix (transactional undo in `memoryManager.rollbackTurns`, D1) must restore items to their pre-turn status, not just delete reverted-turn rows.
+
+**Related GH issue:** #22 (undo loses acquired items + watermark ahead of history).
+
 ## Links out
 
 - `engine/index.js:171` — undo entry point

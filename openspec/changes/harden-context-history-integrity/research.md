@@ -100,6 +100,20 @@ What REMAINS for this change (do not assume the parser unification is complete):
 
 Anything stated in this research about `mcp/tools/gameplay.js` having its own case-sensitive parser is now stale — it imports the shared parser. Treat code-line references as approximate and re-verify against HEAD before implementing.
 
+## Playtest verification evidence (2026-08-02 Datachip Run)
+
+Live reproduction on the 12-act Star Wars playtest (`c27aebc6`, Coruscant Underworld preset, 35 moves, dolphin-mistral-24b). Full narrative in `docs/playtest/2026-08-02-datachip-run.md`.
+
+| Claim | Value | How verified | Date | Volatility |
+| :--- | :--- | :--- | :--- | :--- |
+| #12: location silently dropped for the back half of a session | `state.location` froze at `Vex's Workshop` from move 17 while narration crossed the Bureau corridor, vault, ops center, and docking bay; `dungeon_inspect_state` never updated | MCP inspect_state across moves | 2026-08-02 | stable |
+| #12: moves drift | `moves` jumped 13→17 in a single turn (model's counter adopted over engine fallback) | MCP inspect_state | 2026-08-02 | stable |
+| #11: echoed/injected block persistence not observed this run | No `[CURRENT INVENTORY]` echo was committed in the 35-turn real-model run (unlike the earlier repro) — sanitization remains needed but the echo frequency is model-dependent | MCP inspect_history | 2026-08-02 | stable |
+
+**Observation for the parser-unification work:** the real-model failure mode here was *silent location non-commit* (the model appends prose after the status line), matching #12's root cause exactly. The shared parser fixes the MCP view, but the engine's own commit path (this change's tasks 2.1-2.2) is what must adopt it for `state.location` to move.
+
+**Related GH issue:** #12 (status-line parsing end-anchored). The playtest also surfaced a distinct scoring observation → #19 (score never advances), tracked separately.
+
 ## Links out
 
 - `engine/llm.js` — history commit sites and status parsing
