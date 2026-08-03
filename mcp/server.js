@@ -57,6 +57,31 @@ async function main() {
     // startup instead of silently falling back to the production directory.
     console.error(`[mcp] SAVE_DIR resolved to: ${engine.saveDir} (env SAVE_DIR=${process.env.SAVE_DIR || '(unset)'})`);
 
+    // Guard against the two playtest hazards the tools can hit when launched
+    // without the intended env block (see .opencode/opencode.jsonc):
+    //   1. SAVE_DIR unset or resolving into the production game/adventures tree.
+    //   2. A real LLM backend when the operator expects offline mock.
+    // This is a warning, not a hard fail — a human may legitimately target
+    // production saves or want a real model.
+    const mockLlm = process.env.MOCK_LLM === "1";
+    const productionSave = engine.saveDir.includes(path.join('game', 'adventures'));
+    if (!process.env.SAVE_DIR || productionSave) {
+        console.error(
+            '[mcp] WARNING: SAVE_DIR is unset or resolves to the production ' +
+            `game/adventures tree (${engine.saveDir}). Playtest sessions will ` +
+            'overwrite real save data. Set SAVE_DIR to a sandbox (e.g. ' +
+            'game/playtest/adventures) or via .opencode/opencode.jsonc ' +
+            'mcp.open-dungeon.environment.'
+        );
+    }
+    if (!mockLlm) {
+        console.error(
+            '[mcp] WARNING: MOCK_LLM is not "1" — tools will call a real LLM ' +
+            'backend and incur API cost. For routine/autonomous playtest loops ' +
+            'set MOCK_LLM=1 (see .opencode/opencode.jsonc).'
+        );
+    }
+
     // Create the MCP server with server info
     const server = new McpServer({
         name: "open-dungeon-mcp",

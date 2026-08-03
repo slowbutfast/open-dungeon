@@ -5,7 +5,7 @@
       "args": ["mcp/server.js"],
       "env": {
         "SAVE_DIR": "game/playtest/adventures",
-        "MOCK_LLM": "0"
+        "MOCK_LLM": "1"
       }
     }
   }

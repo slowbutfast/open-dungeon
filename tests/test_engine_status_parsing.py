@@ -143,6 +143,84 @@ def assistant_texts(result):
     ]
 
 
+# Summary-sanitization probe: drives summarizeOldTurns with a scripted
+# summarizer response that echoes [CURRENT STATUS]/[CURRENT INVENTORY] blocks
+# and a raw [Status: ...] line, then reports the committed state.summary and
+# the summary persisted in the save file. The summary is injected as
+# [ADVENTURE SUMMARY] into every subsequent system message, so it must be
+# sanitized like every other commit point (harden-context-history-integrity).
+SUMMARY_PROBE = """
+import fs from 'fs/promises';
+import path from 'path';
+import { AdventureEngine } from './engine/index.js';
+import { ContextManager } from './engine/context.js';
+
+const scenario = %(scenario_json)s;
+const saveDir = scenario.saveDir;
+
+const engine = new AdventureEngine(saveDir);
+await engine.newAdventure("Summary Sanitize Test");
+
+// Seed at least 4 history entries so summarizeOldTurns runs.
+engine.state.history.push(
+    { role: "user", action_type: "do", text: "> take the iron key" },
+    { role: "assistant", action_type: "narration", text: "You take the iron key." },
+    { role: "user", action_type: "do", text: "> look around" },
+    { role: "assistant", action_type: "narration", text: "The room is quiet." }
+);
+
+const client = engine.llm.client;
+client.chat.completions.create = async () => ({
+    choices: [{ message: { content: scenario.summaryContent } }]
+});
+
+const cm = new ContextManager();
+await cm.summarizeOldTurns(engine.state, client, "mock-gemma", () => engine.save());
+
+const savePath = path.join(saveDir, engine.adventureId + ".json");
+let save = null;
+try {
+    save = JSON.parse(await fs.readFile(savePath, "utf-8"));
+} catch (e) {}
+
+console.log(JSON.stringify({
+    summary: engine.state.summary,
+    saveSummary: save ? save.summary : null,
+    archivedCount: engine.state.archivedHistory.length,
+    historyLen: engine.state.history.length
+}));
+"""
+
+
+def run_summary_probe(summary_content):
+    """Run the summary-sanitization probe in a Node subprocess."""
+    save_dir = tempfile.mkdtemp(dir=os.path.join(REPO_ROOT, "tests"))
+    scenario = {
+        "saveDir": save_dir,
+        "summaryContent": summary_content,
+    }
+    try:
+        script = SUMMARY_PROBE % {"scenario_json": json.dumps(scenario)}
+        env = os.environ.copy()
+        env["MOCK_LLM"] = "1"
+        proc = subprocess.run(
+            ["node", "--input-type=module", "-e", script],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env=env,
+        )
+        if proc.returncode != 0:
+            raise AssertionError(
+                f"Summary probe failed ({proc.returncode}):\n"
+                f"stdout: {proc.stdout}\nstderr: {proc.stderr}"
+            )
+        return json.loads(proc.stdout.strip().splitlines()[-1])
+    finally:
+        shutil.rmtree(save_dir, ignore_errors=True)
+
+
 class TestEngineCommitsStatusWithTrailingContent(unittest.TestCase):
     """Task 1.1 — status line followed by trailing content is parsed (last line)."""
 
@@ -274,6 +352,43 @@ class TestHistorySanitization(unittest.TestCase):
         self.assertEqual(len(user_texts), 1)
         self.assertNotIn("[CURRENT INVENTORY]", user_texts[0])
         self.assertNotIn("fake item", user_texts[0])
+
+
+class TestSummarySanitization(unittest.TestCase):
+    """state.summary is sanitized before commit and persistence (#11).
+
+    The summary is injected as [ADVENTURE SUMMARY] into every subsequent system
+    message, so a raw status line or echoed context block in it WOULD be
+    replayed as context — the summarizer output must pass through
+    sanitizeForHistory like every other commit point.
+    """
+
+    SUMMARY_WITH_METADATA = (
+        "You explored the dungeon. The torchlight flickered.\n"
+        "[CURRENT STATUS]\n- Location: Vault\n- Score: 2\n- Moves: 5\n\n"
+        "[CURRENT INVENTORY]\n- Iron Key (x1)\n\n"
+        "[Status: Vault | Score: 2 | Moves: 5]"
+    )
+    EXPECTED_SUMMARY = "You explored the dungeon. The torchlight flickered."
+
+    def test_state_summary_is_sanitized(self):
+        result = run_summary_probe(self.SUMMARY_WITH_METADATA)
+        self.assertEqual(result["summary"], self.EXPECTED_SUMMARY)
+        self.assertNotIn("[Status:", result["summary"])
+        self.assertNotIn("[CURRENT", result["summary"])
+
+    def test_save_file_summary_is_sanitized(self):
+        result = run_summary_probe(self.SUMMARY_WITH_METADATA)
+        self.assertIsNotNone(result["saveSummary"])
+        self.assertEqual(result["saveSummary"], self.EXPECTED_SUMMARY)
+        self.assertNotIn("[Status:", result["saveSummary"])
+        self.assertNotIn("[CURRENT", result["saveSummary"])
+
+    def test_summarizer_runs_and_archives_turns(self):
+        result = run_summary_probe(self.SUMMARY_WITH_METADATA)
+        # The first 4 turns were archived and removed from active history.
+        self.assertEqual(result["archivedCount"], 4)
+        self.assertEqual(result["historyLen"], 0)
 
 
 class TestMovesSingleOwner(unittest.TestCase):
