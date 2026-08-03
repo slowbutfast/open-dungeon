@@ -1,5 +1,5 @@
 """
-Comprehensive unit tests for all 17 MCP tools.
+Comprehensive unit tests for all 18 MCP tools.
 Tests each tool handler's ability to call the underlying AdventureEngine method,
 return properly structured output, and handle edge cases.
 """

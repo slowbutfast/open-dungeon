@@ -4,6 +4,7 @@
  * - dungeon_inspect_state: Current game state overview
  * - dungeon_inspect_history: Conversation history
  * - dungeon_inspect_lore: Active lore/context cards
+ * - dungeon_delete_lore_card: Remove a lore card by ID (recovery path)
  */
 
 import { z } from 'zod';
@@ -139,6 +140,44 @@ export function registerStateTools(server, engine) {
                     content: [{
                         type: "text",
                         text: `Error inspecting lore: ${error.message}`
+                    }],
+                    isError: true
+                };
+            }
+        }
+    );
+
+    // ─── dungeon_delete_lore_card ─────────────────────────────────────────
+    server.tool(
+        "dungeon_delete_lore_card",
+        "Delete a lore/context card by its unique ID. Removes the card from the " +
+        "structured store and the active card list, so its trigger words no " +
+        "longer auto-inject on future turns. This is the recovery path for a " +
+        "poisoned or unwanted card. Use dungeon_inspect_lore to find the ID.",
+        {
+            card_id: z.string().describe("The unique ID of the lore card to delete (from dungeon_inspect_lore)")
+        },
+        async (args) => {
+            try {
+                if (!engine.adventureId) {
+                    throw new Error("No active adventure. Call dungeon_init_session first.");
+                }
+
+                const removed = await engine.deleteCard(args.card_id);
+                return {
+                    content: [{
+                        type: "text",
+                        text: JSON.stringify({
+                            success: removed,
+                            deleted_id: args.card_id
+                        }, null, 2)
+                    }]
+                };
+            } catch (error) {
+                return {
+                    content: [{
+                        type: "text",
+                        text: `Error deleting lore card: ${error.message}`
                     }],
                     isError: true
                 };

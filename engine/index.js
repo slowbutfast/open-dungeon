@@ -317,13 +317,29 @@ export class AdventureEngine {
     }
 
     async deleteCard(cardId) {
+        // The recovery path for a poisoned/unwanted card (GH #15): delete the
+        // store row (so `dungeon_inspect_lore` and a later re-sync cannot
+        // resurrect it) AND remove it from the in-memory cards list (so its
+        // triggers stop auto-injecting). `state.cards` is the firing source;
+        // the store is the persistent record. Deleting either counts as a
+        // removal so a card in only one location is still fully removable.
+        let removed = false;
+        if (this.state.adventureId) {
+            try {
+                removed = this.memory.structuredStore.deleteLore(this.state.adventureId, cardId) || removed;
+            } catch (e) {
+                // Row may not exist; continue to the in-memory removal.
+            }
+        }
         const originalLen = this.state.cards.length;
         this.state.cards = this.state.cards.filter(c => c.id !== cardId);
         if (this.state.cards.length < originalLen) {
-            await this.save();
-            return true;
+            removed = true;
         }
-        return false;
+        if (removed) {
+            await this.save();
+        }
+        return removed;
     }
 
     async getPresets() {

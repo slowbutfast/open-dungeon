@@ -4,7 +4,7 @@
  * Open Dungeon MCP Server
  *
  * A Model Context Protocol server that exposes the AdventureEngine as
- * 17 tools for AI agents to autonomously playtest and debug the game.
+ * 18 tools for AI agents to autonomously playtest and debug the game.
  *
  * Usage:
  *   node mcp/server.js              # stdio transport (default)
@@ -92,7 +92,7 @@ async function main() {
         }
     });
 
-    // Register all 17 tools
+    // Register all 18 tools
     registerAllTools(server, engine);
 
     if (config.transport === 'sse') {

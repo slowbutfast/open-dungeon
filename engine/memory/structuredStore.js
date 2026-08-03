@@ -277,6 +277,20 @@ export class StructuredStore {
         ).all(adventureId);
     }
 
+    /**
+     * Delete a lore row by ID (scoped to the adventure). The recovery path for
+     * a poisoned/unwanted card (GH #15): removing the row means the card can
+     * never be re-synced into `state.cards` or fire again.
+     *
+     * @returns {boolean} true if a row was deleted
+     */
+    deleteLore(adventureId, loreId) {
+        const info = this.db.prepare(
+            'DELETE FROM lore WHERE id = ? AND adventure_id = ?'
+        ).run(loreId, adventureId);
+        return info.changes > 0;
+    }
+
     // ─── Transactional rollback ───────────────────────────────────────────────
 
     /**

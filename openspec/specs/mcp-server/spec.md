@@ -46,6 +46,8 @@ The MCP server SHALL expose tools for inspecting game state: `dungeon_inspect_st
 
 `dungeon_inspect_lore` SHALL report lore/context cards from the authoritative structured store (`lore` table) and SHALL force-flush pending memory extraction before reading, consistent with the other inspect tools.
 
+The MCP server SHALL expose `dungeon_delete_lore_card` to delete a lore/context card by ID during an active session. Deleting SHALL remove the card from the structured store and `state.cards` so its trigger words no longer auto-inject — the recovery path for a poisoned or unwanted card.
+
 #### Scenario: Inspect current game state
 - **WHEN** an AI agent calls `dungeon_inspect_state`
 - **THEN** the system returns location, score, moves, title, model, max_tokens, summary, and system_prompt
@@ -61,6 +63,10 @@ The MCP server SHALL expose tools for inspecting game state: `dungeon_inspect_st
 #### Scenario: Lore inspection reflects pending extraction
 - **WHEN** an AI agent calls `dungeon_inspect_lore` immediately after a turn that produced extractable lore
 - **THEN** the returned cards include the newly-extracted lore from the structured store, matching `dungeon_inspect_stats` lore count
+
+#### Scenario: Delete a poisoned lore card mid-session
+- **WHEN** an AI agent calls `dungeon_delete_lore_card` with a card ID from `dungeon_inspect_lore`
+- **THEN** the card is removed from the store and `state.cards`, no longer appears in `dungeon_inspect_lore`, and its triggers stop auto-injecting
 
 ### Requirement: Memory and Inventory Tools
 The MCP server SHALL expose tools for querying memory and inventory: `dungeon_inspect_inventory`, `dungeon_inspect_events`, `dungeon_inspect_stats`, and `dungeon_search_memories`.
@@ -112,7 +118,7 @@ The MCP server SHALL implement the Model Context Protocol specification, support
 
 #### Scenario: Tool discovery by MCP client
 - **WHEN** an MCP client connects and requests the tool list
-- **THEN** the server returns all 17 tools with their names, descriptions, and JSON Schema input definitions
+- **THEN** the server returns all 18 tools with their names, descriptions, and JSON Schema input definitions
 
 #### Scenario: Tool invocation with structured input
 - **WHEN** an MCP client calls a tool with parameters matching the schema

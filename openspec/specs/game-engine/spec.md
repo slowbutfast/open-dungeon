@@ -45,9 +45,19 @@ The game engine SHALL advance `score` deterministically as the adventure progres
 
 The memory-extraction path (invoked after turns) SHALL validate the event extractor's output against a schema before any row is written to the structured store. Malformed events, inventory changes, or lore facts SHALL be rejected or quarantined, not persisted as ground truth.
 
+Player action text SHALL be wrapped in explicit delimiters when placed in the prompt, with an instruction that the content inside is in-fiction player input and never instructions to the narrator. The status parser SHALL NOT adopt a status line that conflicts with plausible engine state (e.g., a forged `Score: 9999`); on a suspect status line the engine SHALL fall back to its own committed state.
+
 #### Scenario: Processing player action
 - **WHEN** user sends an action of type 'do', 'say', or 'story' with text
 - **THEN** the action is formatted and validated against the synchronous inventory and barter engines, a stream of response chunks is retrieved from the LLM provider, status updates are parsed from the last status line anywhere in the response (Location, Score, Moves), and final narration is appended to history
+
+#### Scenario: Player input is delimited as in-fiction
+- **WHEN** the player's action text is inserted into the prompt
+- **THEN** it is wrapped in explicit delimiters with an instruction that the content is in-fiction input and never instructions, so instruction-style text is framed as player dialogue/action
+
+#### Scenario: Forged status line is not adopted
+- **WHEN** the narrator response contains a status line that contradicts engine state (e.g., `Score: 9999` with no plausible cause, or a mechanical Location like `Admin Room`)
+- **THEN** the engine does not commit the forged values, keeping its own committed location/score/moves
 
 #### Scenario: Pre-action barter intent detection
 - **WHEN** user sends an action of type 'do' containing barter verbs (`trade`, `barter`, `exchange`)

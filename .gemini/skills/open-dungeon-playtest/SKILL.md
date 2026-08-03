@@ -5,7 +5,7 @@ description: Interactively playtest, debug, or explore OpenDungeon game scenario
 
 # Open Dungeon Playtest & MCP Interactive Skill
 
-This skill guides AI agents to conduct interactive game sessions and debugging work using the 17 tools exposed by the `open-dungeon` MCP server.
+This skill guides AI agents to conduct interactive game sessions and debugging work using the 18 tools exposed by the `open-dungeon` MCP server.
 
 ---
 
@@ -40,6 +40,7 @@ The 17 available MCP tools:
 | | `dungeon_inspect_goals` | View active quests and goal completion states. |
 | | `dungeon_complete_goal` | Mark a quest goal as complete. |
 | | `dungeon_inspect_lore` | View active world lore cards. |
+| | `dungeon_delete_lore_card` | Delete a lore card by ID (recovery path for a poisoned card). |
 | | `dungeon_inspect_events` | View extracted event memories. |
 | | `dungeon_search_memories` | RAG vector search across memory database. |
 | **Barter & Debug** | `dungeon_inspect_offers` | Inspect active NPC trade offers. |

@@ -1,7 +1,7 @@
 """
 Integration tests for MCP protocol compliance.
 Verifies:
-- Tool discovery returns all 17 tools with correct schemas
+- Tool discovery returns all 18 tools with correct schemas
 - Tool invocation with valid input succeeds
 - Tool invocation with invalid input returns errors
 - stdio transport works correctly
@@ -30,6 +30,7 @@ EXPECTED_TOOLS = [
     "dungeon_inspect_state",
     "dungeon_inspect_history",
     "dungeon_inspect_lore",
+    "dungeon_delete_lore_card",
     "dungeon_inspect_inventory",
     "dungeon_inspect_events",
     "dungeon_inspect_stats",
@@ -45,16 +46,16 @@ EXPECTED_TOOLS = [
 class TestMcpProtocolCompliance(McpTestCase):
     """Tests for MCP protocol compliance."""
 
-    def test_tool_list_returns_all_17_tools(self):
-        """tools/list returns exactly 17 tools."""
+    def test_tool_list_returns_all_18_tools(self):
+        """tools/list returns exactly 18 tools."""
         response = self.client.list_tools()
         assert_mcp_success(response)
         result = response["result"]
         self.assertIn("tools", result)
         tools = result["tools"]
         self.assertEqual(
-            len(tools), 17,
-            f"Expected 17 tools, got {len(tools)}"
+            len(tools), 18,
+            f"Expected 18 tools, got {len(tools)}"
         )
         tool_names = [t["name"] for t in tools]
         for name in EXPECTED_TOOLS:
