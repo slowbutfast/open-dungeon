@@ -64,6 +64,80 @@ export function parseStatusLine(text) {
     return { narration, location, score, moves };
 }
 
+/**
+ * Sanitize assistant text before it is committed to history, the save file, or
+ * the extraction queue (D3).
+ *
+ * Strips two categories of engine metadata that the model is prone to echo:
+ *
+ * 1. Status-line-shaped lines — the raw `[Status: <Location> | Score: <N>]`
+ *    metadata. The shared parseStatusLine removes only the LAST status line;
+ *    raw output can contain more than one (mock mode emits the two-field line
+ *    twice), so every matching line is stripped here.
+ * 2. Echoed `[CURRENT STATUS]` / `[CURRENT INVENTORY]` blocks — the header line
+ *    plus its following `- ` bullet lines, the exact block shape that
+ *    buildSystemMessage injects. Only whole blocks are stripped, so narration
+ *    that merely contains the tokens is left untouched.
+ *
+ * @param {string} text - Raw assistant output.
+ * @returns {string} Cleaned narration.
+ */
+export function sanitizeForHistory(text) {
+    if (typeof text !== 'string') {
+        if (Array.isArray(text)) {
+            text = text.map(item => typeof item === 'object' ? (item.content || item.text || JSON.stringify(item)) : String(item)).join('');
+        } else if (typeof text === 'object' && text !== null) {
+            text = text.content || text.text || JSON.stringify(text);
+        } else {
+            text = String(text || '');
+        }
+    }
+
+    let cleaned = text;
+
+    // 1. Status-line-shaped lines are engine metadata, never narration. The
+    //    shared parser removes only the last one; raw output can contain several
+    //    (mock mode emits the two-field line twice), so every matching line is
+    //    dropped here. Lines are trimmed before testing (streamed output can
+    //    leave trailing whitespace on a status line).
+    const statusLineShape = /^\[Status:\s*(.*?)\s*\|\s*Score:\s*\d+(?:\s*\|\s*Moves:\s*\d+)?\s*\]$/i;
+    const blockHeader = /^[\s>]*\[CURRENT\s+(?:STATUS|INVENTORY)\]$/i;
+
+    // 2. Strip echoed [CURRENT STATUS]/[CURRENT INVENTORY] blocks: the header
+    //    line plus its following `- ` bullet lines (the injected block shape).
+    //    A leading role-play prefix (`> `) is tolerated. A non-bullet line ends
+    //    the block, so prose after it is preserved.
+    const lines = cleaned.split('\n');
+    const kept = [];
+    let i = 0;
+    while (i < lines.length) {
+        const trimmed = lines[i].trim();
+        if (statusLineShape.test(trimmed)) {
+            i += 1;
+            continue;
+        }
+        if (blockHeader.test(trimmed)) {
+            i += 1;
+            while (i < lines.length) {
+                const bullet = lines[i].trim();
+                if (bullet === '' || bullet.startsWith('- ')) {
+                    i += 1;
+                    continue;
+                }
+                break;
+            }
+            continue;
+        }
+        kept.push(lines[i]);
+        i += 1;
+    }
+    cleaned = kept.join('\n');
+
+    // Collapse runs of blank lines left where blocks were removed.
+    cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim();
+    return cleaned;
+}
+
 function buildClient() {
     const backend = getBackendType();
 
@@ -219,7 +293,7 @@ export class LlmOrchestrator {
         state.history.push({
             role: "user",
             action_type: actionType,
-            text: formattedText
+            text: sanitizeForHistory(formattedText)
         });
 
 
@@ -300,7 +374,7 @@ export class LlmOrchestrator {
                         state.history.push({
                             role: "assistant",
                             action_type: "narration",
-                            text: rejectionText
+                            text: sanitizeForHistory(rejectionText)
                         });
                         state.moves += 1;
                         await saveFn();
@@ -314,7 +388,7 @@ export class LlmOrchestrator {
                         state.history.push({
                             role: "assistant",
                             action_type: "narration",
-                            text: rejectionText
+                            text: sanitizeForHistory(rejectionText)
                         });
                         state.moves += 1;
                         await saveFn();
@@ -461,34 +535,32 @@ export class LlmOrchestrator {
                 };
             }
 
-            let cleanedText = assistantText.trim();
+            // The engine owns the status parse and the moves counter. Parse the
+            // LAST status line anywhere in the accumulated assistant text (the
+            // shared parser tolerates trailing content and case), commit
+            // location/score from it, and increment moves exactly once per
+            // completed turn — the model's Moves field is advisory and ignored.
+            const parsed = parseStatusLine(assistantText);
+            if (parsed.location !== null) {
+                state.location = parsed.location;
+            }
+            if (parsed.score !== null) {
+                state.score = parsed.score;
+            }
+            state.moves += 1;
+
+            let cleanedText = sanitizeForHistory(assistantText);
+
             if (buffer) {
-                const statusMatch = buffer.trim().match(/^\[Status:\s*(.*?)\s*\|\s*Score:\s*(\d+)(?:\s*\|\s*Moves:\s*(\d+))?\s*\]$/);
-                if (statusMatch) {
-                    state.location = statusMatch[1].trim();
-                    state.score = parseInt(statusMatch[2].trim(), 10);
-                    if (statusMatch[3] !== undefined && !isNaN(parseInt(statusMatch[3].trim(), 10))) {
-                        state.moves = parseInt(statusMatch[3].trim(), 10);
-                    } else {
-                        state.moves += 1;
-                    }
-                    cleanedText = assistantText.substring(0, assistantText.length - buffer.length).trim();
-                } else {
+                // The buffer holds streamed content after the first '[' that was
+                // withheld from the client in case it was the status line. If it
+                // never formed a status line, flush it now so the client still
+                // receives it as prose. A status-line-shaped buffer stays hidden
+                // (it is dropped with the parsed metadata and stripped from
+                // history by the sanitizer).
+                const buffered = parseStatusLine(buffer);
+                if (buffered.location === null) {
                     yield { type: "chunk", content: buffer };
-                    state.moves += 1;
-                }
-            } else {
-                const statusMatch = cleanedText.match(/\[Status:\s*(.*?)\s*\|\s*Score:\s*(\d+)(?:\s*\|\s*Moves:\s*(\d+))?\s*\]$/);
-                if (statusMatch) {
-                    state.location = statusMatch[1].trim();
-                    state.score = parseInt(statusMatch[2].trim(), 10);
-                    if (statusMatch[3] !== undefined && !isNaN(parseInt(statusMatch[3].trim(), 10))) {
-                        state.moves = parseInt(statusMatch[3].trim(), 10);
-                    } else {
-                        state.moves += 1;
-                    }
-                } else {
-                    state.moves += 1;
                 }
             }
 

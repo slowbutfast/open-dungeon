@@ -52,12 +52,16 @@ export function registerGameplayTools(server, engine) {
                 // Parse the status line from the narration
                 const { narration, location, score, moves } = parseStatusLine(rawNarration);
 
-                // If we parsed status from the text, use it; otherwise use current engine state
+                // The engine owns the moves counter (it increments exactly once
+                // per completed turn and ignores the model's Moves field), so the
+                // tool reports engine.moves to stay in agreement with
+                // dungeon_inspect_state. Location/score fall back to engine state
+                // when the (already sanitized) narration carries no status line.
                 const result = {
                     narration: narration || rawNarration,
                     location: location || engine.location,
                     score: score !== null ? score : engine.score,
-                    moves: moves !== null ? moves : engine.moves
+                    moves: engine.moves
                 };
 
                 return {

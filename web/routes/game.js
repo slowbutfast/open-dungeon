@@ -2,7 +2,7 @@ import express from 'express';
 import { engine, resetEngine } from '../engineInstance.js';
 import { DEFAULT_SYSTEM_PROMPT } from '../../engine/index.js';
 import { llmTracker, getDebugLogs } from '../../engine/llmTracker.js';
-import { getBackendType, getTokenRange } from '../../engine/llm.js';
+import { getBackendType, getTokenRange, sanitizeForHistory } from '../../engine/llm.js';
 import { OPENROUTER_MODELS } from '../openrouterModels.js';
 
 const router = express.Router();
@@ -334,13 +334,13 @@ router.post('/init', async (req, res) => {
         llmTracker.endCall(callId, openingScene);
         activeEngine.history.push({
             role: "assistant",
-            text: openingScene
+            text: sanitizeForHistory(openingScene)
         });
     } catch (e) {
         llmTracker.failCall(callId, e);
         activeEngine.history.push({
             role: "assistant",
-            text: `You wake up in the world of ${title}. ${summary}\n[Status: Starting Location | Score: 0]`
+            text: sanitizeForHistory(`You wake up in the world of ${title}. ${summary}\n[Status: Starting Location | Score: 0]`)
         });
     }
 
