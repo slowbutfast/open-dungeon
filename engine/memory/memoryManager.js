@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { VectorStore } from './vectorStore.js';
 import { StructuredStore } from './structuredStore.js';
-import { EventExtractor } from './eventExtractor.js';
+import { EventExtractor, validateExtractorOutput } from './eventExtractor.js';
 import { BarterEngine } from './barterEngine.js';
 import { normalizeItemName, itemNamesMatch } from './itemNames.js';
 import { scoreRule } from '../scoring.js';
@@ -105,8 +105,13 @@ export class MemoryManager {
             turnsForExtraction.push({ role: 'assistant', text: pair.dm });
         }
 
-        const extracted = await this.eventExtractor.extractEvents(turnsForExtraction, modelName);
-        addDebugLog(`Memory manager: extracted ${extracted.events?.length || 0} events, ${extracted.inventory_changes?.length || 0} inventory changes, and ${extracted.lore_facts?.length || 0} lore facts.`);
+        const rawExtracted = await this.eventExtractor.extractEvents(turnsForExtraction, modelName);
+        // Schema-check the raw extractor output before anything touches SQLite:
+        // malformed events/inventory changes/lore facts are skipped (counted in
+        // the debug log), valid rows flow on. This applies to the mock fixtures
+        // and the real LLM path alike.
+        const extracted = validateExtractorOutput(rawExtracted);
+        addDebugLog(`Memory manager: extracted ${extracted.events.length} events, ${extracted.inventory_changes.length} inventory changes, and ${extracted.lore_facts.length} lore facts; rejected ${extracted.rejected.events} events, ${extracted.rejected.inventory_changes} inventory changes, and ${extracted.rejected.lore_facts} lore facts.`);
 
         // 1. Process events
         if (extracted.events && extracted.events.length > 0) {
