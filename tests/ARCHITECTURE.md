@@ -149,3 +149,32 @@ These files still receive marker decorators (for archival completeness) but are 
 | `test_memory_features.py` `_cleanup_data_files()` deleted `game/data/` (production memory DB and vector indexes) | Removed `_cleanup_data_files()`. Now only `shutil.rmtree` of the test-local dirs in `tearDownClass`. |
 | Port-sharing: tests silently reused an existing server on port 5001 (e.g. a user's playtest session), writing mock saves to `game/adventures/` | Added port-conflict guard that raises `RuntimeError` if port is already in use. |
 | `tests/data/` accumulated stale artifacts across runs | Cleanup moved to `tearDownClass` so the derived data dir is removed with the save dir. |
+
+## Consistency Contract (`make-undo-and-trades-consistent`)
+
+The undo/trade change ships tests that lock down the shared contract. Run with:
+
+```bash
+MOCK_LLM=1 python3 -m pytest tests/ -v \
+  --ignore=tests/test_cli_behavior.py \
+  --ignore=tests/test_pty_integration.py \
+  --ignore=tests/simulate_playtest.py
+```
+
+### Mock Triggers (`MOCK_LLM=1`)
+
+The mock narrator responds deterministically to seeded history so undo/trade behavior is testable without a live LLM:
+
+| Seed history | Expected extraction |
+|--------------|---------------------|
+| contains `trade` + `leaflet` + `gem` | Remove Leaflet, acquire Gem, event type `trade` |
+| `"bring me"` + `leaflet` | Offer `{Korr, Leaflet, Gem}` |
+| `"find my daughter"` + `locket` | Goal `{Korr, Find the locket, Locket, Gem}` |
+
+### Contract Assertions
+
+- **Undo**: after undoing turn N, `dungeon_inspect_events` / `dungeon_inspect_inventory` return no rows for turns `>= N`; `dungeon_inspect_stats.lastExtractedTurnIndex == N - 1`; `moves` returns to the pre-undo value; the watermark never exceeds committed turn-pair history length.
+- **RAG**: `dungeon_search_memories` does not recall an undone turn (vector ids removed via `deleteItems`).
+- **Barter**: a narrated trade resolves through `executeBarter` (possession check + atomic swap); the sold item is `traded` (excluded from `getInventory`) and re-trading it fails possession; a refused/ambiguous trade returns a refusal, not a crash.
+- **Extraction**: `inventory_changes[].action` supports `traded`; extraction output includes top-level `offers[]` / `goals[]`.
+- **Names**: item lookups normalize via `engine/memory/itemNames.js` shared with `validate-memory-extraction`.

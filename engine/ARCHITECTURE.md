@@ -217,6 +217,24 @@ npm run mcp
 
 3. **Stream collection for actions**: `dungeon_send_action` collects the full LLM response stream, parses the status line `[Status: <Location> | Score: <N> | Moves: <N>]`, and returns the narration text alongside structured metrics.
 
+### Consistency Contract (`make-undo-and-trades-consistent`)
+
+Undo and trade behavior across the engine, MCP tools, and tests must satisfy a fixed contract. See `openspec/changes/make-undo-and-trades-consistent/` for the full specification.
+
+- **Tool names (fixed)**: `dungeon_undo_action`, `dungeon_inspect_events`, `dungeon_inspect_inventory`, `dungeon_inspect_stats`, `dungeon_search_memories`, `dungeon_inspect_offers`, `dungeon_execute_trade`, `dungeon_inspect_goals`, `dungeon_complete_goal`, `dungeon_init_session`, `dungeon_send_action`.
+
+- **Extraction watermark**: `extraction_state.last_extracted_turn_index`, surfaced by `dungeon_inspect_stats` as `lastExtractedTurnIndex`. After undoing turn N: drop store rows with `turn_index >= N`, set the watermark to `N - 1`, and decrement `moves` to the pre-undo value. The watermark must never exceed the committed turn-pair history length.
+
+- **Undo ordering**: `engine.undo` awaits any in-flight flush (drains the turn buffer) before rollback. `rollbackTurns(turnIndex)` removes event/inventory/lore rows and their vector ids (`deleteItems`), so RAG (`dungeon_search_memories`) must not recall the undone turn.
+
+- **Barter**: narrated trades route through `executeBarter` (possession check + atomic swap). A sold item's status transitions to `traded` and is excluded from `getInventory`; re-trading it is rejected. Offer/goal tables are written from narration.
+
+- **Extraction schema**: `inventory_changes[].action` gains `traded` (removal); new top-level `offers[]` and `goals[]` arrays feed `barterEngine.registerOffer` / `createGoal`.
+
+- **Canonical names**: `engine/memory/itemNames.js` (`normalizeItemName` / `itemNamesMatch`), shared with `validate-memory-extraction`.
+
+- **Mock triggers (`MOCK_LLM=1`)**: history containing `trade` + `leaflet` + `gem` → remove Leaflet + acquire Gem with event type `trade`; `"bring me"` + `leaflet` → offer `{Korr, Leaflet, Gem}`; `"find my daughter"` + `locket` → goal `{Korr, Find the locket, Locket, Gem}`.
+
 ### File Organization
 
 ```
