@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
+import { itemNamesMatch } from './itemNames.js';
 
 export class BarterEngine {
     constructor(structuredStore) {
@@ -56,33 +57,41 @@ export class BarterEngine {
     }
 
     executeBarter(adventureId, traderName, requiredItem) {
-        // Find the offer
-        const offer = this.store.db.prepare(
-            'SELECT * FROM barter_offers WHERE adventure_id = ? AND LOWER(trader_name) = LOWER(?) AND LOWER(required_item) = LOWER(?)'
-        ).get(adventureId, traderName, requiredItem);
+        // Find the offer, matching the requested item by canonical name so
+        // narration ("the Gem", "gem") resolves to the same contract the store holds.
+        const offers = this.getOffersForTrader(adventureId, traderName);
+        const offer = offers.find(o => itemNamesMatch(o.required_item, requiredItem));
 
         if (!offer) {
             throw new Error(`No barter offer found for ${requiredItem} from ${traderName}.`);
         }
 
-        // Check if player has the required item
-        const hasItem = this.store.hasItem(adventureId, offer.required_item);
-        if (!hasItem) {
+        // Check if player has the required item (canonical match against held rows)
+        const heldItem = this._findHeldItem(adventureId, offer.required_item);
+        if (!heldItem) {
             throw new Error(`You don't have ${offer.required_item} to trade.`);
         }
 
-        // Execute the atomic swap
-        this.store.executeTrade(adventureId, offer.required_item, offer.offered_item, offer.description || null, 'misc');
+        // Execute the atomic swap using the stored item name so the exact-match
+        // lookup inside executeTrade succeeds even if the offer spelled it differently
+        this.store.executeTrade(adventureId, heldItem.item_name, offer.offered_item, offer.description || null, 'misc');
 
         return offer;
     }
 
-    createGoal(adventureId, npcName, goalTitle, requiredItem, rewardItem) {
+    _findHeldItem(adventureId, itemName) {
+        const held = this.store.db.prepare(
+            "SELECT * FROM inventory WHERE adventure_id = ? AND status = 'held'"
+        ).all(adventureId);
+        return held.find(i => itemNamesMatch(i.item_name, itemName)) || null;
+    }
+
+    createGoal(adventureId, npcName, goalTitle, requiredItem, rewardItem, status = 'NOT_STARTED') {
         const id = uuidv4().substring(0, 8);
         this.store.db.prepare(`
             INSERT INTO quest_goals (id, adventure_id, npc_name, goal_title, required_item, reward_item, status, created_turn)
-            VALUES (?, ?, ?, ?, ?, ?, 'NOT_STARTED', COALESCE((SELECT MAX(turn_index) FROM events WHERE adventure_id = ?), 0))
-        `).run(id, adventureId, npcName, goalTitle, requiredItem, rewardItem, adventureId);
+            VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT MAX(turn_index) FROM events WHERE adventure_id = ?), 0))
+        `).run(id, adventureId, npcName, goalTitle, requiredItem, rewardItem, status, adventureId);
         return this.store.db.prepare('SELECT * FROM quest_goals WHERE id = ?').get(id);
     }
 

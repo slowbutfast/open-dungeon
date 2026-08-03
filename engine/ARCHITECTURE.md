@@ -72,6 +72,17 @@ graph TD
     *   `GET /api/goals` — List active (non-completed) goals.
     *   `POST /api/goals/complete` — Complete a goal (SSE stream).
 
+### 4b. Narrated Trade / Offer / Goal Extraction
+
+*   **Status**: **Fully Operational**
+*   **Behavior**: The event extractor now speaks item *removal* and can emit `offers[]` / `goals[]`, so narrative play populates the same `barter_offers` / `quest_goals` tables the HTTP endpoints and MCP tools read.
+*   **Components**:
+    *   `engine/memory/itemNames.js` — `normalizeItemName()` / `itemNamesMatch()` canonical-name matching (shared with `validate-memory-extraction`).
+    *   `engine/memory/barterEngine.js` — `executeBarter()` resolves offers/possession by canonical name; `createGoal()` accepts an explicit status (narrated goals start `IN_PROGRESS`).
+    *   `engine/memory/memoryManager.js` — Registers extracted offers, creates narrated goals, and routes `inventory_changes[].action = "traded"` through `executeBarter`.
+*   **Trade Flow**: A classified narrated trade routes through `executeBarter` (possession check + atomic swap). Success releases the sold item as `'traded'` (excluded from `getInventory`) and grants the offered item; a refused or ambiguous trade logs a refusal and applies **neither** side (duplicate-sale protection). With no registered offer, removal is applied directly so the sold item is never silently retained.
+*   **Offer / Goal Flow**: `offers[]` from narration (e.g. "bring me X and I'll give you Y") feed `registerOffer()`; `goals[]` (e.g. "find my daughter's locket") feed `createGoal(..., 'IN_PROGRESS')`, deduplicated by `(npc_name, goal_title)`.
+
 ### 5. Dynamic Local Network (LAN) Binding
 *   **Status**: **Fully Operational**
 *   **Behavior**: Enables remote devices on the same Wi-Fi/local network to access the web panel without compromising automated test environments.

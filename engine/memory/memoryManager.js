@@ -2,6 +2,8 @@ import crypto from 'crypto';
 import { VectorStore } from './vectorStore.js';
 import { StructuredStore } from './structuredStore.js';
 import { EventExtractor } from './eventExtractor.js';
+import { BarterEngine } from './barterEngine.js';
+import { normalizeItemName, itemNamesMatch } from './itemNames.js';
 import { addDebugLog } from '../llmTracker.js';
 
 export class MemoryManager {
@@ -13,6 +15,7 @@ export class MemoryManager {
         this.vectorStore = new VectorStore(dataDir);
         this.structuredStore = new StructuredStore(dataDir);
         this.eventExtractor = new EventExtractor(llmClient);
+        this.barter = new BarterEngine(this.structuredStore);
 
         this.turnBuffer = [];
         this.batchSize = 3;
@@ -154,9 +157,69 @@ export class MemoryManager {
             }
         }
 
-        // 2. Process inventory changes
+        // 2. Process trade offers extracted from narration (an NPC proposing a
+        //    trade, e.g. "bring me X and I'll give you Y"). Registered before
+        //    inventory changes so a trade extracted in the same batch can resolve
+        //    through executeBarter.
+        if (extracted.offers && extracted.offers.length > 0) {
+            for (const offer of extracted.offers) {
+                try {
+                    this.barter.registerOffer(
+                        adventureId,
+                        offer.trader_name || 'Unknown Trader',
+                        offer.required_item,
+                        offer.offered_item,
+                        offer.description || null
+                    );
+                } catch (e) {
+                    addDebugLog(`Memory manager: failed to register narrated offer: ${e.message}`);
+                }
+            }
+        }
+
+        // 3. Process inventory changes. A classified trade is routed through
+        //    executeBarter (possession check + atomic swap); a refused or
+        //    ambiguous trade logs a refusal and applies neither side.
         if (extracted.inventory_changes && extracted.inventory_changes.length > 0) {
+            const grantedBySwap = new Set();
+            const blockedByRefusal = new Set();
+
             for (const change of extracted.inventory_changes) {
+                if (change.action === 'traded') {
+                    const resolution = this._resolveNarratedTrade(adventureId, change.item_name);
+                    if (resolution && resolution.offer) {
+                        // Atomic swap already released the sold item and granted
+                        // the offered item; skip the matching acquisition side.
+                        grantedBySwap.add(normalizeItemName(resolution.offer.offered_item));
+                        continue;
+                    }
+                    if (resolution && resolution.refused) {
+                        // Refusal already logged; apply neither side of the trade.
+                        for (const item of resolution.blockedItems || []) {
+                            blockedByRefusal.add(item);
+                        }
+                        continue;
+                    }
+                    // No registered offer: apply deterministic removal directly.
+                    this.structuredStore.upsertInventoryItem(adventureId, {
+                        item_name: change.item_name,
+                        item_type: change.item_type || 'misc',
+                        description: change.description || null,
+                        quantity: change.quantity !== undefined ? change.quantity : 1,
+                        acquired_at: change.location || null,
+                        acquired_turn: endTurnIndex,
+                        status: 'traded'
+                    });
+                    continue;
+                }
+
+                if (grantedBySwap.has(normalizeItemName(change.item_name))) {
+                    continue;
+                }
+                if (blockedByRefusal.has(normalizeItemName(change.item_name))) {
+                    continue;
+                }
+
                 let status = 'held';
                 const qty = change.quantity !== undefined ? change.quantity : 1;
 
@@ -164,6 +227,8 @@ export class MemoryManager {
                 if (change.action === 'use') status = 'used';
                 if (change.action === 'destroy') status = 'destroyed';
                 if (change.action === 'equip') status = 'equipped';
+                if (change.action === 'traded') status = 'traded';
+                if (change.action === 'consume') status = 'used';
 
                 this.structuredStore.upsertInventoryItem(adventureId, {
                     item_name: change.item_name,
@@ -177,7 +242,31 @@ export class MemoryManager {
             }
         }
 
-        // 3. Process lore facts
+        // 4. Process quest goals extracted from narration (an NPC stating an
+        //    objective). Narrated goals start IN_PROGRESS (the objective is live).
+        if (extracted.goals && extracted.goals.length > 0) {
+            for (const goal of extracted.goals) {
+                try {
+                    const existing = this.structuredStore.db.prepare(
+                        'SELECT id FROM quest_goals WHERE adventure_id = ? AND LOWER(npc_name) = LOWER(?) AND LOWER(goal_title) = LOWER(?)'
+                    ).get(adventureId, goal.npc_name || '', goal.goal_title || '');
+                    if (!existing) {
+                        this.barter.createGoal(
+                            adventureId,
+                            goal.npc_name || 'Unknown NPC',
+                            goal.goal_title || 'Untitled objective',
+                            goal.required_item || '',
+                            goal.reward_item || '',
+                            'IN_PROGRESS'
+                        );
+                    }
+                } catch (e) {
+                    addDebugLog(`Memory manager: failed to create narrated goal: ${e.message}`);
+                }
+            }
+        }
+
+        // 5. Process lore facts
         if (extracted.lore_facts && extracted.lore_facts.length > 0) {
             for (const fact of extracted.lore_facts) {
                 const name = fact.name;
@@ -208,6 +297,35 @@ export class MemoryManager {
         // Update extraction watermark
         this.lastExtractedTurnIndex = endTurnIndex;
         this.structuredStore.setLastExtractedTurnIndex(adventureId, endTurnIndex);
+    }
+
+    // Resolve a narrated trade through the barter engine. Returns:
+    //   { offer }                     when the atomic swap succeeded (possession validated)
+    //   { refused, blockedItems }     when refused (ambiguous, or the player no longer
+    //                                holds the item) — blockedItems names the acquisition
+    //                                side(s) that must NOT be applied
+    //   null                          when no offer exists at all (caller applies removal directly)
+    _resolveNarratedTrade(adventureId, tradedItemName) {
+        const offers = this.barter.getAllOffers(adventureId);
+        const matches = offers.filter(o => itemNamesMatch(o.required_item, tradedItemName));
+
+        if (matches.length === 0) {
+            return null;
+        }
+
+        if (matches.length > 1) {
+            addDebugLog(`Memory manager: ambiguous narrated trade for ${tradedItemName}; refusing.`);
+            return { refused: true, blockedItems: matches.map(o => normalizeItemName(o.offered_item)) };
+        }
+
+        const offer = matches[0];
+        try {
+            this.barter.executeBarter(adventureId, offer.trader_name, offer.required_item);
+            return { offer };
+        } catch (e) {
+            addDebugLog(`Memory manager: narrated trade refused (${e.message}); not applying acquisition.`);
+            return { refused: true, blockedItems: [normalizeItemName(offer.offered_item)] };
+        }
     }
 
     async syncLoreToStateCards(adventureId, state) {
