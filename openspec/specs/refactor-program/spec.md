@@ -1,8 +1,7 @@
 # refactor-program Specification
 
 ## Purpose
-Defines how architecture-deepening refactors (#26–#32) must land: the eight guardrails that gate every promoted candidate, and the Strong-set ordering. This is a coordination/meta capability — it governs how the codebase is refactored, not how the game behaves at runtime.
-
+Defines how architecture-deepening refactors must land in this repo: the eight guardrails (TDD-first delivery, byte-for-byte wire-contract preservation, mock/real parity, unit seam, one behavior per change, environment isolation, tiered verification, deletion test on new abstractions) plus the Strong-set ordering. A coordination/meta capability — it governs how the codebase is refactored, not how the game behaves at runtime. Created by archiving the `architecture-deepening-sequence` change (2026-08-03).
 ## Requirements
 ### Requirement: TDD-First Delivery
 Every promoted candidate SHALL land its failing tests before any implementation code is modified, and the first task group in the candidate's `tasks.md` SHALL be "Test Scaffolding (TDD)".
@@ -78,3 +77,4 @@ The scheduled candidates SHALL land in the order #26 (memory freshness), #32 (st
 #### Scenario: Deferred candidates stay out of the critical path
 - **WHEN** no defect or feature touches a deferred candidate's seam
 - **THEN** it is not scheduled ahead of the Strong set
+
