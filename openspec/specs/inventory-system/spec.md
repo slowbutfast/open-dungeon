@@ -8,6 +8,8 @@ The system SHALL provide synchronous CRUD operations on the SQLite `inventory` t
 
 Items written from the event extractor SHALL have leading quantities parsed out of `item_name` into the `quantity` column, and item names SHALL be canonicalized on write so equivalent names compare equal on read.
 
+The system SHALL resolve "do I hold this item?" through ONE canonical matching regime: every held-item check (`hasItem`, `executeTrade`, offer resolution, goal completion) SHALL route through the shared `itemNamesMatch` leaf (`engine/memory/itemNames.js`). Case-insensitive `LOWER()` SQL MAY remain as an indexed fast path, but the canonical match SHALL be the correctness fallback so drifted spellings ("the Gem" vs held "Gem", "Rusted Gear" vs held "Rusty Gear") resolve to the held row everywhere.
+
 #### Scenario: Synchronous inventory item addition
 - **WHEN** an item is acquired or inserted into SQLite
 - **THEN** it is immediately recorded with `status = 'held'` and indexed for sub-millisecond lookup
@@ -45,6 +47,8 @@ The system SHALL validate that the player holds the required item with `status =
 ### Requirement: Edge Case Protection and Undo Synchronization
 The system SHALL support stackable item quantities, disambiguation prompts for equal-confidence matches, container scoping, post-stream acquisition regex scanning, and undo rollbacks.
 
+Undo SHALL roll back the FULL surface a turn can write, not only inventory: `rollbackTurn` SHALL remove `events`, `inventory`, `lore`, `barter_offers`, and `quest_goals` rows for turns `>= N`, rewind the extraction watermark to `N - 1`, and delete the removed events' vector embeddings. `lore`, `barter_offers`, and `quest_goals` SHALL carry a `turn_index` column so narration-created rows (written with the batch end-turn index) roll back with their turn, while rows created outside narration (no turn index, NULL) SHALL survive rollback — the rollback SHALL delete only `turn_index >= ? AND turn_index IS NOT NULL` for offers and goals.
+
 #### Scenario: Partial quantity decrement
 - **WHEN** a player uses or trades a quantity less than the total stack count
 - **THEN** the `quantity` column is decrements while preserving `'held'` status
@@ -52,4 +56,12 @@ The system SHALL support stackable item quantities, disambiguation prompts for e
 #### Scenario: Undo inventory rollback
 - **WHEN** the engine `undo()` function is invoked
 - **THEN** inventory status changes and items acquired on or after the undone turn are reverted in SQLite
+
+#### Scenario: Undo removes the full turn surface
+- **WHEN** the engine undoes a turn whose narration produced lore facts, barter offers, or quest goals
+- **THEN** those rows are removed with the turn (their `turn_index >= N` and `IS NOT NULL`), and `dungeon_inspect_events`/`dungeon_inspect_inventory`/`dungeon_inspect_stats` reflect the rolled-back state
+
+#### Scenario: Non-narration rows survive rollback
+- **WHEN** a barter offer or quest goal is created by an HTTP/MCP endpoint (no narration turn) and the engine later undoes a turn
+- **THEN** the endpoint-created row survives (its `turn_index` is NULL / never matches `>= N`), so manual data is not destroyed by an undo
 
