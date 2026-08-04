@@ -4,6 +4,9 @@
 - **New — undo race test**: undo called while a flush is pending does not resurrect rolled-back rows (await flush before rollback).
 - **New — narrated trade resolution test**: narrate a leaflet→gem trade; assert the sold item is no longer `held`, the gem is `held`, and re-trading the sold item fails possession.
 - **New — duplicate-sale regression test**: after a narrated trade, attempting the same trade again is rejected (no duplicate acquisition).
+- **New — trade-undo restore test (2026-08-03 playtest finding)**: narrate a leaflet→gem trade, then `dungeon_undo_action`; assert the leaflet is `held` again (NOT stranded `traded`) and the gem is gone. Cover at the unit seam (`tests/unit/structuredStore.test.mjs`) and via the MCP surface.
+- **New — re-acquire undo test (#22, 2026-08-03 playtest finding)**: acquire → trade away → re-acquire → `dungeon_undo_action`; assert the re-acquired item is no longer held. Cover at the unit seam and via the MCP surface.
+- **Fix dead test**: `tests/test_barter_engine.py::test_undo_after_trade_restores_inventory` currently performs trade + undo with NO assertions — add the restore assertions (sold item back to `held`, acquired item gone, watermark rewound).
 - **New — offer/goal extraction tests**: narrate "bring me X and I'll give you Y" → `dungeon_inspect_offers` returns the offer and `dungeon_execute_trade` succeeds; narrate "find my daughter's locket" → `dungeon_inspect_goals` returns the goal.
 - **Existing guard**: `python3 -m pytest tests/test_mcp_*.py -v` and `tests/test_barter_engine.py` stay green.
 

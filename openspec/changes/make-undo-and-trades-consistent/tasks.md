@@ -33,8 +33,21 @@
 
 - [x] 6.1 Run `python3 -m pytest tests/test_mcp_*.py tests/test_barter_engine.py -v` and confirm green
 - [x] 6.2 Run the non-integration suite and confirm green
-- [ ] 6.3 Live playtest: undo consistency, narrated trade + offers, quest goals from narration (manual verification section)
-- [ ] 6.4 Coordinate name normalization with `validate-memory-extraction`; coordinate extraction-schema changes with `close-prompt-injection-backdoor` (#15) verification
+- [ ] 6.3 Live playtest: undo consistency, narrated trade + offers, quest goals from narration. The 2026-08-03 parallel playtest sweep already covered the MOCK-mode long-chain portion (undo/trades/goals verified via isolated servers — see research.md); the remaining manual step is a real-model spot-check (cost-aware)
+- [x] 6.4 Coordinate name normalization with `validate-memory-extraction`; coordinate extraction-schema changes with `close-prompt-injection-backdoor` (#15) verification — both dependencies have landed and are archived; done
+
+## 7. Inventory Status-Mutation Rollback (residual — 2026-08-03 playtest)
+
+The 2026-08-03 playtest sweep found undo-after-trade is still broken in two ways
+that share one root cause: `rollbackTurn` deletes inventory rows by
+`acquired_turn >= N` only and never reverts status mutations made on the undone
+turn to pre-existing rows. Spec D5 + the game-engine Undo Action delta define the
+fix. TDD-first.
+
+- [ ] 7.1 Write failing unit-seam tests: (a) trade-undo restore — undo a narrated trade restores the sold item to `held`, not `traded` limbo; (b) re-acquire undo (#22) — undo a re-acquisition removes the item even when its original `acquired_turn` predates the undone turn
+- [ ] 7.2 Add assertions to `tests/test_barter_engine.py::test_undo_after_trade_restores_inventory` (currently a dead test) and write the MCP-surface equivalents in `tests/test_undo_consistency.py`
+- [ ] 7.3 Implement the per-turn status tracking in `upsertInventoryItem` (e.g. a `status_turn` column with a guarded `ALTER TABLE` migration, per D5) and make `rollbackTurn` (i) delete rows re-acquired on the undone turn and (ii) restore pre-existing rows whose status was mutated on the undone turn
+- [ ] 7.4 Verify tiers (test:unit → test:fast → integration → full non-live suite) and re-run the undo playtest scenario (`tests/adventures_pt_shared/scenarios/undo_rollback.jsonl` via `tests/adventures_pt_shared/_pt_runner.py`) — both the limbo and #22 cases must flip to PASS
 
 ### Coordination notes (slice C — docs/config only)
 

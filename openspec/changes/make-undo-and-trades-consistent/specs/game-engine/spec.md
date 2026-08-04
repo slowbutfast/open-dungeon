@@ -5,6 +5,8 @@ The game engine SHALL allow reverting the state by removing the last player turn
 
 Undo SHALL operate as a transaction across history, the structured store (events, inventory, lore), the vector index, and the extraction watermark. On undo, the store rows and vector embeddings for the reverted turn SHALL be removed, `last_extracted_turn_index` SHALL be rewound to match the new history length, and `moves` SHALL be decremented to the pre-undo value.
 
+Inventory rollback SHALL cover BOTH acquisition and status mutation on the undone turn: a row acquired (or re-acquired) on the undone turn SHALL be removed even when the row's original `acquired_turn` predates the undone turn; a pre-existing row whose `status` was mutated on the undone turn (`traded`/`dropped`/`used`/`equipped`) SHALL be restored to its prior status. Undo SHALL NOT leave an item in `traded`/`dropped` limbo when its trade/drop turn is undone, and SHALL NOT leave a re-acquired item held after the re-acquisition turn is undone.
+
 #### Scenario: Undo last action
 - **WHEN** undo is called and there is at least one player turn and DM response in history
 - **THEN** the last assistant turn and the last user turn are removed from active history, SQLite inventory changes on that turn are reverted, the event/vector rows for that turn are removed, the extraction watermark is rewound to the new history end, `moves` is decremented, and the state is saved
@@ -12,6 +14,14 @@ Undo SHALL operate as a transaction across history, the structured store (events
 #### Scenario: Undo does not leave orphaned memory
 - **WHEN** undo is called after a turn that produced extractable events or inventory changes
 - **THEN** `dungeon_inspect_events` no longer returns events for the reverted turn, `dungeon_inspect_inventory` no longer reflects items acquired on that turn, and `dungeon_inspect_stats.last_extracted_turn_index` does not exceed the history length
+
+#### Scenario: Undo of a narrated trade restores the sold item
+- **WHEN** a trade turn is undone after the player gave item X and received item Y
+- **THEN** item Y is removed and item X is returned to `held` (not stranded as `traded`/`dropped`), so the player's inventory reflects the pre-trade state
+
+#### Scenario: Undo of a re-acquired item removes it
+- **WHEN** the player re-acquires a previously-traded item on a turn and then undoes that turn
+- **THEN** the item is no longer held (the re-acquisition is rolled back) even though the item was originally acquired on an earlier turn
 
 ### Requirement: Generate Response Stream
 The game engine SHALL stream narration chunks from the LLM, format input actions, invoke deterministic pre-action inventory and barter validation, parse status lines to update location, score, and moves, and append narration back to history.

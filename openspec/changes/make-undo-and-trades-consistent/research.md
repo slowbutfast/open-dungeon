@@ -110,6 +110,31 @@ Live reproduction on the 12-act Star Wars playtest (`c27aebc6`, Coruscant Underw
 
 **Related GH issue:** #22 (undo loses acquired items + watermark ahead of history).
 
+### Parallel playtest sweep evidence (2026-08-03)
+
+Five concurrent playtest subagents drove long conversation chains against
+isolated mock MCP servers (`MOCK_LLM=1`, per-agent `SAVE_DIR`), one chain per
+feature. The undo/trade chain (`tests/adventures_pt_shared/scenarios/undo_rollback.jsonl`,
+27 steps: 3-turn setup → undo → undo-all → re-acquire/trade/re-acquire → undo)
+found the current residual state of undo-after-trade. Full reports returned to
+the orchestrator; the durable findings for THIS change:
+
+| Claim | Value | How verified | Date | Volatility |
+| :--- | :--- | :--- | :--- | :--- |
+| #22 CONFIRMED: undo after re-acquiring a previously-traded item leaves it held | `inventory_before_22_undo` = `[Leaflet held (acquired_turn:1), Gem held (acquired_turn:2)]`; `undo_22`; `inventory_after_22_undo` = `[Leaflet held (acquired_turn:1), Gem held (acquired_turn:2)]` — unchanged | Isolated MCP playtest | 2026-08-03 | stable |
+| NEW — undo of a trade strands the sold item in `traded` limbo | `inventory_after_undo_trade` = `[]`; SQLite shows `[Leaflet, status:'traded', acquired_turn:2]` — the Gem row (acq 3) was deleted but Leaflet's `traded` flip (made on turn 3) was never reverted, so the player permanently loses the leaflet | Isolated MCP playtest + SQLite | 2026-08-03 | stable |
+| Dead test | `tests/test_barter_engine.py::test_undo_after_trade_restores_inventory` performs trade + undo with NO assertions afterward | Code read | 2026-08-03 | stable |
+| Root cause is shared | `rollbackTurn` deletes inventory rows by `acquired_turn >= N` only (`engine/memory/structuredStore.js`); it never reverts a status mutation (`traded`/`dropped`/`used`/`equipped`) made on the undone turn to a pre-existing row | Code read + playtest | 2026-08-03 | stable |
+
+**Consequence:** the fix must do BOTH, and the second is not implied by the
+first. (a) Refreshing `acquired_turn` on re-acquire fixes #22 but NOT the
+trade-undo limbo. (b) Reverting the undone turn's status mutations to
+pre-existing rows fixes the limbo but NOT #22's stale-`acquired_turn` case.
+The robust shape is a per-turn inventory status journal (or a `status_turn`
+column / equivalent) so rollback can restore a pre-existing row's status to
+its value before the undone turn, and can delete a row re-acquired on the
+undone turn regardless of its original `acquired_turn`.
+
 ## Links out
 
 - `engine/index.js:171` — undo entry point

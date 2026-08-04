@@ -2,6 +2,20 @@
 
 `engine/index.js:171` (undo) → `engine/state.js:129` reverts only history. The memory layer (`memoryManager`, structured store, vector index) is written by async flush after each turn (`llm.js` background task) and is never rewound. The extractor's output schema (`eventExtractor.js`) covers events + inventory *acquisitions* only — no removal concept. `barterEngine.registerOffer`/`createGoal` each have exactly one HTTP caller (`web/routes/game.js:470,537`); narrative play never reaches `executeBarter`, so trades only add and offers/goals tables stay empty. Live evidence: after a narrated leaflet→gem trade, the trade event was extracted, but `barter_offers` was empty and `dungeon_execute_trade` failed with "No barter offer found"; on undo the event/watermark stayed past history end.
 
+## Landed state & residual gap (2026-08-03)
+
+Most of this change has landed and is verified:
+- **Transactional undo (D1)** — `engine.undo` → `memoryManager.rollbackTurns` removes events/inventory/lore/offers/goals rows + vectors for turns >= N, rewinds the watermark, recomputes score; awaited flush before rollback. Full-surface rollback was consolidated in #27 (`memory-schema-boundary`).
+- **Narrated trades (D2)** — classified trades route through `barterEngine.executeBarter`; the sold item is released and re-trading fails possession (duplicate-sale closed).
+- **Offers/goals from narration (D3)** — `offers`/`goals` extraction feeds `registerOffer`/`createGoal`; the existing tool surface operates during normal play.
+- **Name normalization (D4)** — shared canonical `itemNamesMatch` used on write and read.
+
+**Residual gap (found by the 2026-08-03 parallel playtest sweep, mock):** inventory rollback is keyed solely on `acquired_turn >= N`. Two undo-after-trade cases fail:
+1. **#22** — a row re-acquired on the undone turn keeps its ORIGINAL `acquired_turn` (the `upsertInventoryItem` conflict path never refreshes it), so `DELETE ... acquired_turn >= N` misses it and the item is still held after undo.
+2. **Trade-undo limbo (NEW)** — undoing a trade deletes the newly-acquired row but leaves the sold item's status as `traded` (a status mutation made on the undone turn to a pre-existing row), so the player permanently loses the item instead of getting it back.
+
+Both stem from `rollbackTurn` never reverting **status mutations** made on the undone turn to rows that predate it.
+
 ## System Architecture Diagram
 
 ```mermaid
@@ -62,9 +76,13 @@ When the extractor classifies a trade, invoke `barterEngine.executeBarter` (vali
 **D4 — Name normalization helper shared with `validate-memory-extraction`.**
 One canonical-match helper used by both `executeBarter` lookups and extraction writes, so narrated "Rusty Gear" resolves to stored "Rusted Gear". Coordinate implementation with that change.
 
+**D5 — Inventory rollback must revert status mutations, not just delete acquired rows.**
+The residual gap is that `rollbackTurn` deletes inventory rows by `acquired_turn >= N` only, so (a) a row re-acquired on the undone turn is missed (#22) and (b) a status flip (`traded`/`dropped`/`used`/`equipped`) made on the undone turn to a pre-existing row is never undone (trade-undo limbo). The fix SHALL track the per-row status change per turn — a `status_turn` column (or a per-turn inventory status journal) written by `upsertInventoryItem` whenever it mutates an existing row's status — and `rollbackTurn` SHALL (i) delete rows whose (re-)acquisition happened on the undone turn, and (ii) restore to `held` any pre-existing row whose status was mutated on the undone turn. *Alternative rejected:* only refreshing `acquired_turn` on re-acquire — fixes #22 but not the limbo; the two cases need one mechanism.
+
 ## Risks / Trade-offs
 
 - **[D1 undo vs concurrent flush]** → The background flush may be mid-flight during undo. Mitigation: flush (await) before undo, then roll back; document the race in tests.
 - **[D2 executeBarter from narration]** → A narrated trade the model describes ambiguously may not map to a held item. Mitigation: possession validation returns a refusal instead of a crash; keep the extractor's fallback.
 - **[D3 offer/goal over-emission]** → Extractor could register spurious offers. Mitigation: schema validation (ties to validate-memory-extraction) and a min-confidence/observed-narration gate.
 - **[D4 normalization scope]** → Normalizing without migrating legacy rows leaves old drift. Mitigation: normalize on read too (same helper).
+- **[D5 status-journal migration]** → Existing `inventory` rows predate the new `status_turn` column; a legacy row whose status was mutated pre-column has no journal entry. Mitigation: a guarded `ALTER TABLE` (mirroring the #27 migration pattern) and treat NULL `status_turn` as "never mutated by a turn" so rollback leaves those rows alone.
