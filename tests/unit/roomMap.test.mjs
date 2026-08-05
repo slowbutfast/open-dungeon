@@ -115,6 +115,24 @@ test('roomNamesMatch resolves stem variants to the same room', () => {
     assert.equal(roomNamesMatch('the deep pits', 'Deep Pit'), true);
 });
 
+test('roomNamesMatch: genuine -os plurals collapse onto their singular (8.3)', () => {
+    assert.equal(roomNamesMatch('Whispering Grotto', 'Whispering Grottos'), true);
+    assert.equal(roomNamesMatch('Sunken Grotto', 'Sunken Grottos'), true);
+    assert.equal(roomNamesMatch('Whispering Grottos', 'Whispering Grotto'), true);
+    assert.equal(roomNamesMatch('The Volcano', 'The Volcanos'), true);
+});
+
+test('roomNamesMatch: sibilant singulars never get their s stripped (8.3)', () => {
+    // glass/campus/status/iris end in ss/us/is — stripping their trailing s
+    // would mint bogus roots and could collapse distinct rooms.
+    assert.equal(roomNamesMatch('The Glass Spire', 'The Glas Spire'), false);
+    assert.equal(roomNamesMatch('Campus Ruins', 'Campu Ruins'), false);
+    assert.equal(roomNamesMatch('Moss Cave', 'Mos Cave'), false);
+    assert.equal(roomNamesMatch('Status Hall', 'Statu Hall'), false);
+    // And two different sibilant singulars stay distinct.
+    assert.equal(roomNamesMatch('Glass Spire', 'Moss Cave'), false);
+});
+
 test('roomNamesMatch rejects genuinely different names', () => {
     assert.equal(roomNamesMatch('The Deep Pit', 'The Spire'), false);
     assert.equal(roomNamesMatch('', 'Anything'), false);
@@ -249,6 +267,34 @@ test('reconcile: an inferred-edge contradiction self-heals (retract + grow)', ()
     assert.equal(ctx.rooms.size, 3, 'the self-heal grew a new room');
 });
 
+test('reconcile: a directional proposal resolving to the current room never fabricates a self-loop (8.4)', () => {
+    const ctx = makeCtx();
+    const { a, b } = seedConfirmedEdge(ctx);
+    // Player is at B (North Clearing). The inferred edge B south→A exists,
+    // but the narrator proposes B's own name ("go south" landed nowhere new).
+
+    const result = reconcile(b.id, 'go south', 'North Clearing', ctx);
+
+    assert.equal(result.roomId, b.id, 'stays on the current room');
+    assert.equal(result.location, 'North Clearing');
+    const loop = ctx.edges.find(e => e.from_room === b.id && e.to_room === b.id);
+    assert.equal(loop, undefined, 'no room--dir-->room self-loop is recorded');
+    assert.equal(ctx.getEdge(b.id, 'south').inferred, 1, 'the contradicted inferred edge is left intact');
+    assert.equal(ctx.rooms.size, 2, 'no duplicate node is created');
+    assert.ok(ctx.visits.includes(b.id), 'the visit to the current room is recorded');
+});
+
+test('reconcile: the general walk-growth branch also skips a self-loop when a proposal resolves to the current room', () => {
+    const ctx = makeCtx();
+    const a = ctx.resolve('Forest Edge');
+    // No edge exists; the directional action proposes the CURRENT room's name.
+    const result = reconcile(a.id, 'go north', 'Forest Edge', ctx);
+
+    assert.equal(result.roomId, a.id, 'stays on the current room');
+    assert.equal(ctx.edges.length, 0, 'no walk edge (self-loop) is fabricated');
+    assert.ok(ctx.visits.includes(a.id), 'a visit is still recorded');
+});
+
 test('reconcile: portal traversal records a labeled one-way edge with no reverse', () => {
     const ctx = makeCtx();
     const a = ctx.resolve('Forest Edge');
@@ -359,7 +405,7 @@ test('reconcile: never throws when the store write fails — degrades to the pro
     assert.ok(ctx.logs.length > 0, 'the failure is logged');
 });
 
-test('reconcile: a mid-write failure on the edge growth also degrades without throwing', () => {
+test('reconcile: a mid-write failure on the edge growth degrades without throwing but still advances the room (8.1)', () => {
     const ctx = makeCtx();
     const a = ctx.resolve('Forest Edge');
     // resolve works, but the edge write fails (the store died mid-turn).
@@ -368,7 +414,14 @@ test('reconcile: a mid-write failure on the edge growth also degrades without th
     const result = reconcile(a.id, 'go north', 'North Clearing', ctx);
 
     assert.equal(result.location, 'North Clearing');
-    assert.equal(result.roomId, a.id);
+    // 8.1: the degrade path must not desync location/currentRoomId — even
+    // though the edge write failed, the destination node still resolves and
+    // the visit records, so the room identity advances to the committed
+    // location instead of dangling on the previous room.
+    assert.notEqual(result.roomId, a.id, 'the room id advances to the destination');
+    assert.ok(ctx.rooms.has(result.roomId), 'the destination node was resolved');
+    assert.ok(ctx.visits.includes(result.roomId), 'the destination visit is recorded');
+    assert.ok(ctx.logs.length > 0, 'the failure is logged');
 });
 
 // ─── region grouping (walk-connected components) ───────────────────────────

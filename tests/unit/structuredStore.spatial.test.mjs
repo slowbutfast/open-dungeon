@@ -6,6 +6,8 @@
 // the TDD floor for group 2 — RED on HEAD (the tables do not exist yet).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import Database from 'better-sqlite3';
+import path from 'path';
 import { StructuredStore } from '../../engine/memory/structuredStore.js';
 import { createTempDir, cleanupDir } from './helpers.test-utils.mjs';
 
@@ -18,6 +20,33 @@ function makeStore() {
 
 const columns = (store, table) =>
     new Set(store.db.prepare(`PRAGMA table_info(${table})`).all().map(c => c.name));
+
+// Creates a pre-8.1 memory.db exactly as it existed before the nullable-direction
+// fix: `exits.direction TEXT NOT NULL`, plus one pre-existing edge row. Mirrors
+// the legacy-schema setup in migration.test.mjs — the store's _initSchema must
+// rebuild this table so directionless walks work (8.6).
+function createStaleExitsStore(dataDir) {
+    const db = new Database(path.join(dataDir, 'memory.db'));
+    db.exec(`
+        CREATE TABLE exits (
+            id              TEXT PRIMARY KEY,
+            adventure_id    TEXT NOT NULL,
+            from_room       TEXT NOT NULL,
+            direction       TEXT NOT NULL,
+            to_room         TEXT NOT NULL,
+            kind            TEXT DEFAULT 'walk',
+            inferred        INTEGER DEFAULT 0,
+            discovered_turn INTEGER,
+            UNIQUE(adventure_id, from_room, direction)
+        );
+        INSERT INTO exits (id, adventure_id, from_room, direction, to_room, kind, inferred, discovered_turn)
+        VALUES ('edge-1', 'adv1', 'room-a', 'north', 'room-b', 'walk', 0, 1);
+    `);
+    db.close();
+}
+
+const notnullOf = (store, table, column) =>
+    store.db.prepare(`PRAGMA table_info(${table})`).all().find(c => c.name === column).notnull;
 
 test('spatial: rooms/exits/room_visits tables are created on init', (t) => {
     const { store, dataDir } = makeStore();
@@ -117,6 +146,53 @@ test('spatial: UNIQUE(adventure_id, from_room, direction) enforces one edge per 
         /UNIQUE|constraint/i,
         'a second edge on the same (adventure, from_room, direction) must be rejected'
     );
+});
+
+test('spatial: recordEdge with a NULL direction (directionless walk) succeeds against real SQLite (8.1)', (t) => {
+    const { store, dataDir } = makeStore();
+    t.after(() => store.close());
+    t.after(() => cleanupDir(dataDir));
+
+    store.upsertRoom('adv1', 'room-a', 'Forest Edge', null, 1);
+    store.upsertRoom('adv1', 'room-b', 'Lower Depths', null, 2);
+
+    // 8.1 regression: directionless one-way walks ("walk on", "slide down the
+    // chute") call recordEdge(..., null, ...). This used to throw
+    // `NOT NULL constraint failed: exits.direction` against the real DB; the
+    // in-memory ctx mock in roomMap.test.mjs masked the constraint.
+    store.recordEdge('adv1', 'room-a', null, 'room-b', 'walk', 0, 2);
+
+    const edge = store.getEdge('adv1', 'room-a', null);
+    assert.ok(edge, 'the null-direction edge is recorded');
+    assert.equal(edge.to_room, 'room-b');
+    assert.equal(edge.kind, 'walk');
+    assert.equal(edge.inferred, 0);
+    assert.equal(edge.direction, null);
+
+    // SQLite treats NULLs as distinct in the UNIQUE index: several one-way
+    // edges from the same room coexist.
+    store.upsertRoom('adv1', 'room-c', 'Pit Floor', null, 3);
+    store.recordEdge('adv1', 'room-a', null, 'room-c', 'walk', 0, 3);
+    const nullEdges = store.db.prepare(
+        'SELECT * FROM exits WHERE adventure_id = ? AND direction IS NULL'
+    ).all('adv1');
+    assert.equal(nullEdges.length, 2, 'multiple null-direction edges coexist');
+
+    // Named-direction edges still enforce one-per-(from_room, direction).
+    store.recordEdge('adv1', 'room-a', 'north', 'room-b', 'walk', 0, 4);
+    assert.throws(
+        () => store.db.prepare(`
+            INSERT INTO exits (id, adventure_id, from_room, direction, to_room, kind, inferred)
+            VALUES ('dup-north', 'adv1', 'room-a', 'north', 'room-x', 'walk', 0)
+        `).run(),
+        /UNIQUE|constraint/i,
+        'named-direction edges keep the UNIQUE constraint'
+    );
+
+    // retractEdge with a NULL direction removes exactly the null-direction rows.
+    store.retractEdge('adv1', 'room-a', null);
+    assert.equal(store.getEdge('adv1', 'room-a', null), null, 'null-direction edges retract');
+    assert.equal(store.getEdge('adv1', 'room-a', 'north').to_room, 'room-b', 'named edges survive');
 });
 
 test('spatial: getInferredEdges returns only inferred edges', (t) => {
@@ -223,4 +299,58 @@ test('spatial: getIncomingExits and getLastVisit support room inspection', (t) =
 
     const lastVisit = store.getLastVisit('adv1', 'room-b');
     assert.equal(lastVisit.turn, 2);
+});
+
+test('spatial: guarded migration rebuilds a stale exits.direction NOT NULL into nullable (8.6)', (t) => {
+    const dataDir = createTempDir('od-spatial-');
+    t.after(() => cleanupDir(dataDir));
+    createStaleExitsStore(dataDir);
+
+    // Constructing the store runs _initSchema, which must detect the NOT NULL
+    // direction column and rebuild the table as nullable.
+    const store = new StructuredStore(dataDir);
+    t.after(() => store.close());
+
+    // (a) PRAGMA now shows direction nullable.
+    assert.equal(notnullOf(store, 'exits', 'direction'), 0,
+        'exits.direction rebuilt as nullable');
+
+    // (b) The pre-existing row survived the rebuild with its data intact.
+    const row = store.db.prepare('SELECT * FROM exits WHERE id = ?').get('edge-1');
+    assert.ok(row, 'pre-existing edge row survived the rebuild');
+    assert.equal(row.adventure_id, 'adv1');
+    assert.equal(row.from_room, 'room-a');
+    assert.equal(row.direction, 'north');
+    assert.equal(row.to_room, 'room-b');
+
+    // (c) recordEdge(..., null, ...) now succeeds against the migrated table.
+    store.upsertRoom('adv1', 'room-a', 'Forest Edge', null, 1);
+    store.upsertRoom('adv1', 'room-b', 'Lower Depths', null, 2);
+    store.recordEdge('adv1', 'room-a', null, 'room-b', 'walk', 0, 2);
+    const edge = store.getEdge('adv1', 'room-a', null);
+    assert.ok(edge, 'null-direction edge records after the migration');
+    assert.equal(edge.to_room, 'room-b');
+
+    // The rebuilt table keeps the UNIQUE(adventure_id, from_room, direction)
+    // constraint for named-direction edges.
+    assert.throws(
+        () => store.db.prepare(`
+            INSERT INTO exits (id, adventure_id, from_room, direction, to_room, kind, inferred)
+            VALUES ('dup-north', 'adv1', 'room-a', 'north', 'room-x', 'walk', 0)
+        `).run(),
+        /UNIQUE|constraint/i,
+        'named-direction edges keep the UNIQUE constraint on the rebuilt table'
+    );
+
+    // Idempotent: re-construction no-ops and keeps every row (including the
+    // null-direction edge written above).
+    const store2 = new StructuredStore(dataDir);
+    t.after(() => store2.close());
+    assert.equal(notnullOf(store2, 'exits', 'direction'), 0,
+        're-construction does not re-migrate (idempotent)');
+    assert.ok(store2.db.prepare('SELECT * FROM exits WHERE id = ?').get('edge-1'),
+        'legacy row survives re-construction');
+    const nullEdge = store2.getEdge('adv1', 'room-a', null);
+    assert.ok(nullEdge && nullEdge.to_room === 'room-b',
+        'null-direction edge survives re-construction');
 });

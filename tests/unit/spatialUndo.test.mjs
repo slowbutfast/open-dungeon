@@ -150,6 +150,83 @@ test('UNDO RESTORES ROOM (RED on HEAD): undo of a discovery turn reverts room an
     }
 });
 
+test('UNDO RESTORES ROOM (8.2): undo of the first action with no prior visit trail nulls the dangling id and restores the pre-turn location', async (t) => {
+    const tempRoot = createTempDir('od-undo-web-');
+    const saveDir = path.join(tempRoot, 'saves');
+    t.after(() => cleanupDir(tempRoot));
+
+    const engine = new AdventureEngine(saveDir);
+    await engine.newAdventure('Web Flow Undo');
+
+    // Mirror POST /api/init: the greeting is buffered at moves=1 with a
+    // location ("Starting Location") that is NEVER spatially reconciled — no
+    // room node and no room_visits row precedes the first player action.
+    engine.location = 'Starting Location';
+    engine.moves = 1;
+
+    const restore = installScriptedNarrator(engine, [
+        'You step into the Dark Cave.\n[Status: Dark Cave | Score: 0 | Moves: 2]',
+    ]);
+    try {
+        // The first player action is turn 2, with no prior visit trail.
+        await runTurn(engine, 'do', 'walk on');
+        assert.equal(engine.moves, 2);
+        assert.equal(engine.location, 'Dark Cave');
+        const firstRoomId = engine.state.currentRoomId;
+        assert.ok(firstRoomId, 'a room was established for the first action');
+
+        // Undo turn 2: rollback deletes that room. Before the fix the stale
+        // currentRoomId survived, persisted through save/load, and /api/map
+        // returned empty rooms with a non-null current_room_id.
+        await engine.undo();
+
+        assert.equal(engine.moves, 1);
+        assert.equal(engine.state.currentRoomId, null, 'the dangling id is nulled');
+        assert.equal(engine.location, 'Starting Location', 'the pre-turn location is restored');
+        assert.equal(
+            engine.memory.structuredStore.getRoom(engine.adventureId, firstRoomId),
+            null,
+            'the undone room is removed from the store'
+        );
+
+        // The persisted state is consistent: no rooms, no current room.
+        const map = await engine.getMap();
+        assert.equal(map.rooms.length, 0);
+        assert.equal(map.current_room_id, null);
+
+        // Save/load keeps it consistent — the 8.2 bug was a DANGLING id (one
+        // that pointed at a deleted room) surviving save/load. On load the
+        // engine re-establishes the current room from location (D4/4.4), so
+        // the id may be null OR must resolve to a real room in the store —
+        // never to a deleted one.
+        await engine.save();
+        const engine2 = new AdventureEngine(saveDir);
+        try {
+            await engine2.load(engine.adventureId);
+            const store2 = engine2.memory.structuredStore;
+            if (engine2.state.currentRoomId) {
+                assert.ok(
+                    store2.getRoom(engine2.adventureId, engine2.state.currentRoomId),
+                    'the id after save/load resolves to a real room (never dangling)'
+                );
+            }
+            assert.equal(engine2.location, 'Starting Location');
+            const map2 = await engine2.getMap();
+            if (map2.current_room_id) {
+                assert.ok(
+                    map2.rooms.some(r => r.id === map2.current_room_id),
+                    'the map current room resolves to a room in the map'
+                );
+            }
+        } finally {
+            engine2.memory.structuredStore.close();
+        }
+    } finally {
+        restore();
+        engine.memory.structuredStore.close();
+    }
+});
+
 test('UNDO RESTORES ROOM (RED on HEAD): undo of a pure movement restores the prior room and removes the visit', async (t) => {
     const tempRoot = createTempDir('od-undo-move-');
     const saveDir = path.join(tempRoot, 'saves');
@@ -191,6 +268,52 @@ test('UNDO RESTORES ROOM (RED on HEAD): undo of a pure movement restores the pri
         ).all(engine.adventureId);
         assert.equal(visits.length, 2, 'the turn-3 visit was removed, earlier visits survive');
         assert.equal(visits[visits.length - 1].turn, 2);
+    } finally {
+        restore();
+        engine.memory.structuredStore.close();
+    }
+});
+
+// ─── 8.7: multi-undo location stack ─────────────────────────────────────────
+// After undoing a MIDDLE turn, the single previousLocation slot went stale, so
+// a subsequent undo of the first action restored the undone room's location
+// instead of the greeting location. The location stack must rewind per undo.
+test('UNDO RESTORES ROOM (8.7): undoing a middle turn then the first action restores the greeting location at every depth', async (t) => {
+    const tempRoot = createTempDir('od-undo-stack-');
+    const saveDir = path.join(tempRoot, 'saves');
+    t.after(() => cleanupDir(tempRoot));
+
+    const engine = new AdventureEngine(saveDir);
+    await engine.newAdventure('Stack Undo');
+
+    // Web flow: greeting buffered at moves=1, never spatially reconciled.
+    engine.location = 'Starting Location';
+    engine.moves = 1;
+
+    const restore = installScriptedNarrator(engine, [
+        'You enter the Dark Cave.\n[Status: Dark Cave | Score: 0 | Moves: 2]',
+        'You climb to the Deep Shaft.\n[Status: Deep Shaft | Score: 0 | Moves: 3]',
+    ]);
+    try {
+        await runTurn(engine, 'do', 'enter the cave');   // turn 2 -> Dark Cave
+        await runTurn(engine, 'do', 'climb deeper');     // turn 3 -> Deep Shaft
+
+        // Undo the MIDDLE turn (turn 3). previousLocation must rewind so a
+        // later undo of turn 2 still lands on the greeting.
+        await engine.undo();
+        assert.equal(engine.moves, 2);
+        assert.equal(engine.location, 'Dark Cave', 'middle undo restores the turn-2 room');
+        assert.equal(
+            engine.state.locationHistory.length, 1,
+            'locationHistory rewound past the undone turn'
+        );
+
+        // Undo the FIRST action (turn 2). Must restore "Starting Location".
+        await engine.undo();
+        assert.equal(engine.moves, 1);
+        assert.equal(engine.location, 'Starting Location', 'second undo restores the greeting location');
+        assert.equal(engine.state.currentRoomId, null, 'no dangling room id after undoing the first action');
+        assert.equal(engine.state.locationHistory.length, 0, 'locationHistory fully drained');
     } finally {
         restore();
         engine.memory.structuredStore.close();

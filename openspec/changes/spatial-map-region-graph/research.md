@@ -100,6 +100,26 @@ Whiteboard exploration with the peer engineer (2026-08-04), condensed:
 | The map should be an undirected graph | Exploration concluded directed edges with lazy reverse inference fit reality better (one-way passages, portals, time edges) | Directed graph with `inferred` reverse edges |
 | A "hard map" that vetoes the narrator's movement | The map never blocks movement; it only canonicalizes identity and grows new edges | Reconciliation grows at will; only re-traversal of a confirmed edge canonicalizes the name |
 
+## Post-implementation playtest findings (multiagent sweep, 2026-08-05)
+
+Seven parallel `playtest` subagents (missions A–G) drove isolated probe servers against the implemented feature. Findings that update this change's plan (see tasks group 8):
+
+| Claim | Value | How verified | Date | Volatility |
+| :--- | :--- | :--- | :--- | :--- |
+| Directionless walks throw `NOT NULL constraint failed: exits.direction` | `roomMap.js:369` passes `direction = null`; `structuredStore.js:141` declares `exits.direction TEXT NOT NULL`; the throw is swallowed by the `reconcile` catch-all, dropping the forward edge + visit and leaving `currentRoomId` stale | Missions B/D/F/G live repros + `/api/debug/info` log + scratch-DB insert | 2026-08-05 | low — schema/code mismatch, blocker |
+| Undo of the first action leaves a dangling `current_room_id` | `engine/index.js:269` guards `preUndoMoves <= 1`; the web init path hardcodes `moves = 1` and does not spatially reconcile the greeting, so the first action is turn 2 with no prior visit trail | Missions D and E live repros (undo → `/api/map` empty but `current_room_id` non-null, persisted through save/load) | 2026-08-05 | low — blocker |
+| `roomNamesMatch('Whispering Grotto','Whispering Grottos')` = false | The `SIBILANT_OR_SINGULAR` guard `/(ss|us|is|os|as)$/` blocks the `-s` strip on `os`-plural forms | Mission F live pure-module check + duplicate nodes observed | 2026-08-05 | low — major |
+| Degenerate self-loop edges when a directional proposal resolves to the current room | Self-heal branch records `room--dir-->room` + inferred reverse | Missions A/F edge-list inspection | 2026-08-05 | low — minor |
+| The in-memory `ctx` mock in `roomMap.test.mjs` masks real SQLite constraints | The unit suite (93 pass) never exercises `recordEdge(..., null, ...)` against the real store; `structuredStore.spatial.test.mjs` only uses named directions | Playtest repros fail where the unit suite passes | 2026-08-05 | stable — coverage gap |
+| The full pytest suite is green on the committed tree (mock, venv) | `361 passed` on the working tree; the 82 e2e mobile-viewport errors are `PORT 5007 in use` (environmental) | Mission E/G gates | 2026-08-05 | decays |
+| The 8.1 schema fix needs a guarded migration, not just a `CREATE TABLE` change | `CREATE TABLE IF NOT EXISTS` never alters an existing table; the shared `game/playtest/adventures/data/memory.db` (created pre-fix) still has `exits.direction NOT NULL` (`PRAGMA table_info` → notnull=1), so live directionless walks still throw and drop the edge via the degrade path. Fresh temp DBs (unit tests) mask it. | Live probe repro (adventure `70b3e3d4`: two visits, zero edges) + `PRAGMA table_info(exits)` on the stale shared DB + fresh-DB insert succeeding | 2026-08-05 | low — migration gap, blocker |
+
+### Raised but not acted on (harness notes)
+
+- **`Probe.action()` double-fires undo** — `tests/probe_runner.py:192-210` retries the SSE path when a JSON `{status}` response lacks `narration`, so an `action_type="undo"` can execute twice. Harness bug in the archived `probe-runner-parallel-playtest`, not this feature; probe agents worked around it by calling the raw endpoint. Not a task here.
+- **Auto-summarize trims the undo chain** — `summarizeOldTurns` (`engine/context.js`) archives turns at threshold 8, so long undo chains run dry (`engine/state.js` pops only in-memory history). Pre-existing, orthogonal to spatial rollback; probe agents noted it as a test-environment confound.
+- **Gated barter rejections advance `moves` without consuming a script line** — pre-existing (`git blame` → pre-commit), not a regression of this feature.
+
 ## Links out
 
 - `openspec/changes/structured-narrator-context/` — prerequisite: block registry that the `[MAP CONTEXT]` / re-entry blocks land against.

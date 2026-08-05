@@ -254,8 +254,12 @@ export class AdventureEngine {
 
     // D5: restore currentRoomId/location to the pre-turn room AFTER rollback.
     // Undoing the very first turn (no prior visit) resets to the initial
-    // "West of House"; anything else keeps the current room untouched when the
-    // trail has no prior room (old saves / no spatial rows).
+    // "West of House". 8.2: when the undone turn was NOT the very first but
+    // still has no prior visit trail (the web flow buffers its greeting at
+    // moves=1 without spatially reconciling it, so the first action is turn 2
+    // with an empty trail), the stale currentRoomId must not survive —
+    // rollback deleted the room it points at. Null the id and restore the
+    // pre-turn location captured at turn-commit time.
     _restorePreTurnRoom(preTurnRoomId, preUndoMoves) {
         const store = this.memory?.structuredStore;
         if (preTurnRoomId) {
@@ -263,13 +267,36 @@ export class AdventureEngine {
             if (room) {
                 this.state.currentRoomId = room.id;
                 this.state.location = room.name;
+                // 8.7: rewind the location stack past the undone turn so the
+                // NEXT undo restores the correct pre-turn location (the single
+                // previousLocation slot went stale after a middle undo).
+                this.state.locationHistory.pop();
+                this.state.previousLocation =
+                    this.state.locationHistory.length > 0
+                        ? this.state.locationHistory[this.state.locationHistory.length - 1]
+                        : null;
             }
             return;
         }
-        if (preUndoMoves <= 1) {
-            this.state.currentRoomId = null;
+        this.state.currentRoomId = null;
+        // 8.7: pop the undone turn's pushed location. When restoring to a
+        // pre-turn room this already happened above; when there's no trail
+        // (first-action undo in the web flow) pop here and use the popped value.
+        const popped = this.state.locationHistory.pop();
+        if (popped !== undefined) {
+            this.state.location = popped;
+            this.state.previousLocation =
+                this.state.locationHistory.length > 0
+                    ? this.state.locationHistory[this.state.locationHistory.length - 1]
+                    : null;
+        } else if (this.state.previousLocation) {
+            this.state.location = this.state.previousLocation;
+        } else if (preUndoMoves <= 1) {
+            // newAdventure flow, very first turn: back to the initial default.
             this.state.location = "West of House";
         }
+        // else: no turn ever committed a location (suspicious-status turns
+        // only) — the current location is already the pre-turn one. Leave it.
     }
 
     async editTurn(index, newText) {

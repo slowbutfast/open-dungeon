@@ -130,11 +130,16 @@ export class StructuredStore {
                 visit_count     INTEGER DEFAULT 0
             );
 
+            -- direction is NULLable (8.1): a directionless one-way traversal
+            -- ("walk on", "slide down the chute") records an edge with a NULL
+            -- direction label. SQLite treats NULLs as distinct in the UNIQUE
+            -- index, so several one-way edges from the same room coexist while
+            -- named-direction edges stay one-per-(from_room, direction).
             CREATE TABLE IF NOT EXISTS exits (
                 id              TEXT PRIMARY KEY,
                 adventure_id    TEXT NOT NULL,
                 from_room       TEXT NOT NULL,
-                direction       TEXT NOT NULL,
+                direction       TEXT,
                 to_room         TEXT NOT NULL,
                 kind            TEXT DEFAULT 'walk',
                 inferred        INTEGER DEFAULT 0,
@@ -150,6 +155,7 @@ export class StructuredStore {
             );
         `);
         this._migrateTurnIndexColumns();
+        this._migrateNullableExitsDirection();
     }
 
     // Guarded migration for existing DBs created before the turn_index column
@@ -166,6 +172,41 @@ export class StructuredStore {
                 this.db.exec(`ALTER TABLE ${table} ADD COLUMN turn_index INTEGER`);
             }
         }
+    }
+
+    // Guarded migration for existing DBs created before the 8.1 schema fix:
+    // those DBs carry `exits.direction TEXT NOT NULL` (SQLite `CREATE TABLE IF
+    // NOT EXISTS` never alters an existing table), so directionless one-way
+    // walks (recordEdge(..., null, ...)) throw `NOT NULL constraint failed:
+    // exits.direction` and drop the forward edge via the reconcile degrade
+    // path. SQLite cannot ALTER a column's nullability, so the only fix is a
+    // table rebuild: rename, recreate with the nullable schema, copy every row
+    // (column set and UNIQUE(adventure_id, from_room, direction) identical),
+    // drop the old table. Guarded on the table existing AND `direction` being
+    // NOT NULL — idempotent, and it never touches any other table.
+    _migrateNullableExitsDirection() {
+        const exits = this.db.prepare('PRAGMA table_info(exits)').all();
+        if (!exits.length) return; // no exits table yet (pre-spatial DB)
+        const direction = exits.find(c => c.name === 'direction');
+        if (!direction || direction.notnull !== 1) return; // already nullable
+        this.db.exec(`
+            ALTER TABLE exits RENAME TO exits_old;
+            CREATE TABLE exits (
+                id              TEXT PRIMARY KEY,
+                adventure_id    TEXT NOT NULL,
+                from_room       TEXT NOT NULL,
+                direction       TEXT,
+                to_room         TEXT NOT NULL,
+                kind            TEXT DEFAULT 'walk',
+                inferred        INTEGER DEFAULT 0,
+                discovered_turn INTEGER,
+                UNIQUE(adventure_id, from_room, direction)
+            );
+            INSERT INTO exits (id, adventure_id, from_room, direction, to_room, kind, inferred, discovered_turn)
+                SELECT id, adventure_id, from_room, direction, to_room, kind, inferred, discovered_turn
+                FROM exits_old;
+            DROP TABLE exits_old;
+        `);
     }
 
     // ─── Extraction State ─────────────────────────────────────────────────────

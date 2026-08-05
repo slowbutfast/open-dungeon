@@ -106,8 +106,61 @@ test('mock integration: west→north→east→south forms the expected room grap
     }
 });
 
-test('save/load round-trip: the graph and current room survive a restart', async (t) => {
-    const tempRoot = createTempDir('od-int-save-');
+test('mock integration: a directionless walk ("walk on") records the forward edge and advances currentRoomId (8.1)', async (t) => {
+    const tempRoot = createTempDir('od-int-oneway-');
+    const saveDir = path.join(tempRoot, 'saves');
+    t.after(() => cleanupDir(tempRoot));
+
+    const engine = new AdventureEngine(saveDir);
+    await engine.newAdventure('One-Way Walk');
+    const restore = installScriptedNarrator(engine, [
+        'You step into the Western Clearing.\n[Status: Western Clearing | Score: 0 | Moves: 1]',
+        'You walk on along the ridge into the Northern Trail.\n[Status: Northern Trail | Score: 0 | Moves: 2]',
+    ]);
+
+    try {
+        // Turn 1: a named-direction walk establishes the starting room.
+        await runTurn(engine, 'do', 'go west');
+        assert.equal(engine.location, 'Western Clearing');
+        assert.ok(engine.state.currentRoomId, 'currentRoomId established on turn 1');
+
+        // Turn 2: a DIRECTIONLESS walk ("walk on" carries no direction signal).
+        await runTurn(engine, 'do', 'walk on');
+        assert.equal(engine.location, 'Northern Trail');
+
+        const store = engine.memory.structuredStore;
+        const adv = engine.adventureId;
+        const west = store.findRoomByName(adv, 'Western Clearing');
+        const north = store.findRoomByName(adv, 'Northern Trail');
+
+        // 8.1 regression: the null-direction forward edge exists now. Before
+        // the fix it threw `NOT NULL constraint failed: exits.direction`, the
+        // throw was swallowed, and no edge/visit was recorded.
+        const forward = store.getEdge(adv, west.id, null);
+        assert.ok(forward, 'the null-direction forward edge is recorded');
+        assert.equal(forward.to_room, north.id);
+        assert.equal(forward.kind, 'walk');
+        assert.equal(forward.inferred, 0);
+
+        // No reverse edge is inferred for the directionless one-way traversal.
+        assert.equal(store.getIncomingExits(adv, west.id).filter(e => e.from_room === north.id).length, 0,
+            'no reverse edge from the destination');
+
+        // currentRoomId advanced to the destination — never left stale on the
+        // previous room while the location committed (D4 location/room sync).
+        assert.equal(engine.state.currentRoomId, north.id, 'currentRoomId advanced to the destination');
+        assert.equal(engine.location, 'Northern Trail');
+
+        // And the same room is reachable again through reconciliation.
+        const map = await engine.getMap();
+        assert.equal(map.current_room_id, north.id, 'the map agrees with the committed room');
+    } finally {
+        restore();
+        engine.memory.structuredStore.close();
+    }
+});
+
+test('save/load round-trip: the graph and current room survive a restart', async (t) => {    const tempRoot = createTempDir('od-int-save-');
     const saveDir = path.join(tempRoot, 'saves');
     t.after(() => cleanupDir(tempRoot));
 

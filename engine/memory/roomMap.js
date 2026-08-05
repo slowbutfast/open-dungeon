@@ -48,8 +48,13 @@ const ROOM_STEM_SUFFIX_RULES = [
 ];
 
 // Never strip the trailing `s` from sibilant/singular-looking words: "glass",
-// "campus", "plains" (plain is fine, but the guard is cheap), "moss".
-const SIBILANT_OR_SINGULAR = /(ss|us|is|os|as)$/;
+// "campus", "status", "iris", "canvas" (an `ss`/`us`/`is`/`as` ending). The
+// `-os` class is deliberately NOT guarded (8.3): genuine `-os` plurals
+// ("grottos" -> "grotto", "volcanos" -> "volcano") must collapse onto their
+// singular, and true singular `-os` words that matter here end in `ss`/`us`
+// anyway. The `rootLength >= 3` check below is the guard against stripping a
+// lone/short root.
+const SIBILANT_OR_SINGULAR = /(ss|us|is|as)$/;
 
 function stemRoomWord(word) {
     if (SIBILANT_OR_SINGULAR.test(word)) return word;
@@ -312,6 +317,16 @@ export function reconcile(prevRoomId, actionText, proposedName, ctx) {
                         return { location: targetRoom.name, roomId: edge.to_room };
                     }
                     const target = ctx.resolve(proposedName);
+                    // 8.4: a directional proposal that resolves BACK to the
+                    // current room must never fabricate a room--dir-->room
+                    // self-loop plus its inferred reverse. The traversal
+                    // landed nowhere new (blocked/kept-in-place narration):
+                    // record the visit and return the current room without
+                    // touching the contradicted edge.
+                    if (target.id === prevRoomId) {
+                        ctx.recordVisit(target.id);
+                        return { location: target.name, roomId: target.id };
+                    }
                     ctx.retractEdge(prevRoomId, direction);
                     ctx.recordEdge(prevRoomId, direction, target.id, 'walk', 0);
                     if (isReversibleDirection(direction)) {
@@ -373,6 +388,21 @@ export function reconcile(prevRoomId, actionText, proposedName, ctx) {
         if (typeof ctx.log === 'function') {
             ctx.log(`Spatial reconciliation failed; keeping proposed location '${proposedName}': ${e.message}`);
         }
-        return { location: proposedName, roomId: prevRoomId || null };
+        // Degrade path (8.1) must never desync location/currentRoomId: even
+        // when an edge write fails, still resolve the destination node and
+        // record the visit so the room identity advances to the committed
+        // location instead of dangling on the previous room. Best-effort —
+        // if the node resolution itself fails the turn still completes with
+        // the proposed location and the previous room id.
+        try {
+            const target = ctx.resolve(proposedName);
+            ctx.recordVisit(target.id);
+            return { location: target.name, roomId: target.id };
+        } catch (e2) {
+            if (typeof ctx.log === 'function') {
+                ctx.log(`Spatial degrade resolve also failed; keeping previous room: ${e2.message}`);
+            }
+            return { location: proposedName, roomId: prevRoomId || null };
+        }
     }
 }

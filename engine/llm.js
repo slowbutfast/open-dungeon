@@ -655,6 +655,15 @@ export class LlmOrchestrator {
             // authoritative over room identity; a store-write failure degrades
             // to the proposed location and never breaks the turn.
             if (proposedLocation !== null) {
+                // 8.2/8.7 (spatial-map-region-graph): push the pre-turn location
+                // onto the location stack before committing the resolved one, so
+                // undo can restore it at ANY depth (the single previousLocation
+                // slot went stale after a middle undo). The web flow's first
+                // action (turn 2) pushes the greeting "Starting Location", so
+                // undoing it restores that. previousLocation stays as the stack
+                // top for backward compatibility with the 8.2 restore path.
+                state.locationHistory.push(state.location);
+                state.previousLocation = state.location;
                 const resolved = this._reconcileLocation(state, text, proposedLocation, contextManager);
                 state.location = resolved.location;
                 state.currentRoomId = resolved.roomId;

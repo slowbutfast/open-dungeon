@@ -11,6 +11,15 @@ export class AdventureState {
         this.history = [];
         this.archivedHistory = [];
         this.location = "West of House";
+        // 8.2/8.7 (spatial-map-region-graph): a STACK of locations that preceded
+        // each committed turn. Each turn pushes its pre-turn location; undo pops
+        // one. This makes multi-undo restore the correct pre-turn location at
+        // every level, instead of a single slot that goes stale after a middle
+        // undo. The web flow's first action (turn 2) pushes the greeting
+        // "Starting Location" so undoing it restores that. Additive +
+        // null-tolerant on save/load; old saves load an empty stack.
+        this.locationHistory = [];
+        this.previousLocation = null;
         // D4 (spatial-map-region-graph): opaque id of the current room node in
         // the spatial graph. Additive + null-tolerant: old saves lack the
         // field and load as null; the first turn after load establishes it.
@@ -43,6 +52,8 @@ export class AdventureState {
             summarize_threshold: this.summarizeThreshold,
             auto_summarize: this.autoSummarize,
             location: this.location,
+            location_history: this.locationHistory,
+            previous_location: this.previousLocation,
             current_room_id: this.currentRoomId,
             score: this.score,
             moves: this.moves
@@ -85,6 +96,8 @@ export class AdventureState {
             this.summarizeThreshold = state.summarize_threshold !== undefined ? state.summarize_threshold : 8;
             this.autoSummarize = state.auto_summarize !== undefined ? state.auto_summarize : true;
             this.location = state.location || "West of House";
+            this.locationHistory = Array.isArray(state.location_history) ? state.location_history.slice() : [];
+            this.previousLocation = state.previous_location !== undefined ? state.previous_location : null;
             this.currentRoomId = state.current_room_id !== undefined ? state.current_room_id : null;
             this.score = state.score !== undefined ? state.score : 0;
             this.moves = state.moves !== undefined ? state.moves : 0;
