@@ -244,6 +244,21 @@ class TestApiEndpoints(unittest.TestCase):
         self.assertIn("data: ", stream_data)
         self.assertTrue('"type": "chunk"' in stream_data or '"type":"chunk"' in stream_data)
         
+    def test_get_api_map(self):
+        """GET /api/map returns the spatial room graph after a turn."""
+        self.app.post("/api/init", json={"preset_idx": 0})
+        self.app.post("/api/action", json={"action_type": "do", "text": "go north"})
+        res = self.app.get("/api/map")
+        self.assertEqual(res.status_code, 200)
+        data = json.loads(res.data)
+        for key in ("rooms", "edges", "current_room_id", "regions"):
+            self.assertIn(key, data)
+        self.assertIsInstance(data["rooms"], list)
+        self.assertIsInstance(data["edges"], list)
+        self.assertGreaterEqual(len(data["rooms"]), 1)
+        self.assertIsNotNone(data["current_room_id"])
+        self.assertIn("name", data["rooms"][0])
+
     def test_update_system_prompt_api(self):
         """Verify system prompt updating works."""
         self.app.post("/api/init", json={"preset_idx": 0})

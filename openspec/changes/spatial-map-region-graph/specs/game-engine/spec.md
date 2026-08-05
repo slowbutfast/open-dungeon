@@ -1,31 +1,4 @@
-# game-engine Specification
-
-## Purpose
-Defines the core game engine logic, including state initialization, save/load persistence, action handling, undo/retry operations, and narration response generation.
-## Requirements
-### Requirement: Adventure Initialization
-The game engine SHALL be able to initialize a new adventure with a title, a default system prompt, and empty state values.
-
-#### Scenario: Start new adventure
-- **WHEN** user chooses to initialize a new adventure with a given title
-- **THEN** a unique adventure ID is generated, the game state is initialized, and the initial state is saved to a file
-
-### Requirement: Game State Persistence
-The game engine SHALL support saving the current state (including location, score, moves, system prompt, lore cards, history, and summary) to a JSON file, and loading a previously saved state using its adventure ID.
-
-Score SHALL be persisted and restored exactly (round-trip), so a scored progression survives save/load.
-
-#### Scenario: Saving active game state
-- **WHEN** the engine save function is called
-- **THEN** the active engine properties are serialized and written to a JSON file in the designated save directory, including the current `score`
-
-#### Scenario: Loading game state
-- **WHEN** the engine load function is called with a valid adventure ID
-- **THEN** the state is read from the JSON file and all engine properties are updated to match the saved values, including the saved `score`
-
-#### Scenario: Score round-trips through save/load
-- **WHEN** a session with a non-zero score is saved and then loaded
-- **THEN** the restored `score` equals the saved value
+## MODIFIED Requirements
 
 ### Requirement: Undo Action
 The game engine SHALL allow reverting the state by removing the last player turn and the corresponding Dungeon Master narration response from history, while rolling back SQLite inventory status changes made on or after the undone turn.
@@ -114,34 +87,3 @@ The narration call SHALL be routed through the LLM call adapter (`llmCall`): the
 #### Scenario: Reconciliation failure degrades gracefully
 - **WHEN** spatial reconciliation cannot write to the store during a turn
 - **THEN** the engine keeps the narrator's proposed location, logs the failure, and completes the turn without error
-
-### Requirement: Single Ownership of the Moves Counter
-The game engine SHALL track `moves` through a single, defined owner rather than letting the model's status-line number and the engine's fallback increments both mutate the counter independently.
-
-#### Scenario: Moves increment is deterministic
-- **WHEN** a turn completes and the status line omits a Moves field (e.g., mock-mode two-field line) or the status line is unparseable
-- **THEN** the engine applies exactly one deterministic increment (per-turn), and the committed `moves` matches the value returned by `dungeon_inspect_state` and the MCP `dungeon_send_action` fallback
-
-### Requirement: Sanitized History Commit
-The game engine SHALL apply a single sanitization step to assistant text before committing it to history, the save file, or the extraction queue, and SHALL keep the raw assistant text available for debugging without feeding it back as context.
-
-The sanitization scope SHALL include the auto-summarized `state.summary`: the summary is serialized to the save file and injected as `[ADVENTURE SUMMARY]` into the system message on every subsequent turn, so it SHALL NOT contain raw status lines or echoed context blocks.
-
-The sanitization scope SHALL cover **all** injected context blocks, not only `[CURRENT STATUS]` / `[CURRENT INVENTORY]`: the strip-set SHALL be derived from the narrator-context registry headers, so any registered block (e.g. `[ADVENTURE SUMMARY]`, `[WORLD INFO & LORE]`, `[RECALLED MEMORIES]`) is stripped when echoed.
-
-#### Scenario: History commit is sanitized
-- **WHEN** an assistant narration response is finalized
-- **THEN** the text pushed to `state.history` is the cleaned, sanitized narration (echoed context blocks and raw status line removed), and the same sanitized text is what gets serialized to the save file and queued for extraction
-
-#### Scenario: Raw text available for debugging
-- **WHEN** a turn is analyzed for debugging
-- **THEN** the raw assistant output is available (e.g., via diagnostics/logs) but is not included in the context replayed on subsequent turns
-
-#### Scenario: Summarized summary is sanitized
-- **WHEN** the auto-summarizer produces a summary that echoes a status line or context blocks
-- **THEN** the committed `state.summary`, the save-file `summary` field, and the `[ADVENTURE SUMMARY]` context injection contain only the cleaned summary with no raw `[Status: ...]` or registered context-block lines
-
-#### Scenario: Any registered block echo is stripped
-- **WHEN** assistant text echoes the header and body of any registered context block, including `[ADVENTURE SUMMARY]`, `[WORLD INFO & LORE]`, or `[RECALLED MEMORIES]`
-- **THEN** the header line and its following bullet lines are removed from the committed narration
-

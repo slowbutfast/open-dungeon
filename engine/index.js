@@ -9,6 +9,7 @@ import { EmbeddingService } from './memory/embeddings.js';
 import { loadPresets, savePresets as savePresetsFile } from './storyPresets.js';
 import { STATUS_FORMAT } from './statusFormat.js';
 import { formatUserInput } from './llmAdapter.js';
+import { computeRegions } from './memory/roomMap.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -101,6 +102,9 @@ export class AdventureEngine {
     get location() { return this.state.location; }
     set location(val) { this.state.location = val; }
 
+    get currentRoomId() { return this.state.currentRoomId; }
+    set currentRoomId(val) { this.state.currentRoomId = val; }
+
     get score() { return this.state.score; }
     set score(val) { this.state.score = val; }
 
@@ -139,6 +143,7 @@ export class AdventureEngine {
         this.state.history = [];
         this.state.archivedHistory = [];
         this.state.location = "West of House";
+        this.state.currentRoomId = null;
         this.state.score = 0;
         this.state.moves = 0;
         
@@ -159,6 +164,32 @@ export class AdventureEngine {
         await this.state.load(this.saveDir, adventureId, () => this.getLoadedModel());
         await this.memory.initialize(adventureId);
         this.memory.modelName = this.state.model;
+        this._initCurrentRoomFromLocation();
+    }
+
+    // D4 / task 4.4 (spatial-map-region-graph): an old save (or any save
+    // without a persisted current_room_id) resolves its current room from the
+    // stored location — reusing a matching room node if one exists, otherwise
+    // establishing one (first_turn 0 keeps it off the rollback surface, since
+    // only turns >= 1 ever roll back). Best-effort: a broken spatial store
+    // must not break load.
+    _initCurrentRoomFromLocation() {
+        if (this.state.currentRoomId != null || !this.state.location) return;
+        const store = this.memory?.structuredStore;
+        if (!store || !this.state.adventureId) return;
+        try {
+            const known = store.findRoomByName(this.state.adventureId, this.state.location);
+            if (known) {
+                this.state.currentRoomId = known.id;
+                return;
+            }
+            const roomId = `rm-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+            const room = store.upsertRoom(this.state.adventureId, roomId, this.state.location, null, 0);
+            store.recordVisit(this.state.adventureId, room.id, 0);
+            this.state.currentRoomId = room.id;
+        } catch (e) {
+            console.warn(`Failed to initialize the current room from location: ${e.message}`);
+        }
     }
 
     async listAdventures() {
@@ -177,6 +208,12 @@ export class AdventureEngine {
 
     async undo() {
         const preUndoMoves = this.state.moves;
+        // D5 (spatial-map-region-graph): capture the pre-turn room BEFORE the
+        // rollback removes the undone turn's rows. The room the player was in
+        // before this turn is the last room_visits row at or before
+        // preUndoMoves - 1 (the visits trail is the authoritative re-anchor
+        // source and doubles as the room graph's undo trail).
+        const preTurnRoomId = this._findPreTurnRoom(preUndoMoves);
         const result = this.state.undo();
 
         if (result.userTurn || result.assistantTurn) {
@@ -191,10 +228,48 @@ export class AdventureEngine {
             // removed the undone turn's milestones, so recompute to keep score
             // consistent with memory (fix-score-progression, D1).
             this.state.score = this.memory.computeScore(this.state.adventureId);
+            // Undo restores the room identity (D5): currentRoomId + the
+            // canonical location revert to the pre-turn room, and the undone
+            // turn's spatial rows are already gone (rollbackTurns above).
+            this._restorePreTurnRoom(preTurnRoomId, preUndoMoves);
         }
 
         await this.save();
         return result;
+    }
+
+    // D5: the room the player was in before the undone turn — the last visit
+    // row at or before preUndoMoves - 1. Null when there is no prior visit
+    // (undoing the first turn, or no spatial rows yet).
+    _findPreTurnRoom(preUndoMoves) {
+        const store = this.memory?.structuredStore;
+        if (!store || !this.state.adventureId) return null;
+        try {
+            const visit = store.getLastVisitAtOrBefore(this.state.adventureId, preUndoMoves - 1);
+            return visit ? visit.room_id : null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    // D5: restore currentRoomId/location to the pre-turn room AFTER rollback.
+    // Undoing the very first turn (no prior visit) resets to the initial
+    // "West of House"; anything else keeps the current room untouched when the
+    // trail has no prior room (old saves / no spatial rows).
+    _restorePreTurnRoom(preTurnRoomId, preUndoMoves) {
+        const store = this.memory?.structuredStore;
+        if (preTurnRoomId) {
+            const room = store?.getRoom(this.state.adventureId, preTurnRoomId);
+            if (room) {
+                this.state.currentRoomId = room.id;
+                this.state.location = room.name;
+            }
+            return;
+        }
+        if (preUndoMoves <= 1) {
+            this.state.currentRoomId = null;
+            this.state.location = "West of House";
+        }
     }
 
     async editTurn(index, newText) {
@@ -237,6 +312,87 @@ export class AdventureEngine {
 
     async getInventory() {
         return this.memory.getInventory(this.state.adventureId);
+    }
+
+    // ─── Spatial map proxies (spatial-map-region-graph, 6.1) ────────────────
+
+    /**
+     * The adventure's spatial map: rooms (id, canonical name, visit counts),
+     * edges (from, direction, to, kind, inferred flag), the current room id,
+     * and region groupings of walk-connected rooms. Callers that need
+     * read-through freshness flush first (MCP tools reuse forceFlushBeforeRead).
+     */
+    async getMap() {
+        const store = this.memory?.structuredStore;
+        const adventureId = this.state.adventureId;
+        if (!store || !adventureId) return null;
+
+        const rooms = store.getRooms(adventureId);
+        const edges = store.getEdges(adventureId);
+
+        let currentRoomId = this.state.currentRoomId;
+        if (!currentRoomId) {
+            const byName = store.findRoomByName(adventureId, this.state.location);
+            currentRoomId = byName ? byName.id : null;
+        }
+
+        return {
+            rooms: rooms.map(r => ({
+                id: r.id,
+                name: r.name,
+                first_turn: r.first_turn,
+                last_visit_turn: r.last_visit_turn,
+                visit_count: r.visit_count
+            })),
+            edges: edges.map(e => ({
+                from: e.from_room,
+                direction: e.direction,
+                to: e.to_room,
+                kind: e.kind,
+                inferred: e.inferred
+            })),
+            current_room_id: currentRoomId,
+            regions: computeRegions(rooms, edges)
+        };
+    }
+
+    /**
+     * A single room's detail: canonical name, description/lore link,
+     * outgoing + incoming edges with their kinds, and the last visit turn.
+     * Returns null for an unknown room id.
+     */
+    async getRoom(roomId) {
+        const store = this.memory?.structuredStore;
+        const adventureId = this.state.adventureId;
+        if (!store || !adventureId || !roomId) return null;
+
+        const room = store.getRoom(adventureId, roomId);
+        if (!room) return null;
+
+        const outgoing = store.getExits(adventureId, roomId);
+        const incoming = store.getIncomingExits(adventureId, roomId);
+        const lastVisit = store.getLastVisit(adventureId, roomId);
+
+        return {
+            id: room.id,
+            name: room.name,
+            description: room.description || null,
+            first_turn: room.first_turn,
+            visit_count: room.visit_count,
+            last_visit_turn: lastVisit ? lastVisit.turn : null,
+            exits_out: outgoing.map(e => ({
+                direction: e.direction,
+                to_room: e.to_room,
+                kind: e.kind,
+                inferred: e.inferred
+            })),
+            exits_in: incoming.map(e => ({
+                from_room: e.from_room,
+                direction: e.direction,
+                kind: e.kind,
+                inferred: e.inferred
+            }))
+        };
     }
 
     async getEventLog(limit = 20) {

@@ -11,6 +11,10 @@ export class AdventureState {
         this.history = [];
         this.archivedHistory = [];
         this.location = "West of House";
+        // D4 (spatial-map-region-graph): opaque id of the current room node in
+        // the spatial graph. Additive + null-tolerant: old saves lack the
+        // field and load as null; the first turn after load establishes it.
+        this.currentRoomId = null;
         this.score = 0;
         this.moves = 0;
         this.model = "local-model";
@@ -39,6 +43,7 @@ export class AdventureState {
             summarize_threshold: this.summarizeThreshold,
             auto_summarize: this.autoSummarize,
             location: this.location,
+            current_room_id: this.currentRoomId,
             score: this.score,
             moves: this.moves
         };
@@ -80,6 +85,7 @@ export class AdventureState {
             this.summarizeThreshold = state.summarize_threshold !== undefined ? state.summarize_threshold : 8;
             this.autoSummarize = state.auto_summarize !== undefined ? state.auto_summarize : true;
             this.location = state.location || "West of House";
+            this.currentRoomId = state.current_room_id !== undefined ? state.current_room_id : null;
             this.score = state.score !== undefined ? state.score : 0;
             this.moves = state.moves !== undefined ? state.moves : 0;
         } catch (e) {

@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import { normalizeItemName, itemNamesMatch } from './itemNames.js';
+import { roomNamesMatch } from './roomMap.js';
 
 // Canonicalize an extractor inventory-change row before it is written:
 //  - a leading quantity numeral ("2 Coppers") is parsed out of `item_name`
@@ -108,6 +109,44 @@ export class StructuredStore {
                 created_turn    INTEGER,
                 completed_turn  INTEGER,
                 turn_index      INTEGER
+            );
+
+            -- Room graph (spatial-map-region-graph, D1). Rooms are nodes keyed
+            -- by an opaque engine-assigned id; the canonical display name is
+            -- stored separately so a drifting narrator name never re-keys a
+            -- room. first_turn stamps discovery for full-surface rollback.
+            -- exits carry discovered_turn (NULL = hand-created, survives
+            -- rollback); UNIQUE(adventure_id, from_room, direction) makes
+            -- re-traversal deterministic and contradiction detectable.
+            -- room_visits records every visit by turn and doubles as the undo
+            -- re-anchor trail (D5).
+            CREATE TABLE IF NOT EXISTS rooms (
+                id              TEXT PRIMARY KEY,
+                adventure_id    TEXT NOT NULL,
+                name            TEXT NOT NULL,
+                description     TEXT,
+                first_turn      INTEGER NOT NULL,
+                last_visit_turn INTEGER,
+                visit_count     INTEGER DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS exits (
+                id              TEXT PRIMARY KEY,
+                adventure_id    TEXT NOT NULL,
+                from_room       TEXT NOT NULL,
+                direction       TEXT NOT NULL,
+                to_room         TEXT NOT NULL,
+                kind            TEXT DEFAULT 'walk',
+                inferred        INTEGER DEFAULT 0,
+                discovered_turn INTEGER,
+                UNIQUE(adventure_id, from_room, direction)
+            );
+
+            CREATE TABLE IF NOT EXISTS room_visits (
+                id              TEXT PRIMARY KEY,
+                adventure_id    TEXT NOT NULL,
+                room_id         TEXT NOT NULL,
+                turn            INTEGER NOT NULL
             );
         `);
         this._migrateTurnIndexColumns();
@@ -465,6 +504,157 @@ export class StructuredStore {
         ).get(adventureId, npcName, goalTitle);
     }
 
+    // ─── Room graph (spatial-map-region-graph) ──────────────────────────────
+
+    // Deterministic edge id reflecting the UNIQUE(adventure_id, from_room,
+    // direction) constraint: one edge per direction per room. A null-direction
+    // one-way edge keys on the target so several one-way connections from the
+    // same room coexist (SQLite treats NULLs as distinct in the UNIQUE index).
+    _roomEdgeId(adventureId, fromRoom, direction, toRoom = '') {
+        return direction
+            ? `${adventureId}:${fromRoom}:${direction}`
+            : `${adventureId}:${fromRoom}:${toRoom}:oneway`;
+    }
+
+    /**
+     * Insert or refresh a room node. Returns the row.
+     *
+     * @param {string} adventureId
+     * @param {string} roomId - opaque engine-assigned id (distinct from the name)
+     * @param {string} name - canonical display name
+     * @param {string|null} description
+     * @param {number} firstTurn - discovery turn (0 = hand-created, survives rollback)
+     */
+    upsertRoom(adventureId, roomId, name, description = null, firstTurn = 0) {
+        this.db.prepare(`
+            INSERT INTO rooms (id, adventure_id, name, description, first_turn)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name,
+                description = COALESCE(excluded.description, description)
+        `).run(roomId, adventureId, name, description, firstTurn);
+        return this.getRoom(adventureId, roomId);
+    }
+
+    getRoom(adventureId, roomId) {
+        return this.db.prepare(
+            'SELECT * FROM rooms WHERE id = ? AND adventure_id = ?'
+        ).get(roomId, adventureId) || null;
+    }
+
+    getRooms(adventureId) {
+        return this.db.prepare(
+            'SELECT * FROM rooms WHERE adventure_id = ? ORDER BY first_turn, name'
+        ).all(adventureId);
+    }
+
+    // Name → node lookup (the load-bearing `resolve` of the reconciliation
+    // table). Exact indexed SQL match first, then canonical/stem fallback over
+    // the adventure's rooms so drifted spellings resolve to the same node.
+    findRoomByName(adventureId, name) {
+        const exact = this.db.prepare(
+            'SELECT * FROM rooms WHERE adventure_id = ? AND LOWER(name) = LOWER(?)'
+        ).get(adventureId, name);
+        if (exact) return exact;
+        const all = this.getRooms(adventureId);
+        return all.find(r => roomNamesMatch(r.name, name)) || null;
+    }
+
+    /**
+     * Record a visit to a room on a turn: bump the room's summary columns and
+     * append the per-turn trail row (the undo re-anchor source, D5).
+     */
+    recordVisit(adventureId, roomId, turn) {
+        this.db.prepare(`
+            UPDATE rooms SET last_visit_turn = ?, visit_count = visit_count + 1
+            WHERE id = ? AND adventure_id = ?
+        `).run(turn, roomId, adventureId);
+        this.db.prepare(`
+            INSERT OR IGNORE INTO room_visits (id, adventure_id, room_id, turn)
+            VALUES (?, ?, ?, ?)
+        `).run(`${adventureId}:${roomId}:${turn}`, adventureId, roomId, turn);
+    }
+
+    /**
+     * Record (or refresh) an edge. `turn` is the discovered_turn stamp (NULL
+     * for hand-created edges, which survive rollback). Re-recording the same
+     * (from, direction) upserts in place via the deterministic id.
+     */
+    recordEdge(adventureId, fromRoom, direction, toRoom, kind = 'walk', inferred = 0, turn = null) {
+        const id = this._roomEdgeId(adventureId, fromRoom, direction, toRoom);
+        this.db.prepare(`
+            INSERT INTO exits (id, adventure_id, from_room, direction, to_room, kind, inferred, discovered_turn)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                to_room = excluded.to_room,
+                kind = excluded.kind,
+                inferred = excluded.inferred,
+                discovered_turn = COALESCE(excluded.discovered_turn, discovered_turn)
+        `).run(id, adventureId, fromRoom, direction, toRoom, kind, inferred, turn);
+        return this.getEdge(adventureId, fromRoom, direction);
+    }
+
+    getEdge(adventureId, fromRoom, direction) {
+        if (direction === null || direction === undefined) {
+            return this.db.prepare(
+                'SELECT * FROM exits WHERE adventure_id = ? AND from_room = ? AND direction IS NULL'
+            ).get(adventureId, fromRoom) || null;
+        }
+        return this.db.prepare(
+            'SELECT * FROM exits WHERE adventure_id = ? AND from_room = ? AND direction = ?'
+        ).get(adventureId, fromRoom, direction) || null;
+    }
+
+    retractEdge(adventureId, fromRoom, direction) {
+        if (direction === null || direction === undefined) {
+            return this.db.prepare(
+                'DELETE FROM exits WHERE adventure_id = ? AND from_room = ? AND direction IS NULL'
+            ).run(adventureId, fromRoom);
+        }
+        return this.db.prepare(
+            'DELETE FROM exits WHERE adventure_id = ? AND from_room = ? AND direction = ?'
+        ).run(adventureId, fromRoom, direction);
+    }
+
+    getExits(adventureId, roomId) {
+        return this.db.prepare(
+            'SELECT * FROM exits WHERE adventure_id = ? AND from_room = ? ORDER BY direction'
+        ).all(adventureId, roomId);
+    }
+
+    getIncomingExits(adventureId, roomId) {
+        return this.db.prepare(
+            'SELECT * FROM exits WHERE adventure_id = ? AND to_room = ? ORDER BY direction'
+        ).all(adventureId, roomId);
+    }
+
+    getEdges(adventureId) {
+        return this.db.prepare(
+            'SELECT * FROM exits WHERE adventure_id = ?'
+        ).all(adventureId);
+    }
+
+    getInferredEdges(adventureId) {
+        return this.db.prepare(
+            'SELECT * FROM exits WHERE adventure_id = ? AND inferred = 1'
+        ).all(adventureId);
+    }
+
+    // Last visit row for a room (room-detail inspection: "last visit turn").
+    getLastVisit(adventureId, roomId) {
+        return this.db.prepare(
+            'SELECT * FROM room_visits WHERE adventure_id = ? AND room_id = ? ORDER BY turn DESC LIMIT 1'
+        ).get(adventureId, roomId) || null;
+    }
+
+    // Last visit at or before a turn — the undo re-anchor lookup (D5): the
+    // pre-turn room is the last visit at or before preUndoMoves - 1.
+    getLastVisitAtOrBefore(adventureId, turn) {
+        return this.db.prepare(
+            'SELECT * FROM room_visits WHERE adventure_id = ? AND turn <= ? ORDER BY turn DESC LIMIT 1'
+        ).get(adventureId, turn) || null;
+    }
+
     // ─── Transactional rollback ───────────────────────────────────────────────
 
     /**
@@ -507,6 +697,37 @@ export class StructuredStore {
                 'DELETE FROM quest_goals WHERE adventure_id = ? AND turn_index >= ? AND turn_index IS NOT NULL'
             ).run(adventureId, turnIndex);
 
+            // Spatial rollback (spatial-map-region-graph, D1/D5): rooms carry
+            // first_turn (0 for hand-created/legacy rooms — survives), exits
+            // carry discovered_turn with the IS NOT NULL guard so hand-created
+            // edges survive, and room_visits roll back by turn. The summary
+            // columns (visit_count / last_visit_turn) are recomputed from the
+            // surviving trail so a rolled-back visit cannot leave a stale count.
+            this.db.prepare(
+                'DELETE FROM rooms WHERE adventure_id = ? AND first_turn >= ?'
+            ).run(adventureId, turnIndex);
+
+            this.db.prepare(
+                'DELETE FROM exits WHERE adventure_id = ? AND discovered_turn >= ? AND discovered_turn IS NOT NULL'
+            ).run(adventureId, turnIndex);
+
+            this.db.prepare(
+                'DELETE FROM room_visits WHERE adventure_id = ? AND turn >= ?'
+            ).run(adventureId, turnIndex);
+
+            this.db.prepare(`
+                UPDATE rooms SET
+                    visit_count = COALESCE((
+                        SELECT COUNT(*) FROM room_visits
+                        WHERE room_visits.room_id = rooms.id AND room_visits.adventure_id = rooms.adventure_id
+                    ), 0),
+                    last_visit_turn = COALESCE((
+                        SELECT MAX(turn) FROM room_visits
+                        WHERE room_visits.room_id = rooms.id AND room_visits.adventure_id = rooms.adventure_id
+                    ), first_turn)
+                WHERE adventure_id = ?
+            `).run(adventureId);
+
             const current = this.getLastExtractedTurnIndex(adventureId);
             const rewinded = Math.min(current, Math.max(0, turnIndex - 1));
             this.setLastExtractedTurnIndex(adventureId, rewinded);
@@ -537,6 +758,9 @@ export class StructuredStore {
         this.db.prepare('DELETE FROM extraction_state WHERE adventure_id = ?').run(adventureId);
         this.db.prepare('DELETE FROM barter_offers WHERE adventure_id = ?').run(adventureId);
         this.db.prepare('DELETE FROM quest_goals WHERE adventure_id = ?').run(adventureId);
+        this.db.prepare('DELETE FROM rooms WHERE adventure_id = ?').run(adventureId);
+        this.db.prepare('DELETE FROM exits WHERE adventure_id = ?').run(adventureId);
+        this.db.prepare('DELETE FROM room_visits WHERE adventure_id = ?').run(adventureId);
     }
 
     close() {

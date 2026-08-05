@@ -1,7 +1,7 @@
 """
 Integration tests for MCP protocol compliance.
 Verifies:
-- Tool discovery returns all 18 tools with correct schemas
+- Tool discovery returns all 20 tools with correct schemas
 - Tool invocation with valid input succeeds
 - Tool invocation with invalid input returns errors
 - stdio transport works correctly
@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from tests.mcp_client import McpTestCase, assert_mcp_success, McpClient
 
-# Expected tool names
+# Expected tool names (spatial-map-region-graph adds the two map tools)
 EXPECTED_TOOLS = [
     "dungeon_init_session",
     "dungeon_list_saves",
@@ -40,22 +40,24 @@ EXPECTED_TOOLS = [
     "dungeon_inspect_goals",
     "dungeon_complete_goal",
     "dungeon_get_debug_info",
+    "dungeon_inspect_map",
+    "dungeon_inspect_room",
 ]
 
 
 class TestMcpProtocolCompliance(McpTestCase):
     """Tests for MCP protocol compliance."""
 
-    def test_tool_list_returns_all_18_tools(self):
-        """tools/list returns exactly 18 tools."""
+    def test_tool_list_returns_all_tools(self):
+        """tools/list returns exactly 20 tools."""
         response = self.client.list_tools()
         assert_mcp_success(response)
         result = response["result"]
         self.assertIn("tools", result)
         tools = result["tools"]
         self.assertEqual(
-            len(tools), 18,
-            f"Expected 18 tools, got {len(tools)}"
+            len(tools), 20,
+            f"Expected 20 tools, got {len(tools)}"
         )
         tool_names = [t["name"] for t in tools]
         for name in EXPECTED_TOOLS:

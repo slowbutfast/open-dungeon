@@ -249,6 +249,7 @@ router.get('/state', async (req, res) => {
         adventure_id: activeEngine.adventureId,
         title: activeEngine.title,
         location: activeEngine.location,
+        current_room_id: activeEngine.currentRoomId,
         score: activeEngine.score,
         moves: activeEngine.moves,
         history: activeEngine.history,
@@ -258,6 +259,22 @@ router.get('/state', async (req, res) => {
         max_tokens: activeEngine.maxTokens,
         model: activeEngine.model
     });
+});
+
+// GET /api/map (spatial-map-region-graph, 6.3): the spatial room graph behind
+// the dungeon_inspect_map MCP tool. Same read-through freshness as the MCP
+// surface (force flush before reading).
+router.get('/map', async (req, res) => {
+    try {
+        if (!engine.adventureId) {
+            return res.status(400).json({ error: 'No active adventure.' });
+        }
+        await forceFlushBeforeRead(engine);
+        const map = await engine.getMap();
+        res.json(map);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 router.post('/state', async (req, res) => {

@@ -11,6 +11,7 @@ import { registerStateTools } from './state.js';
 import { registerMemoryTools } from './memory.js';
 import { registerBarterTools } from './barter.js';
 import { registerDiagnosticsTools } from './diagnostics.js';
+import { registerMapTools } from './map.js';
 
 /**
  * Register all MCP tools with the given server and engine instances.
@@ -25,4 +26,5 @@ export function registerAllTools(server, engine) {
     registerMemoryTools(server, engine);
     registerBarterTools(server, engine);
     registerDiagnosticsTools(server, engine);
+    registerMapTools(server, engine);
 }

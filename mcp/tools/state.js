@@ -36,6 +36,7 @@ export function registerStateTools(server, engine) {
                             adventure_id: engine.adventureId,
                             title: engine.title,
                             location: engine.location,
+                            current_room_id: engine.currentRoomId,
                             score: engine.score,
                             moves: engine.moves,
                             model: engine.model,
