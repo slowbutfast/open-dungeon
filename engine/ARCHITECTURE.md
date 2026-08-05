@@ -151,6 +151,18 @@ graph TD
       options, embeddings → sin-based mock vectors. The `EventExtractor` mock
       fixture (history-text-keyed extraction) is a separate deterministic test
       contract and is untouched.
+    *   **Scripted narration (`scriptable-mock-narrator`)**: when
+      `MOCK_SCRIPT_FILE` points at a readable JSON array of canonical status
+      lines, the mock's `narration` intent serves the next scripted line per
+      turn (holding the last on exhaustion) through the same delta-chunk stream
+      shape canned narration uses, so `parseStatusLine` and history
+      sanitization behave identically. The script is read lazily on the first
+      narration call; unset/unreadable/invalid input logs a warning and falls
+      back to byte-identical canned narration (D4). Scripting is strictly
+      narration-scoped — all other intents keep their canned behavior. The
+      scripted `Score`/`Moves` fields stay advisory; the engine remains the
+      single owner of both. The probe runner (`tests/probe_runner.py`) passes
+      `MOCK_SCRIPT_FILE` through to spawned probe servers when configured.
     *   **`formatUserInput` consolidated**: the player-input formatter lives once
       in `engine/llmAdapter.js` and is used by both `AdventureEngine.formatUserInput`
       (`engine/index.js`) and the live turn path (`engine/llm.js`).

@@ -69,6 +69,24 @@ HTTP API surface (verified against `web/routes/*.js`, all under `/api`):
 
 ## 3. Drive the HTTP API from the Shell
 
+### Parallel Probe Runner (GH #34)
+
+Use the supervised runner rather than hand-rolled server processes for parallel
+probes (GH #34; the multi-session MCP Option A remains deferred):
+
+```bash
+python3 tests/probe_runner.py run --probes probe-B1 probe-B2 \
+  --mock 1 --max-concurrent 2
+```
+
+`--mock 0 --llm-backend openrouter` enables a real-model fidelity run;
+`--timeout` controls readiness/request timeouts. The runner allocates `PORT`
+itself, sets each probe's `SAVE_DIR` to the distinct gitignored
+`game/playtest/adventures/probe-<name>` directory, and tears down every child on
+normal exit or interrupt. It resumes a saved adventure after a child crash and
+caps restarts. `--max-concurrent` is optional; without it all requested probes
+run concurrently. `OPENROUTER_MODEL` can be passed with `--openrouter-model`.
+
 Playtest state changes via `curl` (or any HTTP client). Examples:
 
 ```bash
@@ -76,36 +94,36 @@ BASE=http://127.0.0.1:5001/api
 
 # Initialize a session. Param is `preset_idx` (0=LOTR, 1=Cyberpunk, 2=Coruscant
 # Underworld, 3=Outer Rim). Optional: title / summary / system_prompt / character.
-curl -s -X POST $BASE/game/init -H 'Content-Type: application/json' \
+curl -s -X POST $BASE/init -H 'Content-Type: application/json' \
   -d '{"title":"CLI Playtest","preset_idx":2}'
 
 # Send an action (do / say / story)
-curl -s -X POST $BASE/game/action -H 'Content-Type: application/json' \
+curl -s -X POST $BASE/action -H 'Content-Type: application/json' \
   -d '{"action_type":"do","text":"look around"}'
 
 # Inspect state / inventory / events / stats / offers / goals / debug
-curl -s $BASE/game/state
+curl -s $BASE/state
 curl -s $BASE/memory/inventory
 curl -s $BASE/memory/events
 curl -s $BASE/memory/stats
-curl -s $BASE/game/trade/offers
-curl -s $BASE/game/goals
-curl -s $BASE/game/debug/info
+curl -s $BASE/trade/offers
+curl -s $BASE/goals
+curl -s $BASE/debug/info
 
 # Semantic memory search
 curl -s -X POST $BASE/memory/search -H 'Content-Type: application/json' \
   -d '{"query":"the datachip","topK":5}'
 
 # Execute a barter trade (trader_name + required_item)
-curl -s -X POST $BASE/game/trade -H 'Content-Type: application/json' \
+curl -s -X POST $BASE/trade -H 'Content-Type: application/json' \
   -d '{"trader_name":"Liss","required_item":"datachip"}'
 
 # Complete a quest goal (goal_id)
-curl -s -X POST $BASE/game/goals/complete -H 'Content-Type: application/json' \
+curl -s -X POST $BASE/goals/complete -H 'Content-Type: application/json' \
   -d '{"goal_id":"<id>"}'
 
-# Undo last action — via the action endpoint with action_type "undo" (web/routes/game.js:372)
-curl -s -X POST $BASE/game/action -H 'Content-Type: application/json' \
+# Undo last action — via the action endpoint with action_type "undo" (web/routes/game.js:376)
+curl -s -X POST $BASE/action -H 'Content-Type: application/json' \
   -d '{"action_type":"undo","text":""}'
 ```
 

@@ -1,4 +1,33 @@
 // Helper classes for offline/PTY testing mode when MOCK_LLM=1
+import { readFileSync } from 'fs';
+
+// Scripted narration (scriptable-mock-narrator): when MOCK_SCRIPT_FILE is set
+// to a readable JSON array of canonical status-line strings (each a canonical
+// three-field `Status / Score / Moves` line matching the shared STATUS_FORMAT
+// contract), the narration intent serves the next line per turn and holds the
+// last line when the script is exhausted. Read lazily on the first narration
+// use so a bad path never fails startup; unset, unreadable, or invalid input
+// falls back to the canned narration with a warning (D4), so the default path
+// stays byte-identical.
+function loadScriptedNarration() {
+    const scriptPath = process.env.MOCK_SCRIPT_FILE;
+    if (!scriptPath) {
+        return null;
+    }
+    try {
+        const parsed = JSON.parse(readFileSync(scriptPath, 'utf-8'));
+        if (!Array.isArray(parsed) || parsed.length === 0 ||
+                parsed.some(line => typeof line !== 'string' || !line.trim())) {
+            console.warn(`[MOCK] MOCK_SCRIPT_FILE ${scriptPath} is not a non-empty JSON array of status-line strings; using canned narration.`);
+            return null;
+        }
+        return parsed;
+    } catch (err) {
+        console.warn(`[MOCK] MOCK_SCRIPT_FILE ${scriptPath} could not be read (${err.message}); using canned narration.`);
+        return null;
+    }
+}
+
 class MockChoiceMessage {
     constructor(content) {
         this.content = content;
@@ -58,6 +87,44 @@ function* fragmentedNarrationChunks() {
 }
 
 class MockChatCompletions {
+    constructor() {
+        // Script state is loaded lazily on the first narration call so a bad
+        // MOCK_SCRIPT_FILE never breaks startup (D4). `undefined` = not yet
+        // loaded; `null` = no script (unset/unreadable/invalid) -> canned.
+        this._script = undefined;
+        this._scriptIndex = 0;
+    }
+
+    _nextScriptedLine() {
+        if (this._script === undefined) {
+            this._script = loadScriptedNarration();
+            this._scriptIndex = 0;
+        }
+        if (!this._script) {
+            return null;
+        }
+        // Hold the last line on exhaustion (mirrors spatialIntegration.test.mjs).
+        const line = this._script[Math.min(this._scriptIndex, this._script.length - 1)];
+        this._scriptIndex += 1;
+        return line;
+    }
+
+    _cannedNarration(stream) {
+        // The default path — byte-identical to the pre-change canned narration
+        // (env unset or bad script). Streaming fragments it word-by-word and
+        // repeats the trailing status line (both consumers parse it via the
+        // shared parseStatusLine); non-streaming returns the whole narration.
+        if (stream) {
+            return (async function* () {
+                for (const chunk of fragmentedNarrationChunks()) {
+                    yield chunk;
+                    await new Promise(r => setTimeout(r, 10));
+                }
+            })();
+        }
+        return new MockCompletionResponse(`You walk south into the noisy cantina.\n${CANONICAL_STATUS_LINE}`);
+    }
+
     create(options) {
         const stream = options.stream;
         const intent = options.intent;
@@ -83,22 +150,27 @@ class MockChatCompletions {
                 return makeContent("You stand on the desert sands of Tatooine.");
             case 'suggestion':
                 return makeContent(suggestionContent());
-            case 'narration':
+            case 'narration': {
+                // Scripted narration: serve the next scripted canonical status
+                // line through the same delta-chunk stream shape canned
+                // narration uses, so parseStatusLine and history sanitization
+                // behave identically (D3).
+                const scriptedLine = this._nextScriptedLine();
+                if (scriptedLine !== null) {
+                    if (stream) {
+                        return (async function* () {
+                            yield { choices: [{ delta: { content: scriptedLine } }] };
+                        })();
+                    }
+                    return new MockCompletionResponse(scriptedLine);
+                }
+                return this._cannedNarration(stream);
+            }
             default:
                 // Unknown/missing intent falls back to the default narration so
-                // the mock never serves nothing. Non-streaming returns the whole
-                // canned narration; streaming fragments it word-by-word and
-                // repeats the trailing status line (both consumers parse it via
-                // the shared parseStatusLine).
-                if (stream) {
-                    return (async function* () {
-                        for (const chunk of fragmentedNarrationChunks()) {
-                            yield chunk;
-                            await new Promise(r => setTimeout(r, 10));
-                        }
-                    })();
-                }
-                return new MockCompletionResponse(`You walk south into the noisy cantina.\n${CANONICAL_STATUS_LINE}`);
+                // the mock never serves nothing. Scripting is strictly
+                // narration-scoped; other intents keep their canned behavior.
+                return this._cannedNarration(stream);
         }
     }
 }

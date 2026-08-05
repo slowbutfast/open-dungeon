@@ -243,7 +243,17 @@ class TestApiEndpoints(unittest.TestCase):
         stream_data = res.data.decode("utf-8")
         self.assertIn("data: ", stream_data)
         self.assertTrue('"type": "chunk"' in stream_data or '"type":"chunk"' in stream_data)
-        
+
+    def test_action_json_response(self):
+        self.app.post("/api/init", json={"preset_idx": 0})
+        res = self.app.post("/api/action?format=json", json={"action_type": "do", "text": "look around"})
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.mimetype, "application/json")
+        data = json.loads(res.data)
+        self.assertIn("narration", data)
+        for key in ("location", "score", "moves"):
+            self.assertIn(key, data)
+
     def test_get_api_map(self):
         """GET /api/map returns the spatial room graph after a turn."""
         self.app.post("/api/init", json={"preset_idx": 0})
@@ -255,6 +265,7 @@ class TestApiEndpoints(unittest.TestCase):
             self.assertIn(key, data)
         self.assertIsInstance(data["rooms"], list)
         self.assertIsInstance(data["edges"], list)
+        # The committed turn establishes the current room node.
         self.assertGreaterEqual(len(data["rooms"]), 1)
         self.assertIsNotNone(data["current_room_id"])
         self.assertIn("name", data["rooms"][0])

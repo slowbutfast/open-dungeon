@@ -39,6 +39,18 @@
 
 ## Save Isolation
 
+## Probe Runner
+
+`tests/probe_runner.py` is the supervised path for parallel HTTP playtests. Each
+probe gets a free localhost port and a distinct `game/playtest/adventures/probe-<name>`
+`SAVE_DIR`, plus explicit `MOCK_LLM`, `LLM_BACKEND`, and model environment values.
+The runner polls `/api/ping` before driving `/api/init` and actions,
+prefers the JSON action response, and parses SSE when pointed at an older server.
+It records the active adventure ID, reloads it through `POST /api/saves/<id>` after
+a bounded restart, and always terminates children through `try/finally`, `atexit`,
+and signal handlers. `--max-concurrent N` is the recommended real-model guardrail;
+use `--mock 1` for the normal offline integration tier.
+
 Every test file that creates saves uses the `SAVE_DIR` environment variable to redirect the engine's file writes to an isolated directory under `tests/`.
 
 ### Global Fallback

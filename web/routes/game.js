@@ -399,6 +399,28 @@ router.post('/action', async (req, res) => {
         }
     }
 
+    if (req.query.format === "json") {
+        try {
+            const stream = actionType === "retry"
+                ? activeEngine.regenerateLastResponse()
+                : activeEngine.generateResponseStream(actionType, text);
+            let chunks = "";
+            let doneContent = null;
+            for await (const event of stream) {
+                if (event.type === "chunk") chunks += event.content || "";
+                if (event.type === "done") doneContent = event.content || "";
+            }
+            return res.json({
+                narration: doneContent || chunks,
+                location: activeEngine.location,
+                score: activeEngine.score,
+                moves: activeEngine.moves
+            });
+        } catch (err) {
+            return res.status(500).json({ status: "error", message: err.message });
+        }
+    }
+
     // Set SSE headers
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');

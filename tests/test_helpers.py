@@ -11,7 +11,7 @@ import shutil
 import stat
 
 
-def assert_save_dir_is_safe(save_dir):
+def assert_save_dir_is_safe(save_dir, allow_playtest=False):
     """Assert that save_dir is under the tests/ directory.
 
     This guard prevents accidental cleanup of production save directories
@@ -30,8 +30,12 @@ def assert_save_dir_is_safe(save_dir):
     # Derive the project tests/ directory from this helper's location
     tests_root = os.path.dirname(os.path.abspath(__file__))
     abs_save_dir = os.path.abspath(save_dir)
+    allowed_roots = [tests_root]
+    if allow_playtest:
+        project_root = os.path.dirname(tests_root)
+        allowed_roots.append(os.path.join(project_root, "game", "playtest"))
 
-    assert abs_save_dir.startswith(tests_root), (
+    assert any(abs_save_dir.startswith(root) for root in allowed_roots), (
         f"SAFETY GUARD: save_dir '{save_dir}' (resolved: '{abs_save_dir}') "
         f"is NOT under tests directory '{tests_root}'. "
         "Refusing to proceed with teardown cleanup to prevent accidental "
