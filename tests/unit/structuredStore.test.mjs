@@ -146,3 +146,73 @@ test('FULL-SURFACE ROLLBACK: rollbackTurn removes quest goals (INTENDED TO FAIL 
     // #27: quest_goals must roll back with the turn. Today they are orphaned.
     assert.equal(countRows(store, 'quest_goals', 'adv1'), 0);
 });
+
+// ─── D5: status-mutation rollback (residual undo-after-trade, group 7) ─────
+//
+// `rollbackTurn` deletes inventory rows by `acquired_turn >= N` only, so two
+// undo-after-trade cases fail. Both are pinned here; the tests are RED on HEAD
+// and go green once `upsertInventoryItem` attributes status mutations to a
+// `status_turn` column and `rollbackTurn` reverts them (spec D5).
+
+test('D5: rollbackTurn restores a sold item to held and removes the acquired row (trade-undo limbo, INTENDED TO FAIL TODAY)', (t) => {
+    const dataDir = createTempDir('od-d5-trade-');
+    t.after(() => cleanupDir(dataDir));
+    const store = new StructuredStore(dataDir);
+    store.initAdventure('adv1');
+
+    // Leaflet acquired on turn 1.
+    store.upsertInventoryItem('adv1', {
+        item_name: 'Leaflet', item_type: 'misc', quantity: 1,
+        acquired_turn: 1, status: 'held'
+    });
+
+    // Trade turn 2: the extraction path flips the sold item to 'traded' and
+    // acquires the received item.
+    store.upsertInventoryItem('adv1', {
+        item_name: 'Leaflet', item_type: 'misc', quantity: 1,
+        acquired_turn: 2, status: 'traded'
+    });
+    store.upsertInventoryItem('adv1', {
+        item_name: 'Gem', item_type: 'misc', quantity: 1,
+        acquired_turn: 2, status: 'held'
+    });
+
+    store.rollbackTurn('adv1', 2);
+
+    // The sold item must come back as held, not stay stranded in 'traded' limbo.
+    const leaflet = store.hasItem('adv1', 'Leaflet');
+    assert.ok(leaflet, 'the sold item must be held again after undo');
+    assert.equal(leaflet.status, 'held', 'the sold item is not stranded as traded');
+    // The acquired row must be gone.
+    assert.equal(store.hasItem('adv1', 'Gem'), null, 'the acquired row must be removed');
+});
+
+test('D5: rollbackTurn removes a row re-acquired on the undone turn despite an older acquired_turn (#22, INTENDED TO FAIL TODAY)', (t) => {
+    const dataDir = createTempDir('od-d5-reacquire-');
+    t.after(() => cleanupDir(dataDir));
+    const store = new StructuredStore(dataDir);
+    store.initAdventure('adv1');
+
+    // Leaflet acquired turn 1, then traded away turn 2 (status flip on the row).
+    store.upsertInventoryItem('adv1', {
+        item_name: 'Leaflet', item_type: 'misc', quantity: 1,
+        acquired_turn: 1, status: 'held'
+    });
+    store.upsertInventoryItem('adv1', {
+        item_name: 'Leaflet', item_type: 'misc', quantity: 1,
+        acquired_turn: 2, status: 'traded'
+    });
+
+    // Re-acquired on turn 3: status flips back to 'held' but the conflict path
+    // leaves the ORIGINAL acquired_turn (1) untouched.
+    store.upsertInventoryItem('adv1', {
+        item_name: 'Leaflet', item_type: 'misc', quantity: 1,
+        acquired_turn: 3, status: 'held'
+    });
+    assert.ok(store.hasItem('adv1', 'Leaflet'), 'the leaflet is held after the re-acquire');
+
+    store.rollbackTurn('adv1', 3);
+
+    // The re-acquisition is rolled back even though the row predates turn 3.
+    assert.equal(store.hasItem('adv1', 'Leaflet'), null, 'the re-acquired row must be removed');
+});

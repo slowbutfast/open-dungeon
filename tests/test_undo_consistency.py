@@ -166,6 +166,63 @@ class TestUndoConsistency(McpTestCase):
         stats = _json(self.client.call_tool("dungeon_inspect_stats"))
         self.assertEqual(stats["last_extracted_turn_index"], 0)
 
+    def test_undo_narrated_trade_restores_sold_item(self):
+        """Undo of a narrated trade returns the sold item to held (no traded/dropped
+        limbo) and removes the acquired item."""
+        self.client.send_action("take the leaflet")
+        inv = _json(self.client.call_tool("dungeon_inspect_inventory"))
+        self.assertTrue(
+            any("leaflet" in (i.get("item_name") or "").lower() for i in inv),
+            "expected the leaflet to be held before the trade"
+        )
+
+        self.client.send_action("trade the leaflet for a gem")
+        inv = _json(self.client.call_tool("dungeon_inspect_inventory"))
+        self.assertTrue(
+            any("gem" in (i.get("item_name") or "").lower() for i in inv),
+            "expected the gem to be held after the trade"
+        )
+        self.assertFalse(
+            any("leaflet" in (i.get("item_name") or "").lower() for i in inv),
+            "the leaflet is no longer held after the trade"
+        )
+
+        undo = _json(self.client.call_tool("dungeon_undo_action"))
+        self.assertTrue(undo["success"])
+
+        inv = _json(self.client.call_tool("dungeon_inspect_inventory"))
+        leaflet = [i for i in inv if "leaflet" in (i.get("item_name") or "").lower()]
+        self.assertEqual(len(leaflet), 1, "undo restores the sold item")
+        self.assertEqual(
+            leaflet[0]["status"], "held",
+            "the sold item is not stranded in traded/dropped limbo"
+        )
+        self.assertFalse(
+            any("gem" in (i.get("item_name") or "").lower() for i in inv),
+            "undo removes the acquired item"
+        )
+
+    def test_undo_reacquired_item_removes_it(self):
+        """Undo of a turn that re-acquired a previously-traded item removes it even
+        though the row's original acquired_turn predates the undone turn (#22)."""
+        self.client.send_action("take the leaflet")
+        self.client.send_action("trade the leaflet for a gem")
+        self.client.send_action("take the leaflet")  # re-acquire on turn 3
+        inv = _json(self.client.call_tool("dungeon_inspect_inventory"))
+        self.assertTrue(
+            any("leaflet" in (i.get("item_name") or "").lower() for i in inv),
+            "expected the leaflet to be held again after the re-acquire"
+        )
+
+        undo = _json(self.client.call_tool("dungeon_undo_action"))
+        self.assertTrue(undo["success"])
+
+        inv = _json(self.client.call_tool("dungeon_inspect_inventory"))
+        self.assertFalse(
+            any("leaflet" in (i.get("item_name") or "").lower() for i in inv),
+            "the re-acquired leaflet must be rolled back with the undone turn"
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

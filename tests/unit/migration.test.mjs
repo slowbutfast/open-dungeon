@@ -108,3 +108,16 @@ test('guarded migration is idempotent and preserves legacy rows', (t) => {
     assert.ok(row, 'legacy offer row survived the migration');
     assert.equal(row.turn_index, null, 'legacy rows stay NULL turn_index');
 });
+
+test('guarded migration: status_turn added to legacy inventory table (RED on HEAD)', (t) => {
+    const dataDir = createTempDir('od-migrate-');
+    t.after(() => cleanupDir(dataDir));
+    createLegacyStore(dataDir);
+
+    const store = new StructuredStore(dataDir);
+    t.after(() => store.close());
+
+    // D5: existing DBs predate the status_turn column, so _initSchema must
+    // ALTER TABLE inventory to add it (mirroring the #27 turn_index migration).
+    assert.ok(columns(store, 'inventory').has('status_turn'), 'legacy inventory gained status_turn');
+});

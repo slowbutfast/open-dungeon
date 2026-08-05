@@ -256,26 +256,39 @@ class TestBarterTradeExecution(unittest.TestCase):
         self.assertIn("Which item did you mean", raw)
 
     def test_undo_after_trade_restores_inventory(self):
-        """Verify undoing after a trade restores the original inventory state."""
-        self._add_item_to_inventory("Silver Ring", "jewelry", "A shiny silver ring.")
-        
-        self.app.post("/api/trade/offer", json={
-            "trader_name": "Merchant",
-            "required_item": "Silver Ring",
-            "offered_item": "Steel Sword"
-        })
-        res = self.app.post("/api/trade", json={
-            "trader_name": "Merchant",
-            "required_item": "Silver Ring"
-        })
-        self.assertEqual(res.status_code, 200)
-        
-        inv = self._get_inventory()
-        sword_items = [i for i in inv if i["item_name"] == "Steel Sword"]
-        self.assertEqual(len(sword_items), 1)
-        
+        """Undoing a narrated trade restores the sold item and removes the acquired one.
+
+        This is the MCP/HTTP surface of spec D5 (group 7): undo of a trade must
+        revert the sold item's status mutation (no traded/dropped limbo) and
+        drop the acquired row. The mock extractor keys item triggers on the
+        LATEST buffered player turn, so each turn is flushed before the next
+        action (via _get_inventory) to keep the acquisition and the trade on
+        their own extraction turns.
+        """
+        # Narrated acquisition of the leaflet (turn 1).
+        self.app.post("/api/action", json={"action_type": "do", "text": "take the leaflet"})
+        inv = self._get_inventory()  # force flush -> leaflet held
+        leaflet_items = [i for i in inv if i["item_name"] == "Leaflet"]
+        self.assertEqual(len(leaflet_items), 1)
+
+        # Narrated trade (turn 2): the leaflet leaves inventory, the gem arrives.
+        self.app.post("/api/action", json={"action_type": "do", "text": "trade the leaflet for a gem"})
+        inv = self._get_inventory()  # force flush -> leaflet traded, gem held
+        gem_items = [i for i in inv if i["item_name"] == "Gem"]
+        self.assertEqual(len(gem_items), 1)
+        self.assertFalse(any(i["item_name"] == "Leaflet" for i in inv), "leaflet is not held after the trade")
+
+        # Undo the trade turn.
         res = self.app.post("/api/action", json={"action_type": "undo"})
         self.assertEqual(res.status_code, 200)
+
+        # The sold item is restored to held; the acquired item is removed.
+        inv = self._get_inventory()
+        leaflet_items = [i for i in inv if i["item_name"] == "Leaflet"]
+        gem_items = [i for i in inv if i["item_name"] == "Gem"]
+        self.assertEqual(len(leaflet_items), 1, "undo restores the sold item")
+        self.assertEqual(leaflet_items[0]["status"], "held", "the sold item is not stranded in traded/dropped limbo")
+        self.assertEqual(len(gem_items), 0, "undo removes the acquired item")
 
 
 class TestNpcQuestGoalStateMachine(unittest.TestCase):

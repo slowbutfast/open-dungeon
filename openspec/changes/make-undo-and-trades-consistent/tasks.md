@@ -44,10 +44,10 @@ that share one root cause: `rollbackTurn` deletes inventory rows by
 turn to pre-existing rows. Spec D5 + the game-engine Undo Action delta define the
 fix. TDD-first.
 
-- [ ] 7.1 Write failing unit-seam tests: (a) trade-undo restore — undo a narrated trade restores the sold item to `held`, not `traded` limbo; (b) re-acquire undo (#22) — undo a re-acquisition removes the item even when its original `acquired_turn` predates the undone turn
-- [ ] 7.2 Add assertions to `tests/test_barter_engine.py::test_undo_after_trade_restores_inventory` (currently a dead test) and write the MCP-surface equivalents in `tests/test_undo_consistency.py`
-- [ ] 7.3 Implement the per-turn status tracking in `upsertInventoryItem` (e.g. a `status_turn` column with a guarded `ALTER TABLE` migration, per D5) and make `rollbackTurn` (i) delete rows re-acquired on the undone turn and (ii) restore pre-existing rows whose status was mutated on the undone turn
-- [ ] 7.4 Verify tiers (test:unit → test:fast → integration → full non-live suite) and re-run the undo playtest scenario (`tests/adventures_pt_shared/scenarios/undo_rollback.jsonl` via `tests/adventures_pt_shared/_pt_runner.py`) — both the limbo and #22 cases must flip to PASS
+- [x] 7.1 Write failing unit-seam tests: (a) trade-undo restore — undo a narrated trade restores the sold item to `held`, not `traded` limbo; (b) re-acquire undo (#22) — undo a re-acquisition removes the item even when its original `acquired_turn` predates the undone turn
+- [x] 7.2 Add assertions to `tests/test_barter_engine.py::test_undo_after_trade_restores_inventory` (currently a dead test) and write the MCP-surface equivalents in `tests/test_undo_consistency.py`
+- [x] 7.3 Implement the per-turn status tracking in `upsertInventoryItem` (e.g. a `status_turn` column with a guarded `ALTER TABLE` migration, per D5) and make `rollbackTurn` (i) delete rows re-acquired on the undone turn and (ii) restore pre-existing rows whose status was mutated on the undone turn
+- [x] 7.4 Verify tiers (test:unit → test:fast → integration → full non-live suite) and re-run the undo playtest scenario (`tests/adventures_pt_shared/scenarios/undo_rollback.jsonl` via `tests/adventures_pt_shared/_pt_runner.py`) — both the limbo and #22 cases must flip to PASS
 
 ### Coordination notes (slice C — docs/config only)
 

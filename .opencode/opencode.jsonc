@@ -1,17 +1,20 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  // Session env for the agent itself (bash-spawned servers inherit this).
-  // The MCP server below also carries its own per-server `environment` block,
-  // which OpenCode applies when spawning the server subprocess — that is the
-  // source of truth for the playtest tools (a top-level `environment` is NOT
-  // reliably propagated to local MCP servers, see mcp-servers docs).
+  // NOTE: OpenCode's Config schema sets additionalProperties:false and has no
+  // top-level `environment` key, so one here is a hard validation failure, not
+  // an ignored extra. Per-server `environment` under `mcp` IS valid and is the
+  // only supported way to inject env from this file.
+  //
   // Default to the playtest sandbox + offline mock: autonomous agents must
   // never write production saves or burn real API budget. Flip MOCK_LLM to "0"
   // only for deliberate real-model fidelity runs.
-  "environment": {
-    "SAVE_DIR": "game/playtest/adventures",
-    "MOCK_LLM": "1"
-  },
+  //
+  // This covers the MCP server only. Anything the agent starts from bash is a
+  // separate process tree that inherits the shell's env, not this block:
+  //   - web/server.js self-defaults MOCK_LLM=1 (web/server.js:20).
+  //   - SAVE_DIR has no safe default — engine/index.js:53 falls back to
+  //     game/adventures, the production tree. Export SAVE_DIR in the shell
+  //     before launching bash-side servers, or pass saveDir explicitly.
   "mcp": {
     "open-dungeon": {
       "type": "local",
