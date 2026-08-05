@@ -270,6 +270,54 @@ test('mock integration: a whimsical opening is NOT mis-pinned terse by the defau
     }
 });
 
+test('mock integration: first-person natural actions record walk edges so the physical journey is traceable (GH #39)', async (t) => {
+    const tempRoot = createTempDir('od-int-natural-');
+    const saveDir = path.join(tempRoot, 'saves');
+    t.after(() => cleanupDir(tempRoot));
+
+    const engine = new AdventureEngine(saveDir);
+    await engine.newAdventure('Wanderer');
+    const restore = installScriptedNarrator(engine, [
+        'You follow the winding path up the hill, stars glowing above.\n[Status: Hill of Stars | Score: 0 | Moves: 1]',
+        'You cut west out into a clearing ringed by pines.\n[Status: Pine Clearing | Score: 0 | Moves: 2]',
+        'You push north into the deep pines, needles soft underfoot.\n[Status: Deep Pines | Score: 0 | Moves: 3]',
+    ]);
+
+    try {
+        // First-person natural actions — previously classified `unknown`, so no
+        // edges were ever recorded and the map was an untraceable scatter.
+        await runTurn(engine, 'do', 'I follow the winding copper path up the hill');
+        await runTurn(engine, 'do', 'I cut west out of the pines');
+        await runTurn(engine, 'do', 'I push north into the deep pines');
+
+        const store = engine.memory.structuredStore;
+        const adv = engine.adventureId;
+        const edges = store.getEdges(adv);
+        assert.ok(edges.length >= 2, `first-person walks must record edges, got ${edges.length}`);
+
+        // The physical journey is now traceable through the graph:
+        //   Hill of Stars --west--> Pine Clearing --north--> Deep Pines
+        const hill = store.findRoomByName(adv, 'Hill of Stars');
+        const clearing = store.findRoomByName(adv, 'Pine Clearing');
+        const deep = store.findRoomByName(adv, 'Deep Pines');
+        assert.equal(store.getEdge(adv, hill.id, 'west').to_room, clearing.id, 'Hill --west--> Clearing');
+        assert.equal(store.getEdge(adv, clearing.id, 'north').to_room, deep.id, 'Clearing --north--> Deep');
+        // Inferred reverse edges make the return path resolvable.
+        assert.equal(store.getEdge(adv, clearing.id, 'east').to_room, hill.id, 'Clearing --east--> Hill (inferred)');
+        assert.equal(store.getEdge(adv, deep.id, 'south').to_room, clearing.id, 'Deep --south--> Clearing (inferred)');
+        assert.equal(engine.location, 'Deep Pines');
+
+        // The map agrees: one walk-connected region now contains all three rooms.
+        const map = await engine.getMap();
+        const connected = map.regions.find(r => r.room_ids.includes(hill.id));
+        assert.ok(connected && connected.room_ids.length === 3,
+            `the three rooms must form one walk-connected region, got ${JSON.stringify(map.regions)}`);
+    } finally {
+        restore();
+        engine.memory.structuredStore.close();
+    }
+});
+
 test('save/load round-trip: the graph and current room survive a restart', async (t) => {    const tempRoot = createTempDir('od-int-save-');
     const saveDir = path.join(tempRoot, 'saves');
     t.after(() => cleanupDir(tempRoot));

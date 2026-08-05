@@ -94,8 +94,31 @@ const TIME_SIGNAL_RE =
     /(\b\d+\s+(year|years|day|days|week|weeks|month|months|hour|hours|decade|decades)\b|\b(a|an)\s+(year|day|week|month|hour|decade)\b|\b(years|days|weeks|months)\s+pass\b|time\s+(passes|passes by|flows|flow)|night\s+falls|\b(sleep|rest)\b|\bwait\b)/i;
 
 // Movement verbs (including one-way verbs like slide/fall/teleport — they are
-// still traversals, just not reversible).
+// still traversals, just not reversible). Command-style match: verb first.
 const WALK_VERBS = /^(go|walk|head|run|step|move|travel|journey|venture|march|crawl|climb|descend|ascend|enter|exit|leave|return|follow|cross|traverse|slip|slide|fall|tumble|plunge|dive|drop|jump|leap|fly|ride|sail|drive|wander|approach|arrive|flee|sneak|tiptoe|dash|hurry|rush|stroll|hike|trek|stumble|squeeze|swim|row|sprint|stride|wade|vault|teleport)\b/i;
+
+// Natural-play verbs (GH #39): first-person prose adds verbs like turn/cut/push
+// that command-style play never used. Only used in NATURAL_PROSE_WALK below,
+// so "push the button" stays unknown (no direction signal).
+const NATURAL_PLAY_VERBS =
+    'go|walk|head|run|step|move|travel|journey|venture|march|crawl|climb|descend|ascend|enter|exit|leave|return|follow|cross|traverse|slip|slide|fall|tumble|plunge|dive|drop|jump|leap|fly|ride|sail|drive|wander|approach|arrive|flee|sneak|tiptoe|dash|hurry|rush|stroll|hike|trek|stumble|squeeze|swim|row|sprint|stride|wade|vault|teleport|cut|push|veer|duck|turn';
+
+// Direction / destination signal required for the natural-prose match, so a
+// first-person sentence that merely mentions a verb ("I look for a way out")
+// is not a traversal, but "I push deeper into the pines" is.
+const NATURAL_DIRECTION_SIGNAL =
+    'north|south|east|west|northeast|northwest|southeast|southwest|up|down|in|out|into|onto|toward|towards|through|along|across|inside|outside|past|deeper|further|back';
+
+// "I follow the winding copper path up the hill" — a first-person subject + a
+// movement verb anywhere + a direction/destination signal anywhere. The verb
+// need not sit right after the subject: "I turn south and follow the bend"
+// and "I look around and walk north" are both traversals.
+const NATURAL_PROSE_WALK = new RegExp(
+    `\\b(?:i|i've|i'm|i'd|i'll|we|we've|we're|you)\\b.*` +
+    `\\b(?:${NATURAL_PLAY_VERBS})\\b.*` +
+    `\\b(?:${NATURAL_DIRECTION_SIGNAL})\\b`,
+    'i'
+);
 
 /**
  * Classify a player action's spatial transition kind.
@@ -112,7 +135,7 @@ export function classifyTransition(actionText) {
     if (!text) return 'unknown';
     if (TIME_SIGNAL_RE.test(text)) return 'time';
     if (PORTAL_MECHANISM_RE.test(text)) return 'portal';
-    if (WALK_VERBS.test(text)) return 'walk';
+    if (WALK_VERBS.test(text) || NATURAL_PROSE_WALK.test(text)) return 'walk';
     return 'unknown';
 }
 

@@ -50,6 +50,30 @@ test('classifyTransition: no movement signal is unknown', () => {
     }
 });
 
+test('classifyTransition: first-person natural prose with a direction is walk (GH #39)', () => {
+    // Real actions from the natural human playtests that previously recorded no edges.
+    for (const action of [
+        'I follow the winding copper path up the hill',
+        'I cut west out of the pines',
+        'I push deeper into the pines',
+        'I veer off toward the crystalline stream',
+        'I leave the path and wander east',
+        'I step into the chamber',
+        'I crawl through the opening and climb down',
+        'I turn south and follow the bend into the misty glade',
+        'I look around and walk north',
+    ]) {
+        assert.equal(classifyTransition(action), 'walk', `${action} should be walk`);
+    }
+});
+
+test('classifyTransition: first-person prose without a direction signal stays unknown', () => {
+    // "get ... in ..." style false positives must not classify as a traversal.
+    for (const action of ['I look for a way out', 'I push the button', 'I get the key in the chest']) {
+        assert.equal(classifyTransition(action), 'unknown', `${action} should be unknown`);
+    }
+});
+
 // ─── direction parsing (1.1) ───────────────────────────────────────────────
 
 test('directionFromAction: cardinal directions map to a label', () => {
