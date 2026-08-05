@@ -31,5 +31,5 @@
 
 - [x] 4.1 Run `npm run test:unit` — new tests green, no unit regressions
 - [x] 4.2 Run `npm run test:all` — full pytest suite green (status-parsing, MCP, spatial)
-- [ ] 4.3 Run one live-LLM natural playtest (Wanderer) and confirm the map grows to > 3 rooms when the narrator moves the player
+- [x] 4.3 Run one live-LLM natural playtest (Wanderer) and confirm the map grows to > 3 rooms when the narrator moves the player — **PASSED (2026-08-05): 1 → 9 rooms in a 12-turn default-model session**, grown via the stale-status recovery backstop (the mandate alone did not move the default model)
 - [x] 4.4 Update `engine/ARCHITECTURE.md` (status mandate + style block)

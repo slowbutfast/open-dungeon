@@ -32,3 +32,22 @@ The engine SHALL expose the adopted narrator style as a `[NARRATOR STYLE]` conte
 #### Scenario: Style block is injected and strip-eligible
 - **WHEN** a narrator style has been adopted
 - **THEN** the `[NARRATOR STYLE]` block appears in the composed system message and, if echoed back, is stripped from history by the registry-derived sanitizer
+
+### Requirement: Stale-Status Recovery
+When the status line is missing (truncated/empty) or the narrator repeats its own previous status line (the stale-echo signature), the engine SHALL recover a proposed location from the narration's (or the player action's) arrival landmarks and reconcile it, so the spatial map keeps growing even when the narrator will not comply with the mandate. A CHANGED status line SHALL always be honored; the fallback SHALL be deterministic (no extra LLM call) and SHALL NOT fabricate a location from prose that does not narrate arrival.
+
+#### Scenario: Missing status line recovers a landmark
+- **WHEN** the narrator truncates or omits the status line but its prose narrates travel
+- **THEN** the engine proposes a location from the narration's arrival landmark and reconciles it, growing the map
+
+#### Scenario: Repeated status line recovers a landmark
+- **WHEN** the narrator repeats its own previous status line while its prose narrates travel to a new place
+- **THEN** the engine proposes the narration's landmark instead of the repeated (stale) location
+
+#### Scenario: Honest status always wins
+- **WHEN** the narrator emits a CHANGED status line
+- **THEN** that location is committed even if the prose words differ from it
+
+#### Scenario: Non-arrival prose fabricates nothing
+- **WHEN** the status line is missing or repeated but the prose does not narrate arrival (refusal, scene description, same-place description)
+- **THEN** no location is recovered and the engine holds position

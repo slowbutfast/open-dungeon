@@ -9,6 +9,10 @@ The status-line FORMAT SHALL be produced by one shared definition: `STATUS_FORMA
 
 The narrator contract SHALL require status-line fidelity: the narrator MUST emit a canonical status line at the end of every response, and MUST advance the `Location` field whenever its narration moves the player to a new or different place. The default system prompt and all story presets SHALL state this mandate explicitly so the narrator's status line stays in agreement with its own scene narration.
 
+The engine SHALL budget the narration output so the mandated status line can always be emitted: a "simple" object action MAY receive a reduced output budget, but never below a floor (`SIMPLE_ACTION_MIN_TOKENS`) that leaves room for a short description plus the trailing status line, and movement verbs SHALL NOT be simple-capped. A truncated `[Status:` line (the model hit its output budget mid-line) SHALL be stripped from narration and history like a complete status line.
+
+When the status line is missing or the narrator repeats its own previous status line (stale echo), the engine SHALL recover a proposed location from the narration's arrival landmarks (`engine/narrationLandmarks.js`) and reconcile it, so the map keeps growing; a changed status line SHALL always be honored.
+
 The narration text committed to history, the save file, and the extraction queue SHALL be sanitized: echoed context blocks (derived from the narrator-context registry) and the raw status line SHALL be stripped before commit. The raw assistant text MAY be retained for debugging but SHALL NOT be replayed as context.
 
 The game engine SHALL advance `score` deterministically as the adventure progresses, independent of whether the narrator happens to emit a new Score value on the status line. Score SHALL be computed by an engine-side rule (over extracted milestone events) and committed through the same shared status-line path used for location and moves, so a missed status line cannot silently freeze score.

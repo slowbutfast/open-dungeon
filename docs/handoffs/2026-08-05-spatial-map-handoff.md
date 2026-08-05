@@ -60,6 +60,13 @@ the state of the world. Everything below is committed and pushed to `origin/mast
 
 ## Planned next change (now proposed: `narrator-style-fidelity`)
 
+> **UPDATE (same-day follow-up session):** `narrator-style-fidelity` is now **implemented, verified, and archived** at
+> `openspec/changes/archive/2026-08-05-narrator-style-fidelity/` — see the new handoff
+> `docs/handoffs/2026-08-05-narrator-style-fidelity.md` for the complete state. The status
+> mandate + style directive + `[NARRATOR STYLE]` block landed, the simple-action budget was
+> floored, and the previously-deferred stale-status recovery (GH #38) was implemented as the
+> backstop. The acceptance gate PASSED (1 → 9 rooms in one natural default-model playtest).
+
 **`narrator-style-fidelity`** (proposed 2026-08-05, in `openspec/changes/narrator-style-fidelity/`) — make the narrator a flexible stylist that leans into the user's opening tone, then locks in and stays consistent, AND fix status-line fidelity. Key design points:
 - A style directive in `DEFAULT_SYSTEM_PROMPT` + presets: "adopt the player's implied style, then do not drift."
 - Capture the adopted style once and pin it as a `[NARRATOR STYLE]` registry block (one-block addition, sanitizer auto-covered).
