@@ -98,7 +98,7 @@ const ARRIVAL_VERBS = [
     'reach(?:ed|ing)?', 'step(?:ped)?(?:\\s+(?:into|onto|through))',
     'walk(?:ed|ing)?', 'head(?:ed|ing)?', 'trudg(?:e|ed|ing)?',
     'stumble(?:d|ing)?', 'cross(?:ed|ing)?',
-    'follow(?:ed|ing)?\\s+(?:the|a|an)\\s+(?:path|trail|road|track|footpath|passage|way|ridge|stream|river|lane|route)',
+    'follow(?:ed|ing)?\\s+(?:the|a|an)\\s+(?:[A-Za-z][\\w\'\\-]*\\s+){0,3}(?:path|trail|road|track|footpath|passage|way|ridge|stream|river|lane|route)',
     'pass(?:ed|ing)?\\s+through', 'emerg(?:e|ed|ing)?',
     'slip(?:ped|ping)?(?:\\s+into)?', 'wander(?:ed|ing)?\\s+into',
     'come\\s+(?:to|upon|across|up\\s+on)', 'struck', 'hit', 'reached',
@@ -106,7 +106,9 @@ const ARRIVAL_VERBS = [
 
 // "the X leads/winds/... (to Y)" — the landmark may sit BEFORE the verb
 // ("A muddy footpath snakes east") or AFTER it ("the path leads into a thicket").
-const PATH_VERB = '(?:leads?|winds?|curves?|snakes?|narrows?|opens?|continues?|stretches?|runs?|descends?|ascends?|carries?|ushers?)';
+// Deliberately excludes "continues" (a "continues to play its sweet melody"
+// is not an arrival — natural-play finding).
+const PATH_VERB = '(?:leads?|winds?|curves?|snakes?|narrows?|opens?|stretches?|runs?|descends?|ascends?)';
 
 // Capture 1-5 words. Each repeated word is refused if it is a PHRASE_STOPPER
 // (so "ridge into the Northern Trail" captures "ridge", not the whole run),

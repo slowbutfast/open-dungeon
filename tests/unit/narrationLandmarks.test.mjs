@@ -91,3 +91,12 @@ test('"step into the chamber" is still an arrival', () => {
 test('"follow the path" with a destination is an arrival', () => {
     assert.equal(extractNarrationLandmark('I follow the path north to the old stone gate.'), 'Old Stone Gate');
 });
+
+test('"follow the winding copper path up the hill" is an arrival (adjectives allowed)', () => {
+    assert.equal(extractNarrationLandmark('I follow the winding copper path up the hill, my breath catching.'), 'Hill');
+});
+
+test('"continues to play its sweet melody" is NOT an arrival (natural-play finding)', () => {
+    const prose = 'Pip gestures to the music box, which continues to play its sweet, tinkling melody.';
+    assert.equal(extractNarrationLandmark(prose), null);
+});
