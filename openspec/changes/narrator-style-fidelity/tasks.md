@@ -16,6 +16,11 @@
 - [x] 3.2 Capture the adopted style on the opening/first turns and hold it in state (auto-detect with optional explicit override)
 - [x] 3.3 Confirm the registry-derived sanitizer covers the new block (no second edit)
 
+## 3.5 Status-Line Output Budget (live-playtest delivery fix)
+
+- [x] 3.5.1 Floor the simple-action narration budget (`computeNarrationBudget` + `SIMPLE_ACTION_MIN_TOKENS`) so the mandated status line can never be truncated off by the cap; movement verbs uncapped
+- [x] 3.5.2 Harden `sanitizeForHistory` to strip truncated `[Status:` fragments (no closing bracket)
+
 ## 4. Regression & Verification
 
 - [x] 4.1 Run `npm run test:unit` — new tests green, no unit regressions

@@ -5,9 +5,11 @@ Four parallel live-LLM playtests (wanderer / explorer / quest-seeker / storytell
 ## What Changes
 
 - **Status-line fidelity (the real defect):** strengthen the status mandate so the narrator MUST advance the `Location` field when it narrates movement, and MUST emit the status line every turn. Applied to `DEFAULT_SYSTEM_PROMPT` (`engine/index.js`) and the four story presets (`engine/storyPresets.js`) via the shared contract wording.
+- **Status-line output budget:** the simple-action narration budget (`engine/llm.js`) is floored so a "simple" action (e.g. `turn around, walk west`) always has room to emit the trailing status line — a truncated line parses as nothing and freezes the map (live-confirmed: the cooperative model lost a room to truncation). Movement verbs are not simple-capped.
+- **Truncated-fragment hygiene:** `sanitizeForHistory` strips a `[Status:` line even without its closing `]`, so a truncated status line never surfaces in narration/history.
 - **Narrator style directive:** add a prompt directive that the narrator should adopt the style implied by the player's opening and stay consistent throughout (no mid-session tonal drift).
 - **`[NARRATOR STYLE]` context block:** capture the adopted style once and pin it into the narrator context so later turns don't drift — a new block in `engine/contextBlocks.js` (registry-driven; sanitizer strip-set auto-derived).
-- **No new dependencies.** No engine-logic change to reconciliation — this is a prompt-contract + context-block change.
+- **No new dependencies.** No reconciliation/parse change — this is a prompt-contract + context-block change (plus the budget floor that makes the mandate deliverable).
 
 ## Capabilities
 
@@ -23,7 +25,7 @@ Four parallel live-LLM playtests (wanderer / explorer / quest-seeker / storytell
 - `engine/index.js` — `DEFAULT_SYSTEM_PROMPT` gains the status mandate + style directive.
 - `engine/storyPresets.js` — the four preset prompts interpolate the same directive.
 - `engine/contextBlocks.js` — new `NARRATOR STYLE` block (captured once, held constant).
-- `engine/llm.js` — the turn-commit path may optionally feed the captured style into the block; no reconciliation change.
+- `engine/llm.js` — the turn-commit path feeds the captured style into the block; the simple-action narration budget is floored so the status line can always be emitted; the sanitizer strips truncated `[Status:` fragments. No reconciliation change.
 - `web/static/js/app.js` — the zero-build frontend default prompt literal must stay in agreement with the new contract (source-text pin test).
-- Tests: status-mandate presence (source-text pin), `[NARRATOR STYLE]` block strip-eligibility, natural-playtest regression (rooms/edges grow when the narrator moves).
+- Tests: status-mandate presence (source-text pin), `[NARRATOR STYLE]` block strip-eligibility, narration-budget floor + truncated-fragment strip, natural-playtest regression (rooms/edges grow when the narrator moves).
 - No new dependencies.

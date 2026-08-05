@@ -2,6 +2,7 @@
 
 - `npm run test:unit` — Node test runner over `tests/unit/*.test.mjs`:
   - New `tests/unit/contextBlocks.style.test.mjs` (or extend `contextBlocks.test.mjs`): the `[NARRATOR STYLE]` block is registered with a header/enabled/build; when a style is set it renders; when absent it's excluded; an echoed copy is stripped by `sanitizeForHistory`.
+  - New `tests/unit/narrationBudget.test.mjs`: `computeNarrationBudget` leaves movement verbs uncapped, floors simple actions at `SIMPLE_ACTION_MIN_TOKENS` (status line must always fit), and `sanitizeForHistory` strips a truncated `[Status:` fragment.
   - The source-text pin for the default prompt literal: `DEFAULT_SYSTEM_PROMPT` and `web/static/js/app.js` both contain the status mandate ("Location field MUST name the new place") and the style directive — a source-text test asserts the pinned agreement (extend the existing pin test).
   - Existing contract tests stay green (status line byte-identity, composed-message equivalence).
 - `npm run test:all` — full pytest suite stays green:

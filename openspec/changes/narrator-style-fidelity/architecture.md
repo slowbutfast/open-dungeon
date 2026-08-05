@@ -53,6 +53,9 @@ Add `[NARRATOR STYLE]` to `engine/contextBlocks.js`. The engine captures the ado
 ### D4. Status-line mandate wording is the lever
 The precise wording matters more than the mechanism. Draft: "At the very end of EVERY response, on a new line, you MUST append the current status in this exact format: [Status: ...]. When the player moves to a new place, the Location field MUST be the new place's name." This targets the observed stale-echo behavior directly.
 
+### D5. The mandate needs an output budget it cannot be cut off by
+Live playtest on the cooperative model (`deepseek-v4-pro`) showed the mandate alone can still fail: a "simple" action (`turn around, walk west`) got a reduced narration budget and the model truncated the status line mid-emission (`[Status: Desolate Moor`, no `]`), which parses as no status line — losing the room and freezing the map. Two delivery fixes in the same change: (1) `computeNarrationBudget` floors the simple-action budget at `SIMPLE_ACTION_MIN_TOKENS` (200) so a curt description + status line always fit, and movement verbs are not simple-capped at all; (2) `sanitizeForHistory` strips a `[Status:` line even without a closing `]`, so a truncated fragment never surfaces in narration/history. **Alternative rejected:** treating truncation via the deferred narration-parsing fallback (GH #38) — that is the backstop, not the first lever.
+
 ## Risks / Trade-offs
 
 - **[Narrator compliance]** The mandate may still not move the default model's status line. → Fallback is the deferred narration-parsing health check; the mandate is the cheap first lever and provably fixes the cooperative model (`deepseek-v4-pro`).

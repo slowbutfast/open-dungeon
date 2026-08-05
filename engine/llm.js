@@ -35,6 +35,43 @@ export function getBackendType() {
     return process.env.LLM_BACKEND === "openrouter" ? "openrouter" : "lmstudio";
 }
 
+// Simple-action output budget (narrator-style-fidelity): trivial object
+// actions ("take", "open", "examine", ...) get a reduced narration budget, but
+// NEVER below a floor that leaves room for a short description PLUS the
+// mandated trailing status line. A longish simple action (e.g. "turn around,
+// walk west") that truncates the status line mid-emission parses as no status
+// line at all — and the spatial map freezes. The floor guarantees the line
+// can always be emitted.
+export const SIMPLE_ACTION_MIN_TOKENS = 200;
+
+const SIMPLE_ACTION_VERBS = [
+    "take", "get", "drop", "open", "close", "read", "examine",
+    "inventory", "wear", "look at", "put", "push", "pull",
+    "turn", "unlock", "lock", "use", "drink", "eat"
+];
+
+/**
+ * Decide the narration output budget for a turn (narrator-style-fidelity).
+ *
+ * Trivial `do` actions starting with a simple verb get a reduced budget (capped
+ * at `maxTokens / 3` but never below `SIMPLE_ACTION_MIN_TOKENS`); every other
+ * turn keeps the full budget. Movement verbs ("go", "walk", "climb", ...) are
+ * deliberately NOT simple-capped, because movement narration needs room for a
+ * description + the status line.
+ *
+ * @param {string} actionType - 'do' | 'say' | 'story' | 'continue' | ...
+ * @param {string} text - raw player text
+ * @param {number} maxTokens - the session's configured output budget
+ * @returns {{ maxTokens: number, isSimpleAction: boolean }}
+ */
+export function computeNarrationBudget(actionType, text, maxTokens) {
+    if (actionType !== "do") return { maxTokens, isSimpleAction: false };
+    const cleanedCmd = (text || '').trim().toLowerCase();
+    const isSimpleAction = SIMPLE_ACTION_VERBS.some(verb => cleanedCmd.startsWith(verb));
+    if (!isSimpleAction) return { maxTokens, isSimpleAction: false };
+    return { maxTokens: Math.max(SIMPLE_ACTION_MIN_TOKENS, Math.floor(maxTokens / 3)), isSimpleAction: true };
+}
+
 export function getTokenRange() {
     const range = process.env.MAX_TOKENS_RANGE || "50:300";
     const parts = range.split(':').map(Number);
@@ -178,10 +215,15 @@ export function sanitizeForHistory(text) {
     //    shared parser removes only the last one; raw output can contain several
     //    (mock mode emits the two-field line twice), so every matching line is
     //    dropped here. Lines are trimmed before testing (streamed output can
-    //    leave trailing whitespace on a status line). This regex is deliberately
-    //    separate from the block strip-set — different machinery, never
-    //    derived from the registry.
+    //    leave trailing whitespace on a status line). A line STARTING with
+    //    `[Status:` is also stripped even without a closing `]` — a truncated
+    //    status line (model hit its output cap mid-line) is engine metadata,
+    //    not prose, and must not surface in narration or history
+    //    (narrator-style-fidelity). This regex is deliberately separate from
+    //    the block strip-set — different machinery, never derived from the
+    //    registry.
     const statusLineShape = /^\[Status:\s*(.*?)\s*\|\s*Score:\s*\d+(?:\s*\|\s*Moves:\s*\d+)?\s*\]$/i;
+    const truncatedStatusLine = /^\[Status:/i;
 
     // 2. Strip echoed context blocks: the header line plus its following `- `
     //    bullet lines (the injected block shape). The header set is derived
@@ -194,7 +236,7 @@ export function sanitizeForHistory(text) {
     let i = 0;
     while (i < lines.length) {
         const trimmed = lines[i].trim();
-        if (statusLineShape.test(trimmed)) {
+        if (statusLineShape.test(trimmed) || truncatedStatusLine.test(trimmed)) {
             i += 1;
             continue;
         }
@@ -425,17 +467,11 @@ export class LlmOrchestrator {
 
         let requestMaxTokens = state.maxTokens;
         let isSimpleAction = false;
+        let cleanedCmd = (text || '').trim().toLowerCase();
         if (actionType === "do") {
-            const cleanedCmd = text.trim().toLowerCase();
-            const simpleVerbs = [
-                "take", "get", "drop", "open", "close", "read", "examine",
-                "inventory", "wear", "look at", "put", "push", "pull",
-                "turn", "unlock", "lock", "use", "drink", "eat"
-            ];
-            if (simpleVerbs.some(verb => cleanedCmd.startsWith(verb))) {
-                isSimpleAction = true;
-                requestMaxTokens = Math.max(60, Math.floor(state.maxTokens / 3));
-            }
+            const budget = computeNarrationBudget(actionType, text, state.maxTokens);
+            requestMaxTokens = budget.maxTokens;
+            isSimpleAction = budget.isSimpleAction;
 
             const itemActionVerbs = ["use ", "drop ", "trade ", "give ", "barter ", "exchange "];
             const matchedVerb = itemActionVerbs.find(v => cleanedCmd.startsWith(v));
