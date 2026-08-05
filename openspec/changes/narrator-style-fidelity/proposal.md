@@ -1,0 +1,29 @@
+## Why
+
+Four parallel live-LLM playtests (wanderer / explorer / quest-seeker / storyteller), played naturally for ~11 turns each, all converged on the same wall: the fiction moved the player through vivid, continuous places, but the spatial map froze at 1–3 rooms. Root cause, identical in all four: the narrator keeps **echoing a stale location in its `[Status: ...]` line** even after its own prose narrates travel. The engine commits location from the status line (by design), so it never sees a new location to reconcile — no new rooms, no edges, no revisits. The engine behaved per-contract; the narrator's status line and its scene narration diverged. Separately, the peer decided the narrator should be a **flexible stylist** that leans into the user's opening tone and then stays consistent — which is currently unpinned and drifts.
+
+## What Changes
+
+- **Status-line fidelity (the real defect):** strengthen the status mandate so the narrator MUST advance the `Location` field when it narrates movement, and MUST emit the status line every turn. Applied to `DEFAULT_SYSTEM_PROMPT` (`engine/index.js`) and the four story presets (`engine/storyPresets.js`) via the shared contract wording.
+- **Narrator style directive:** add a prompt directive that the narrator should adopt the style implied by the player's opening and stay consistent throughout (no mid-session tonal drift).
+- **`[NARRATOR STYLE]` context block:** capture the adopted style once and pin it into the narrator context so later turns don't drift — a new block in `engine/contextBlocks.js` (registry-driven; sanitizer strip-set auto-derived).
+- **No new dependencies.** No engine-logic change to reconciliation — this is a prompt-contract + context-block change.
+
+## Capabilities
+
+### New Capabilities
+- `narrator-fidelity`: narrator status-line compliance (location advances with narrated movement; status line always emitted) and stable narrator style (adopt once, hold constant).
+
+### Modified Capabilities
+- `game-engine`: modify `Generate Response Stream` (the status-line contract: narrator MUST emit the status line each turn and advance `Location` when it narrates movement) and the system-prompt contract (style directive).
+- `narrator-context`: modify `Composed Narrator Context` (add the `[NARRATOR STYLE]` block; sanitizer covers it automatically).
+
+## Impact
+
+- `engine/index.js` — `DEFAULT_SYSTEM_PROMPT` gains the status mandate + style directive.
+- `engine/storyPresets.js` — the four preset prompts interpolate the same directive.
+- `engine/contextBlocks.js` — new `NARRATOR STYLE` block (captured once, held constant).
+- `engine/llm.js` — the turn-commit path may optionally feed the captured style into the block; no reconciliation change.
+- `web/static/js/app.js` — the zero-build frontend default prompt literal must stay in agreement with the new contract (source-text pin test).
+- Tests: status-mandate presence (source-text pin), `[NARRATOR STYLE]` block strip-eligibility, natural-playtest regression (rooms/edges grow when the narrator moves).
+- No new dependencies.
