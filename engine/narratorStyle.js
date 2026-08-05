@@ -25,7 +25,7 @@ export const STYLE_DIRECTIVES = {
 // player's own opening tone outranks a themed preset's default tone when both
 // are present in the signals (whimsical is checked before grim, etc.).
 const STYLE_KEYWORDS = [
-    { label: 'whimsical', words: ['whimsical', 'whimsy', 'playful', 'frolic', 'fairy tale', 'magical', 'charming', 'giggle', 'giggles', 'silly'] },
+    { label: 'whimsical', words: ['whimsical', 'whimsy', 'playful', 'frolic', 'fairy tale', 'fairy-tale', 'magical', 'charming', 'giggle', 'giggles', 'silly', 'curious', 'dreamy', 'delightful', 'enchanted'] },
     { label: 'grim', words: ['grim', 'dark', 'bleak', 'dread', 'foreboding', 'horror', 'brutal', 'ruthless', 'gloomy', 'gritty'] },
     { label: 'terse', words: ['terse', 'curt', 'concise', 'brusque', 'clipped', 'laconic', 'brief replies'] },
     { label: 'florid', words: ['florid', 'flowery', 'poetic', 'eloquent', 'ornate', 'purple prose', 'verbose'] },

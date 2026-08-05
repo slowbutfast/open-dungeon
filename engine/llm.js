@@ -440,10 +440,14 @@ export class LlmOrchestrator {
         // keeps it in front of the narrator for the whole session. Once pinned
         // it is never re-detected — deliberate mid-session restyling is out of
         // scope for v1 (architecture.md, Risks). Deterministic keyword
-        // classifier, so no extra LLM call or latency. The style is committed
-        // with the turn's save at the end of the stream.
+        // classifier, so no extra LLM call or latency. The signals are the
+        // title + the player's own opening words — deliberately NOT the system
+        // prompt, whose mandate text ("concise and curt", "sarcastic") would
+        // collide with the tone keywords and mis-pin the style (natural-play
+        // finding: a whimsical opening was pinned "terse"). The style is
+        // committed with the turn's save at the end of the stream.
         if (state.narratorStyle == null) {
-            const detected = detectNarratorStyle(state.title, state.systemPrompt, text);
+            const detected = detectNarratorStyle(state.title, text);
             state.narratorStyle = detected;
             addDebugLog(`Narrator style adopted: ${detected}`);
         }

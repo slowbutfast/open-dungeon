@@ -244,6 +244,32 @@ test('mock integration: a stale status line recovers a room from narration landm
     }
 });
 
+test('mock integration: a whimsical opening is NOT mis-pinned terse by the default prompt mandate text', async (t) => {
+    // Natural-play finding: the style detector used to scan the system prompt,
+    // whose "concise and curt" mandate matched the terse keywords and overrode
+    // the player's own whimsical opening. Detection must come from the player's
+    // opening (title + first action) only.
+    const tempRoot = createTempDir('od-int-style-detect-');
+    const saveDir = path.join(tempRoot, 'saves');
+    t.after(() => cleanupDir(tempRoot));
+
+    const engine = new AdventureEngine(saveDir);
+    await engine.newAdventure('The Clockwork Meadow');
+
+    const restore = installScriptedNarrator(engine, [
+        'You wake on a mossy hill.\n[Status: The Clockwork Meadow | Score: 0 | Moves: 1]',
+    ]);
+
+    try {
+        await runTurn(engine, 'do', 'I sit up with big curious eyes, delighted to be here.');
+        assert.equal(engine.state.narratorStyle, 'whimsical',
+            'a curious/delighted opening must pin whimsical, not terse');
+    } finally {
+        restore();
+        engine.memory.structuredStore.close();
+    }
+});
+
 test('save/load round-trip: the graph and current room survive a restart', async (t) => {    const tempRoot = createTempDir('od-int-save-');
     const saveDir = path.join(tempRoot, 'saves');
     t.after(() => cleanupDir(tempRoot));

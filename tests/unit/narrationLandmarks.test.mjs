@@ -65,3 +65,29 @@ test('empty narration yields no landmark (null)', () => {
 test('mechanical tokens are rejected (mirrors the forged-status guard)', () => {
     assert.equal(extractNarrationLandmark('You walk into the Admin Room.'), null);
 });
+
+// ─── Natural-play precision (found playing the live model like a human) ─────
+
+test('repositioning "step up to the wall" is not an arrival (null)', () => {
+    assert.equal(extractNarrationLandmark('I step up to the wall and trace a rune.'), null);
+});
+
+test('repositioning "step back a pace" is not an arrival (null)', () => {
+    assert.equal(extractNarrationLandmark('I step back a pace and watch.'), null);
+});
+
+test('following a sound ("following the ticking") is not an arrival (null)', () => {
+    assert.equal(extractNarrationLandmark('I walk slowly around the trees, following the ticking until it grows loudest.'), null);
+});
+
+test('manner-adverb prose ("walk slowly around") is not an arrival (null)', () => {
+    assert.equal(extractNarrationLandmark('I walk slowly around the trees, ear pressed close.'), null);
+});
+
+test('"step into the chamber" is still an arrival', () => {
+    assert.equal(extractNarrationLandmark('I step into the chamber, the air still.'), 'Chamber');
+});
+
+test('"follow the path" with a destination is an arrival', () => {
+    assert.equal(extractNarrationLandmark('I follow the path north to the old stone gate.'), 'Old Stone Gate');
+});

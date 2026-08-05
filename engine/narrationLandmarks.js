@@ -55,6 +55,12 @@ const GENERIC_WORDS = new Set([
     'deeper', 'further', 'farther', 'onward', 'forward', 'backward', 'closer',
     'upward', 'downward', 'inward', 'outward', 'on', 'onwards', 'forwards',
     'back', 'away', 'again', 'out', 'around', 'apart',
+    // Manner adverbs from natural action prose ("step up to the wall",
+    // "walk slowly around the trees") — modifiers, never places.
+    'slowly', 'quietly', 'carefully', 'gently', 'quickly', 'softly',
+    'cautiously', 'warily', 'nervously', 'eagerly', 'silently', 'simply',
+    'patiently', 'curiously', 'gently', 'firmly', 'softly', 'low', 'straight',
+    'directly', 'onward', 'on', 'ahead',
 ]);
 
 // Words that may dangle at the tail of a captured noun phrase and are dropped
@@ -83,14 +89,18 @@ const PHRASE_STOPPERS = new Set([
 ]);
 
 // Movement verbs that clearly narrate ARRIVAL at a new place (high-precision;
-// a bare "walk" with no destination is not enough).
+// a bare "walk" with no destination is not enough). "step" requires a
+// destination preposition ("step INTO the chamber", not "step up to the wall"
+// / "step back a pace" — those are repositioning). "follow" requires a route
+// noun ("follow THE PATH", not "following the ticking").
 const ARRIVAL_VERBS = [
     'enter(?:ed|ing)?', 'arriv(?:e|ed|ing)?(?:\\s+(?:at|in))?',
-    'reach(?:ed|ing)?', 'step(?:ped)?(?:\\s+(?:into|onto|through))?',
+    'reach(?:ed|ing)?', 'step(?:ped)?(?:\\s+(?:into|onto|through))',
     'walk(?:ed|ing)?', 'head(?:ed|ing)?', 'trudg(?:e|ed|ing)?',
-    'stumble(?:d|ing)?', 'cross(?:ed|ing)?', 'follow(?:ed|ing)?',
+    'stumble(?:d|ing)?', 'cross(?:ed|ing)?',
+    'follow(?:ed|ing)?\\s+(?:the|a|an)\\s+(?:path|trail|road|track|footpath|passage|way|ridge|stream|river|lane|route)',
     'pass(?:ed|ing)?\\s+through', 'emerg(?:e|ed|ing)?',
-    'slip(?:ped|ping)?', 'wander(?:ed|ing)?',
+    'slip(?:ped|ping)?(?:\\s+into)?', 'wander(?:ed|ing)?\\s+into',
     'come\\s+(?:to|upon|across|up\\s+on)', 'struck', 'hit', 'reached',
 ];
 

@@ -70,6 +70,32 @@ only 1/12 turns. The gate passed **entirely via the D6 stale-status recovery bac
   its status line 3/3 on fully-emitted movement turns) but the default model's compliance is ~zero.
   "Narrator fidelity" claims should be worded as **recovery-guaranteed**, not compliance-guaranteed.
 
+## Natural human playtest (follow-up session, 2026-08-05)
+
+Played 18 turns on `google/gemini-2.5-flash` as a whimsical wanderer ("The Clockwork Meadow":
+wake on a mossy hill → bronze trees → found a ticking clockwork device → placed it in a pedestal
+niche → descended into a rune-lit subterranean chamber). Genuinely fun, coherent fiction; the
+spatial map tracked the journey (8 rooms). The session surfaced **two real defects, now fixed**:
+
+1. **Style detector mis-pin (fixed):** `narrator_style` pinned `terse` because detection scanned the
+   system prompt, whose "concise and curt" mandate matched the terse keyword list and overrode the
+   player's whimsical opening. Fix: detection signals are now title + the player's opening words only
+   (`engine/llm.js`, `detectNarratorStyle(state.title, text)`); added `curious`/`delightful`/etc. to
+   the whimsical keywords. Regression test: `spatialIntegration.test.mjs` "whimsical opening is NOT
+   mis-pinned terse".
+2. **Recovery noise on repositioning prose (fixed):** with models that emit no status lines at all
+   (gemini did not), every turn hits the missing-status recovery, and everyday action prose became
+   spurious rooms (`Wall` from "step up to the wall", `Pace` from "step back a pace", `Ticking` from
+   "following the ticking", plus a muddled `Clockwork Meadow the Path`). Fixes in
+   `engine/narrationLandmarks.js`: `step` now requires a destination preposition (`step into`, not
+   `step up to`), `follow` requires a route noun (`follow the path`, not `following the ticking`),
+   and manner adverbs (`slowly`, `carefully`, ...) are stopwords. Regression tests in
+   `narrationLandmarks.test.mjs`.
+
+Session also reconfirmed GH #37 (injected "Eldrin, a Mage" persona collided with my opening) and
+GH #39 (0 edges from first-person actions). Data: `game/playtest/results-natural-human-play.json`,
+probe `probe-human-play` (server stopped).
+
 ## Open items / suggested next steps
 
 1. **`make-undo-and-trades-consistent` (23/24)** — still in progress; owns the 3 pre-existing
