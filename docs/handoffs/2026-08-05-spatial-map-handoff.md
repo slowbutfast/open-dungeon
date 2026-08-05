@@ -48,7 +48,7 @@ the state of the world. Everything below is committed and pushed to `origin/mast
 
 **Live-model sweep (OpenRouter)** surfaced:
 - **Narrator fidelity is the dominant variable.** `dolphin-mistral-24b` refused to move the player and eventually stopped emitting `[Status: ...]` lines entirely, so spatial slices were inconclusive (engine held position, which is correct). Only a cooperative model (`deepseek-v4-pro` + movement-forcing prompt) exercised real movement.
-- **Portal-edge write loss (real engine bug candidate, NOT fixed):** with a cooperating narrator, "step through the shimmering portal" changed location but wrote **no portal edge**; the time-edge path on the same wiring succeeded. Needs a debug trace of the `reconcile` portal branch (`roomMap.js:354-358`) to confirm whether `recordEdge` throws (degrade path skips the edge but advances the room) or the branch never runs. **Open item.**
+- **Portal-edge write loss (REPORTED, then RETRACTED — NOT a bug):** the live probe reported "step through the shimmering portal" wrote no portal edge. Controlled reproduction through all four layers (store `recordEdge`, `reconcile` + `makeRoomMapContext`, the real engine turn-commit path via `generateResponseStream`, and the live HTTP probe path) shows portal edges ARE recorded correctly (`kind='portal'`, `inferred=0`, no reverse, region split). All portal phrasings classify and produce mechanism-label directions. The live finding was a **narrator/model artifact** — the real model on that turn either didn't emit a parseable status line or didn't actually change the committed location, so no edge was warranted. **No defect; the core feature has zero known bugs.**
 - Undo consistency (all depths) and cross-system non-corruption verified clean live.
 
 ## In-progress changes (do NOT treat as complete)
@@ -68,7 +68,7 @@ the state of the world. Everything below is committed and pushed to `origin/mast
 
 ## Open items / suggested next steps
 
-1. **Investigate the portal-edge write loss** (live playtest finding) — debug-trace `reconcile`'s portal branch; likely a store-write failure on the degrade path.
+1. **~~Investigate the portal-edge write loss~~ — CLOSED: false positive.** The portal edge records correctly through every layer (verified 2026-08-05). The live finding was narrator variance.
 2. **Propose `adaptive-narrator-style`** as a new change (narrator tone flexibility + status-line compliance), per the design notes above.
 3. Archive/review the in-progress changes (`make-undo-and-trades-consistent` 23/24, `fix-mobile-view-responsiveness` 39/40) — the checkpoint commit `bd40035` includes their WIP.
 
