@@ -145,7 +145,7 @@ document.addEventListener("DOMContentLoaded", () => {
     window.storyCustomized = false;
     document.getElementById("custom-title").value = "Custom Quest";
     document.getElementById("custom-summary").value = "You stand at the beginning of a mysterious custom quest.";
-    document.getElementById("custom-system-prompt").value = `You are the narrator for a custom text adventure game. Describe the world, obstacles, and results of actions in a sarcastic, direct, and concise tone in the style of Zork. Use the second-person perspective ("You"). At the very end of EVERY response, on a new line, you MUST append the current status in this exact format: [Status: <Location Name> | Score: <Current Score> | Moves: <Moves>]`;
+    document.getElementById("custom-system-prompt").value = `You are the narrator for a custom text adventure game. Describe the world, obstacles, and results of actions in a sarcastic, direct, and concise tone in the style of Zork. Use the second-person perspective ("You"). Adopt the tone implied by the player's opening and hold it consistently for the entire session; do not drift mid-session. At the very end of EVERY response, on a new line, you MUST append the current status in this exact format: [Status: <Location Name> | Score: <Current Score> | Moves: <Moves>]. Whenever your narration moves the player to a different place, the Location field MUST name the new place in the status line (never the previous location).`;
     Screens.showScreen("custom-preset-screen");
   });
 

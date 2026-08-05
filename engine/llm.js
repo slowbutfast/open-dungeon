@@ -4,6 +4,7 @@ import { MockOpenAI } from './mockOpenAI.js';
 import { llmTracker, addDebugLog } from './llmTracker.js';
 import { llmCall, formatUserInput } from './llmAdapter.js';
 import { CONTEXT_BLOCKS } from './contextBlocks.js';
+import { detectNarratorStyle } from './narratorStyle.js';
 import { reconcile, makeRoomMapContext } from './memory/roomMap.js';
 
 dotenv.config();
@@ -384,6 +385,19 @@ export class LlmOrchestrator {
             text: sanitizeForHistory(formattedText)
         });
 
+        // Narrator style capture (narrator-style-fidelity, 3.2): on the first
+        // player turn (no style pinned yet), adopt the tone implied by the
+        // player's opening and hold it in state so the [NARRATOR STYLE] block
+        // keeps it in front of the narrator for the whole session. Once pinned
+        // it is never re-detected — deliberate mid-session restyling is out of
+        // scope for v1 (architecture.md, Risks). Deterministic keyword
+        // classifier, so no extra LLM call or latency. The style is committed
+        // with the turn's save at the end of the stream.
+        if (state.narratorStyle == null) {
+            const detected = detectNarratorStyle(state.title, state.systemPrompt, text);
+            state.narratorStyle = detected;
+            addDebugLog(`Narrator style adopted: ${detected}`);
+        }
 
         let recentText = formattedText;
         if (state.history.length >= 2) {

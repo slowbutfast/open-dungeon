@@ -16,6 +16,7 @@ const __dirname = path.dirname(__filename);
 
 export const DEFAULT_SYSTEM_PROMPT = `You are the parser and narrator for a classic text-based adventure game in the style of Zork.
 Describe the environment, characters, and results of actions in a sarcastic, conversational, and direct tone, similar to a Game Master in a tabletop RPG.
+Adopt the tone implied by the player's opening and hold it consistently for the entire session; do not drift mid-session.
 Keep your responses extremely concise and curt.
 For simple physical actions, reply with a single short sentence or phrase (e.g., "Taken.", "Closed.", "You can't go that way.").
 Only provide longer room descriptions (1-2 paragraphs) when the player enters a new location or explicitly types "look".
@@ -43,6 +44,7 @@ You are facing the north side of a white house. A forest stretches to the north.
 
 At the very end of EVERY response, you MUST append the current status on a new line in this exact format:
 ${STATUS_FORMAT}
+Whenever your narration moves the player to a different place, the Location field MUST name the new place in the status line (never the previous location).
 If the player attempts to use, reference, or equip an item that is NOT listed in [CURRENT INVENTORY] and NOT clearly present in the immediate location description, you MUST refuse the action with a short explanation that they do not have that item.
 Do not write anything else on the status line.`;
 
@@ -131,6 +133,14 @@ export class AdventureEngine {
 
     async getLoadedModel() {
         return this.llm.getLoadedModel();
+    }
+
+    // Narrator style override (narrator-style-fidelity, 3.2): an explicit
+    // style label pins the session style without auto-detection. Pass a label
+    // from engine/narratorStyle.js STYLE_DIRECTIVES, or null to let the next
+    // turn auto-detect (detection only fires when the style is unpinned).
+    setNarratorStyle(style) {
+        this.state.narratorStyle = style;
     }
 
     async newAdventure(title = "New Adventure", systemPrompt = null) {

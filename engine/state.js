@@ -26,6 +26,11 @@ export class AdventureState {
         this.currentRoomId = null;
         this.score = 0;
         this.moves = 0;
+        // D2 (narrator-style-fidelity): the narrator style adopted once from
+        // the player's opening and pinned for the session (a style label from
+        // engine/narratorStyle.js). Additive + null-tolerant: old saves load
+        // null and the next turn adopts a style; never re-detected once set.
+        this.narratorStyle = null;
         this.model = "local-model";
         this.temperature = 0.8;
         this.maxTokens = 300;
@@ -56,7 +61,8 @@ export class AdventureState {
             previous_location: this.previousLocation,
             current_room_id: this.currentRoomId,
             score: this.score,
-            moves: this.moves
+            moves: this.moves,
+            narrator_style: this.narratorStyle
         };
         await fs.writeFile(filepath, JSON.stringify(data, null, 4), 'utf-8');
     }
@@ -101,6 +107,7 @@ export class AdventureState {
             this.currentRoomId = state.current_room_id !== undefined ? state.current_room_id : null;
             this.score = state.score !== undefined ? state.score : 0;
             this.moves = state.moves !== undefined ? state.moves : 0;
+            this.narratorStyle = state.narrator_style !== undefined ? state.narrator_style : null;
         } catch (e) {
             throw new Error(`Adventure ${adventureId} not found.`);
         }

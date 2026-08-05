@@ -96,11 +96,11 @@ function composeFromRegistry(state, turnContext) {
 
 // ─── 1.1 Registry contract: every injected block is registered ─────────────
 
-test('CONTEXT_BLOCKS registers exactly the five injected blocks in emit order', () => {
+test('CONTEXT_BLOCKS registers exactly the six injected blocks in emit order', () => {
     assert.ok(Array.isArray(CONTEXT_BLOCKS), 'CONTEXT_BLOCKS must be an array');
     assert.deepEqual(
         CONTEXT_BLOCKS.map(b => b.header),
-        ['CURRENT STATUS', 'CURRENT INVENTORY', 'ADVENTURE SUMMARY', 'WORLD INFO & LORE', 'RECALLED MEMORIES']
+        ['CURRENT STATUS', 'NARRATOR STYLE', 'CURRENT INVENTORY', 'ADVENTURE SUMMARY', 'WORLD INFO & LORE', 'RECALLED MEMORIES']
     );
 });
 
@@ -144,6 +144,7 @@ test('LlmOrchestrator.buildSystemMessage equals the registry-composed message', 
 test('sanitizeForHistory strips an echoed copy of every registered block', () => {
     const echoedBodies = {
         'CURRENT STATUS': ['- Location: West of House', '- Score: 0', '- Moves: 0'],
+        'NARRATOR STYLE': ['- Adopted style: Grim — dark, terse, and foreboding.', '- Hold this tone consistently for the entire session; do not drift.'],
         'CURRENT INVENTORY': ['- Iron Key (x1): An old key.'],
         'ADVENTURE SUMMARY': ['- Location: The Vault', '- Score: 4', '- Moves: 9'],
         'WORLD INFO & LORE': ['- Korr (CHARACTER): A smuggler.'],

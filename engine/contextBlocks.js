@@ -18,12 +18,26 @@
 // shape the sanitizer strips when the narrator echoes a block back. A future
 // block with a prose body must extend the sanitizer in the same change that
 // adds the block (architecture.md, Risks).
+import { STYLE_DIRECTIVES } from './narratorStyle.js';
+
 export const CONTEXT_BLOCKS = [
     {
         header: "CURRENT STATUS",
         enabled: () => true,
         build: (state) =>
             `- Location: ${state.location}\n- Score: ${state.score}\n- Moves: ${state.moves}`,
+    },
+    {
+        header: "NARRATOR STYLE",
+        // Pinned once the engine captures the adopted style
+        // (narrator-style-fidelity, 3.2). Until then (pre-detection, old
+        // saves) the block is absent, so a session without a captured style
+        // gets no pin.
+        enabled: (state) => Boolean(state.narratorStyle),
+        build: (state) => {
+            const directive = STYLE_DIRECTIVES[state.narratorStyle] || STYLE_DIRECTIVES.direct;
+            return `- Adopted style: ${directive}\n- Hold this tone consistently for the entire session; do not drift.`;
+        },
     },
     {
         header: "CURRENT INVENTORY",

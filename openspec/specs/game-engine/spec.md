@@ -47,6 +47,10 @@ Status parsing SHALL use the single shared `parseStatusLine` function exported b
 
 The status-line FORMAT SHALL be produced by one shared definition: `STATUS_FORMAT` (`engine/statusFormat.js`), the canonical three-field `[Status: <Location Name> | Score: <Current Score> | Moves: <Moves>]` line. The default system prompt (`DEFAULT_SYSTEM_PROMPT`), all four story presets, the mock narrator's canned responses (`engine/mockOpenAI.js`), and the web fallback opening scene (`web/routes/game.js`) SHALL compose the canonical line from that constant (or, for the zero-build frontend, declare the identical literal); producers SHALL NOT emit the two-field variant. The frontend status strip (`web/static/js/ui/renderers.js`) SHALL match the same three-field shape so it cannot disagree with the committed line.
 
+The narrator contract SHALL require status-line fidelity: the narrator MUST emit a canonical status line at the end of every response, and MUST advance the `Location` field whenever its narration moves the player to a new or different place. The default system prompt and all story presets SHALL state this mandate explicitly so the narrator's status line stays in agreement with its own scene narration.
+
+The narrator SHALL adopt the tone/register implied by the player's opening and hold that style consistently for the session (no mid-session tonal drift). The engine SHALL capture the adopted style once into state and expose it as a `[NARRATOR STYLE]` context block so later turns keep it pinned.
+
 The narration text committed to history, the save file, and the extraction queue SHALL be sanitized: echoed context blocks (derived from the narrator-context registry) and the raw status line SHALL be stripped before commit. The raw assistant text MAY be retained for debugging but SHALL NOT be replayed as context.
 
 The game engine SHALL advance `score` deterministically as the adventure progresses, independent of whether the narrator happens to emit a new Score value on the status line. Score SHALL be computed by an engine-side rule (over extracted milestone events) and committed through the same shared status-line path used for location and moves, so a missed status line cannot silently freeze score.
@@ -66,6 +70,10 @@ The narration call SHALL be routed through the LLM call adapter (`llmCall`): the
 #### Scenario: Producers emit the canonical three-field line
 - **WHEN** the mock narrator, the web fallback opening scene, the default system prompt, or a story preset produces a status line
 - **THEN** the line is the canonical three-field `[Status: <Location Name> | Score: <Current Score> | Moves: <Moves>]` shape composed from the shared `STATUS_FORMAT` constant (or, in the zero-build frontend default, the identical literal), and the frontend strip removes that same shape from rendered narration
+
+#### Scenario: Narrator advances the location when it moves the player
+- **WHEN** the narrator's prose narrates travel to a new place
+- **THEN** the status line's `Location` names that new place (the prompt mandate requires it), so the engine reconciles a new room and the spatial map grows
 
 #### Scenario: Player input is delimited as in-fiction
 - **WHEN** the player's action text is inserted into the prompt

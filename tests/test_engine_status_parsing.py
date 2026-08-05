@@ -58,6 +58,17 @@ CANONICAL_STATUS_LINE = re.compile(
     r"^\[Status:\s*.*\|\s*Score:\s*\d+\s*\|\s*Moves:\s*\d+\s*\]$"
 )
 
+# The narrator-fidelity prompt contract (narrator-style-fidelity): the status
+# mandate and the style directive must appear VERBATIM in every prompt producer
+# (DEFAULT_SYSTEM_PROMPT, the four presets, and the zero-build frontend default
+# in web/static/js/app.js). A single edit that drops either phrase breaks the
+# contract and fails these source-text pins.
+STATUS_MANDATE = "Location field MUST name the new place"
+STYLE_DIRECTIVE = (
+    "Adopt the tone implied by the player's opening and hold it consistently"
+    " for the entire session"
+)
+
 # Probe: imports the shared STATUS_FORMAT constant and reports its value.
 STATUS_FORMAT_PROBE = """
 import { STATUS_FORMAT } from './engine/statusFormat.js';
@@ -527,6 +538,27 @@ class TestPromptContract(unittest.TestCase):
         self.assertIn("${STATUS_FORMAT}", self._default_prompt_raw())
         for raw in self._preset_prompt_raws():
             self.assertIn("${STATUS_FORMAT}", raw)
+
+    def test_default_prompt_carries_status_mandate(self):
+        """The narrator MUST advance Location when it moves the player."""
+        self.assertIn(STATUS_MANDATE, self._default_prompt())
+
+    def test_default_prompt_carries_style_directive(self):
+        """The narrator adopts the player's opening tone and holds it."""
+        self.assertIn(STYLE_DIRECTIVE, self._default_prompt())
+
+    def test_presets_carry_status_mandate_and_style_directive(self):
+        presets = self._preset_prompts()
+        self.assertEqual(len(presets), 4)
+        for prompt in presets:
+            self.assertIn(STATUS_MANDATE, prompt)
+            self.assertIn(STYLE_DIRECTIVE, prompt)
+
+    def test_frontend_default_prompt_carries_mandate_and_style_directive(self):
+        with open(APP_JS_SOURCE_PATH, encoding="utf-8") as f:
+            source = f.read()
+        self.assertIn(STATUS_MANDATE, source)
+        self.assertIn(STYLE_DIRECTIVE, source)
 
 
 def _status_chunks(source):

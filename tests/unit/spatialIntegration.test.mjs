@@ -160,6 +160,50 @@ test('mock integration: a directionless walk ("walk on") records the forward edg
     }
 });
 
+test('mock integration: a scripted narrator advancing its status line grows the map past 3 rooms (narrator-fidelity mandate guard)', async (t) => {
+    const tempRoot = createTempDir('od-int-fidelity-');
+    const saveDir = path.join(tempRoot, 'saves');
+    t.after(() => cleanupDir(tempRoot));
+
+    const engine = new AdventureEngine(saveDir);
+    await engine.newAdventure('Wanderer');
+
+    // The prompt-contract fix (narrator-style-fidelity): the composed system
+    // message for a turn must carry the status mandate and the style
+    // directive. This is the guard that the integration's premise — a
+    // compliant narrator advances its Location — rests on; if the mandate
+    // ever regresses out of the default prompt, this fails.
+    const systemMsg = engine.llm.buildSystemMessage(engine.state, [], [], []);
+    assert.ok(systemMsg.content.includes('Location field MUST name the new place'),
+        'composed system message must carry the status mandate');
+    assert.ok(systemMsg.content.includes("Adopt the tone implied by the player's opening"),
+        'composed system message must carry the style directive');
+
+    const restore = installScriptedNarrator(engine, [
+        'You enter the Misty Grotto.\n[Status: Misty Grotto | Score: 0 | Moves: 1]',
+        'You reach the Sunless Bog.\n[Status: Sunless Bog | Score: 0 | Moves: 2]',
+        'You climb to the Cinder Shelf.\n[Status: Cinder Shelf | Score: 0 | Moves: 3]',
+        'You descend into the Bone Orchard.\n[Status: Bone Orchard | Score: 0 | Moves: 4]',
+    ]);
+
+    try {
+        for (const action of ['go west', 'go north', 'go east', 'go down']) {
+            await runTurn(engine, 'do', action);
+        }
+        const map = await engine.getMap();
+        assert.ok(map.rooms.length >= 4, `map must grow past 3 rooms when the narrator moves the player, got ${map.rooms.length}`);
+        // The adopted style is captured into state on the first turn and held
+        // for the session (never re-detected).
+        assert.ok(engine.state.narratorStyle, 'narrator style captured into state');
+        const pinned = engine.state.narratorStyle;
+        await runTurn(engine, 'do', 'look around');
+        assert.equal(engine.state.narratorStyle, pinned, 'style stays pinned across turns');
+    } finally {
+        restore();
+        engine.memory.structuredStore.close();
+    }
+});
+
 test('save/load round-trip: the graph and current room survive a restart', async (t) => {    const tempRoot = createTempDir('od-int-save-');
     const saveDir = path.join(tempRoot, 'saves');
     t.after(() => cleanupDir(tempRoot));
