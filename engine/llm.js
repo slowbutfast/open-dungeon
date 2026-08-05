@@ -5,7 +5,8 @@ import { llmTracker, addDebugLog } from './llmTracker.js';
 import { llmCall, formatUserInput } from './llmAdapter.js';
 import { CONTEXT_BLOCKS } from './contextBlocks.js';
 import { detectNarratorStyle } from './narratorStyle.js';
-import { reconcile, makeRoomMapContext } from './memory/roomMap.js';
+import { extractNarrationLandmark } from './narrationLandmarks.js';
+import { reconcile, makeRoomMapContext, roomNamesMatch } from './memory/roomMap.js';
 
 dotenv.config();
 
@@ -305,6 +306,12 @@ export class LlmOrchestrator {
             this.isOpenRouter = config.isOpenRouter;
             this.reasoningEffort = config.reasoningEffort;
         }
+        // Stale-status tracking (narrator-style-fidelity, GH #38): the last
+        // Location the NARRATOR put on its status line (not the engine's
+        // committed location — a recovery moves the engine ahead of the
+        // narrator). When the narrator repeats its own previous status line,
+        // that line is a stale echo and the prose may override it.
+        this.lastStatusLocation = null;
     }
 
     async getLoadedModel() {
@@ -694,9 +701,42 @@ export class LlmOrchestrator {
             // Score jump) is not committed — the engine keeps its own
             // location. Score is engine-computed and never adopted; moves is
             // engine-owned. Only the sanitized narration reaches history.
-            const proposedLocation =
+            const statusLocation =
                 parsed.location !== null && !isSuspiciousStatus(parsed, state) ? parsed.location : null;
             state.moves += 1;
+
+            // Stale-status recovery (narrator-style-fidelity, GH #38): when the
+            // status line is missing (truncated) or the narrator REPEATS its own
+            // previous status line while the narration narrates travel, recover
+            // the proposed location from the narration's (or the action's)
+            // arrival landmarks so the spatial map keeps growing instead of
+            // freezing. A repeated status line is the stale-echo signature;
+            // a CHANGED status is honest even when the prose words differ
+            // ("Cantina" vs "noisy cantina"). Deterministic heuristics, no
+            // extra LLM call. The narration is sanitized first so a truncated
+            // `[Status:` fragment cannot be read as a landmark.
+            const narrationForLandmark = sanitizeForHistory(parsed.narration || assistantText);
+            const staleEcho =
+                statusLocation !== null &&
+                this.lastStatusLocation !== null &&
+                statusLocation === this.lastStatusLocation;
+            if (statusLocation !== null) {
+                this.lastStatusLocation = statusLocation;
+            }
+            let proposedLocation = statusLocation;
+            if (statusLocation === null) {
+                const recovered = extractNarrationLandmark(narrationForLandmark, text);
+                if (recovered) {
+                    proposedLocation = recovered;
+                    addDebugLog(`Missing status line; recovering location from narration landmark: '${recovered}'`);
+                }
+            } else if (staleEcho) {
+                const proseLandmark = extractNarrationLandmark(narrationForLandmark, text);
+                if (proseLandmark && !roomNamesMatch(proseLandmark, statusLocation)) {
+                    proposedLocation = proseLandmark;
+                    addDebugLog(`Stale status line '${statusLocation}' (repeated); narration narrates '${proseLandmark}' — recovering`);
+                }
+            }
 
             // Spatial reconciliation (spatial-map-region-graph, D3/D6): the
             // proposed location resolves through the room graph AFTER the moves

@@ -156,6 +156,10 @@ export class AdventureEngine {
         this.state.currentRoomId = null;
         this.state.score = 0;
         this.state.moves = 0;
+        // Stale-status tracking is session-scoped (narrator-style-fidelity,
+        // GH #38): a reused engine (the MCP server's single instance) must not
+        // carry the previous session's narrator status line into this one.
+        this.llm.lastStatusLocation = null;
         
         const resolved = await this.getLoadedModel();
         this.state.model = typeof resolved === "string" ? resolved : "local-model";
@@ -174,6 +178,7 @@ export class AdventureEngine {
         await this.state.load(this.saveDir, adventureId, () => this.getLoadedModel());
         await this.memory.initialize(adventureId);
         this.memory.modelName = this.state.model;
+        this.llm.lastStatusLocation = null;
         this._initCurrentRoomFromLocation();
     }
 

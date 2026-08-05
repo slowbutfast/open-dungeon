@@ -35,7 +35,6 @@ flowchart LR
 **Non-Goals:**
 - No engine-logic change to `reconcile` / `parseStatusLine` / the forged-status guard.
 - No "mobile narrator" default decision (whether to always move the player) — orthogonal.
-- No narration-parsing heuristics to recover from a stale status line (deferred).
 - No map visualization / pathfinding (GH #35).
 - No new dependencies.
 
@@ -54,19 +53,22 @@ Add `[NARRATOR STYLE]` to `engine/contextBlocks.js`. The engine captures the ado
 The precise wording matters more than the mechanism. Draft: "At the very end of EVERY response, on a new line, you MUST append the current status in this exact format: [Status: ...]. When the player moves to a new place, the Location field MUST be the new place's name." This targets the observed stale-echo behavior directly.
 
 ### D5. The mandate needs an output budget it cannot be cut off by
-Live playtest on the cooperative model (`deepseek-v4-pro`) showed the mandate alone can still fail: a "simple" action (`turn around, walk west`) got a reduced narration budget and the model truncated the status line mid-emission (`[Status: Desolate Moor`, no `]`), which parses as no status line — losing the room and freezing the map. Two delivery fixes in the same change: (1) `computeNarrationBudget` floors the simple-action budget at `SIMPLE_ACTION_MIN_TOKENS` (200) so a curt description + status line always fit, and movement verbs are not simple-capped at all; (2) `sanitizeForHistory` strips a `[Status:` line even without a closing `]`, so a truncated fragment never surfaces in narration/history. **Alternative rejected:** treating truncation via the deferred narration-parsing fallback (GH #38) — that is the backstop, not the first lever.
+Live playtest on the cooperative model (`deepseek-v4-pro`) showed the mandate alone can still fail: a "simple" action (`turn around, walk west`) got a reduced narration budget and the model truncated the status line mid-emission (`[Status: Desolate Moor`, no `]`), which parses as no status line — losing the room and freezing the map. Two delivery fixes in the same change: (1) `computeNarrationBudget` floors the simple-action budget at `SIMPLE_ACTION_MIN_TOKENS` (200) so a curt description + status line always fit, and movement verbs are not simple-capped at all; (2) `sanitizeForHistory` strips a `[Status:` line even without a closing `]`, so a truncated fragment never surfaces in narration/history.
+
+### D6. Deterministic stale-status recovery (GH #38) — the backstop that keeps the map growing
+Three live playtests froze the map despite the mandate + budget floor: the default model (`dolphin-mistral`) chronically repeats a stale `Location`, and a cooperative reasoning model (`deepseek-v4-pro`) both repeats stale lines and returns reasoning-only empty content on ~half its turns. The status line can therefore not be trusted on its own. `engine/narrationLandmarks.js` is a pure, deterministic extractor that recovers a proposed location from the narration's (and, failing that, the action's) arrival landmarks — validated against the real frozen-map prose. The turn-commit hook in `engine/llm.js` fires it in exactly two cases: (1) the status line is missing (truncated/empty), or (2) the narrator REPEATS its own previous status line — the stale-echo signature, tracked as `llm.lastStatusLocation` (session-scoped, reset on `newAdventure`/`load` because the MCP server reuses one engine). A CHANGED status is always honored, so the fallback can never override an honest advance. **Rejected alternative (D1, revised):** the fallback was originally deferred as "fragile"; the live gate failure made it necessary, and scoping it to repeated/missing status lines keeps false positives low — a repeated status with non-arrival prose recovers nothing (holds position), and a scene description without an arrival verb recovers nothing.
 
 ## Risks / Trade-offs
 
-- **[Narrator compliance]** The mandate may still not move the default model's status line. → Fallback is the deferred narration-parsing health check; the mandate is the cheap first lever and provably fixes the cooperative model (`deepseek-v4-pro`).
+- **[Narrator compliance]** The mandate may still not move the default model's status line. → Landed mitigation: the deterministic stale-status recovery (D6) recovers rooms from narration landmarks when the status line is missing or repeated; live playtests that froze at 2–3 rooms with the mandate alone are expected to grow past 3 rooms with the fallback.
 - **[Prompt bloat]** A longer default prompt slightly increases token cost per turn. → Negligible (a few lines); the status mandate already exists, we're sharpening it.
 - **[Contract drift]** Touching `DEFAULT_SYSTEM_PROMPT` / presets risks the pinned frontend literal and mock agreement. → Source-text pin tests guard it; update `app.js` in the same change.
 - **[Style pinning]** Holding a style could feel rigid if the player deliberately changes tone mid-session. → Accepted for v1 (consistency is the stated goal); a future "re-style on explicit player change" is a refinement.
 
 ## Migration Plan
 
-- Deploy as one commit: update the four prompt sources + `app.js`, add the `[NARRATOR STYLE]` block + style capture, update the source-text pin tests.
-- Rollback: revert the commit; the previous prompts and registry are fully restored (no data migration).
+- Deploy as one commit: update the four prompt sources + `app.js`, add the `[NARRATOR STYLE]` block + style capture, floor the simple-action budget, strip truncated status fragments, add the stale-status recovery module + hook, update the source-text pin tests.
+- Rollback: revert the commit; the previous prompts, registry, budget, sanitizer, and turn path are fully restored (no data migration).
 - Existing sessions load unchanged; the mandate only affects future turns.
 
 ## Open Questions

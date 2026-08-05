@@ -51,6 +51,8 @@ The narrator contract SHALL require status-line fidelity: the narrator MUST emit
 
 The engine SHALL budget the narration output so the mandated status line can always be emitted: a "simple" object action MAY receive a reduced output budget, but never below a floor (`SIMPLE_ACTION_MIN_TOKENS`) that leaves room for a short description plus the trailing status line, and movement verbs SHALL NOT be simple-capped. A truncated `[Status:` line (the model hit its output budget mid-line) SHALL be stripped from narration and history like a complete status line.
 
+When the status line is missing or the narrator repeats its own previous status line (stale echo), the engine SHALL recover a proposed location from the narration's arrival landmarks (`engine/narrationLandmarks.js`) and reconcile it, so the map keeps growing; a changed status line SHALL always be honored.
+
 The narrator SHALL adopt the tone/register implied by the player's opening and hold that style consistently for the session (no mid-session tonal drift). The engine SHALL capture the adopted style once into state and expose it as a `[NARRATOR STYLE]` context block so later turns keep it pinned.
 
 The narration text committed to history, the save file, and the extraction queue SHALL be sanitized: echoed context blocks (derived from the narrator-context registry) and the raw status line SHALL be stripped before commit. The raw assistant text MAY be retained for debugging but SHALL NOT be replayed as context.

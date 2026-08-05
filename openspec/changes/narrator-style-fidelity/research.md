@@ -47,8 +47,8 @@ trying to break the feature.
 | Option | Decision | Reason | Date |
 | :--- | :--- | :--- | :--- |
 | A second LLM call to detect style / fix the status line | Rejected for v1 | Adds latency + cost per turn; the fix belongs in the prompt contract first | 2026-08-05 |
-| A deterministic "status-line health check" that reconciles the last location against the narration | Deferred | Needs narration-parsing heuristics; fragile. The prompt fix is the cheap first step | 2026-08-05 |
-| Prompt-contract change only (style directive + stronger status mandate) | Adopted | Zero new deps, minimal surface, directly targets the observed failure | 2026-08-05 |
+| A deterministic "status-line health check" that reconciles the last location against the narration | **Adopted (2026-08-05, GH #38)** after three frozen live gates | Scoped to missing/repeated status lines (`llm.lastStatusLocation`) and prose arrival landmarks (`engine/narrationLandmarks.js`); validated against real frozen-map prose. Originally deferred as fragile; the live gate failure made the backstop necessary | 2026-08-05 |
+| Prompt-contract change only (style directive + stronger status mandate) | Adopted (with the budget floor + fallback) | Zero new deps, minimal surface, directly targets the observed failure | 2026-08-05 |
 
 ## Patterns adopted
 

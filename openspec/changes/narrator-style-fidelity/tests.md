@@ -3,6 +3,8 @@
 - `npm run test:unit` — Node test runner over `tests/unit/*.test.mjs`:
   - New `tests/unit/contextBlocks.style.test.mjs` (or extend `contextBlocks.test.mjs`): the `[NARRATOR STYLE]` block is registered with a header/enabled/build; when a style is set it renders; when absent it's excluded; an echoed copy is stripped by `sanitizeForHistory`.
   - New `tests/unit/narrationBudget.test.mjs`: `computeNarrationBudget` leaves movement verbs uncapped, floors simple actions at `SIMPLE_ACTION_MIN_TOKENS` (status line must always fit), and `sanitizeForHistory` strips a truncated `[Status:` fragment.
+  - New `tests/unit/narrationLandmarks.test.mjs`: `extractNarrationLandmark` recovers destinations from arrival verbs / path verbs, keeps distinguishing adjectives and direction words in place names, and returns null for refusals, scene descriptions, non-arrival stale prose, empty text, and mechanical tokens — validated against the real stale-echo prose captured from the frozen live playtests.
+  - New mock-mode integration in `spatialIntegration.test.mjs`: a scripted narrator that repeats a stale status line while its prose narrates travel still grows the room graph (the GH #38 fallback), and a stale no-move turn fabricates no room.
   - The source-text pin for the default prompt literal: `DEFAULT_SYSTEM_PROMPT` and `web/static/js/app.js` both contain the status mandate ("Location field MUST name the new place") and the style directive — a source-text test asserts the pinned agreement (extend the existing pin test).
   - Existing contract tests stay green (status line byte-identity, composed-message equivalence).
 - `npm run test:all` — full pytest suite stays green:

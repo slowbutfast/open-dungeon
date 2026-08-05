@@ -204,6 +204,46 @@ test('mock integration: a scripted narrator advancing its status line grows the 
     }
 });
 
+test('mock integration: a stale status line recovers a room from narration landmarks (narrator-fidelity fallback)', async (t) => {
+    const tempRoot = createTempDir('od-int-stale-');
+    const saveDir = path.join(tempRoot, 'saves');
+    t.after(() => cleanupDir(tempRoot));
+
+    const engine = new AdventureEngine(saveDir);
+    await engine.newAdventure('Cave Wanderer');
+
+    const restore = installScriptedNarrator(engine, [
+        // Turn 1: honest new status line establishes the first room.
+        'You enter the damp cave, water dripping.\n[Status: Cave | Score: 0 | Moves: 1]',
+        // Turn 2: STALE status (repeats Cave) while prose narrates travel to a
+        // new place — the fallback must recover "Hall of Pillars".
+        'You trudge deeper, the tunnel narrowing. You reach the Hall of Pillars, columns lost in the dark.\n[Status: Cave | Score: 0 | Moves: 2]',
+        // Turn 3: STALE again, prose narrates arrival at "Sunken Grotto".
+        'A passage opens into the Sunken Grotto, the air heavy and still.\n[Status: Cave | Score: 0 | Moves: 3]',
+        // Turn 4: stale but prose does NOT move the player — no new room.
+        'The cave is quiet. Water drips somewhere in the dark.\n[Status: Cave | Score: 0 | Moves: 4]',
+    ]);
+
+    try {
+        await runTurn(engine, 'do', 'enter the cave');
+        await runTurn(engine, 'do', 'go north');
+        await runTurn(engine, 'do', 'go east');
+        await runTurn(engine, 'do', 'look around');
+
+        const store = engine.memory.structuredStore;
+        const adv = engine.adventureId;
+        const rooms = store.getRooms(adv).map(r => r.name).sort();
+
+        // Two recovered rooms + the initial Cave = three rooms; the stale
+        // no-move turn fabricated nothing.
+        assert.deepEqual(rooms, ['Cave', 'Hall of Pillars', 'Sunken Grotto']);
+        assert.equal(store.getRooms(adv).length, 3, 'stale no-move turn fabricates no room');
+    } finally {
+        restore();
+        engine.memory.structuredStore.close();
+    }
+});
+
 test('save/load round-trip: the graph and current room survive a restart', async (t) => {    const tempRoot = createTempDir('od-int-save-');
     const saveDir = path.join(tempRoot, 'saves');
     t.after(() => cleanupDir(tempRoot));

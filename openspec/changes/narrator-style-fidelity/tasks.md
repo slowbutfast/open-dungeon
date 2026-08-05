@@ -21,6 +21,12 @@
 - [x] 3.5.1 Floor the simple-action narration budget (`computeNarrationBudget` + `SIMPLE_ACTION_MIN_TOKENS`) so the mandated status line can never be truncated off by the cap; movement verbs uncapped
 - [x] 3.5.2 Harden `sanitizeForHistory` to strip truncated `[Status:` fragments (no closing bracket)
 
+## 3.6 Stale-Status Recovery (GH #38 — extended scope after 3 frozen live gates)
+
+- [x] 3.6.1 `engine/narrationLandmarks.js`: pure deterministic extractor (arrival verbs + destination phrases, path verbs, stopword cleaning) validated against real frozen-map prose
+- [x] 3.6.2 Turn-commit hook: recover a room when the status line is missing OR repeats the narrator's own previous status line (`llm.lastStatusLocation`, session-scoped, reset on newAdventure/load)
+- [x] 3.6.3 Mock integration: a stale-status scripted narrator still grows the room graph; a stale no-move turn fabricates nothing
+
 ## 4. Regression & Verification
 
 - [x] 4.1 Run `npm run test:unit` — new tests green, no unit regressions
