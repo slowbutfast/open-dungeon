@@ -69,10 +69,24 @@ STYLE_DIRECTIVE = (
     " for the entire session"
 )
 
-# Probe: imports the shared STATUS_FORMAT constant and reports its value.
+# The complete-turn response exemplar (system-prompt-response-shape): every
+# prompt producer must carry the RESPONSE SHAPE marker and the "final line" rule
+# — the default prompt and the four presets via ${RESPONSE_SHAPE} interpolation
+# of the shared constant, the zero-build frontend default in web/static/js/app.js
+# as the identical literal. A single edit that drops either phrase breaks the
+# contract and fails these source-text pins.
+RESPONSE_SHAPE_MARKER = "RESPONSE SHAPE"
+RESPONSE_SHAPE_FINAL_LINE_RULE = "status line as the very last line"
+
+# Probe: imports the shared STATUS_FORMAT + RESPONSE_SHAPE constants and reports
+# their values.
 STATUS_FORMAT_PROBE = """
 import { STATUS_FORMAT } from './engine/statusFormat.js';
 console.log(JSON.stringify({ statusFormat: STATUS_FORMAT }));
+"""
+RESPONSE_SHAPE_PROBE = """
+import { STATUS_FORMAT, RESPONSE_SHAPE } from './engine/statusFormat.js';
+console.log(JSON.stringify({ statusFormat: STATUS_FORMAT, responseShape: RESPONSE_SHAPE }));
 """
 
 # Engine-level probe: runs an AdventureEngine in mock mode with a scripted
@@ -170,6 +184,37 @@ def assistant_texts(result):
         for e in result["history"]
         if e.get("role") == "assistant"
     ]
+
+
+def response_shape_constant():
+    """Import RESPONSE_SHAPE from engine/statusFormat.js and return its value.
+
+    This is the single source of truth the prompt producers interpolate, so the
+    source-text pins resolve `${RESPONSE_SHAPE}` to the actual constant rather
+    than to a Python-side copy that could drift from it.
+    """
+    proc = subprocess.run(
+        ["node", "--input-type=module", "-e", RESPONSE_SHAPE_PROBE],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if proc.returncode != 0:
+        raise AssertionError(
+            f"response-shape probe failed ({proc.returncode}):\n"
+            f"stdout: {proc.stdout}\nstderr: {proc.stderr}"
+        )
+    return json.loads(proc.stdout.strip().splitlines()[-1])["responseShape"]
+
+
+def resolve_prompt(raw):
+    """Resolve a prompt source's ${STATUS_FORMAT}/${RESPONSE_SHAPE} references
+    exactly the way the modules do at runtime."""
+    return (
+        raw.replace("${STATUS_FORMAT}", STATUS_FORMAT_TEMPLATE)
+        .replace("${RESPONSE_SHAPE}", response_shape_constant())
+    )
 
 
 # Summary-sanitization probe: drives summarizeOldTurns with a scripted
@@ -560,6 +605,30 @@ class TestPromptContract(unittest.TestCase):
         self.assertIn(STATUS_MANDATE, source)
         self.assertIn(STYLE_DIRECTIVE, source)
 
+    def test_prompt_sources_reference_shared_response_shape_constant(self):
+        """The interpolating producers point at ${RESPONSE_SHAPE}, not a copy."""
+        self.assertIn("${RESPONSE_SHAPE}", self._default_prompt_raw())
+        for raw in self._preset_prompt_raws():
+            self.assertIn("${RESPONSE_SHAPE}", raw)
+
+    def test_default_prompt_carries_response_shape_marker_and_final_line_rule(self):
+        resolved = resolve_prompt(self._default_prompt_raw())
+        self.assertIn(RESPONSE_SHAPE_MARKER, resolved)
+        self.assertIn(RESPONSE_SHAPE_FINAL_LINE_RULE, resolved)
+
+    def test_all_four_presets_carry_response_shape_marker_and_final_line_rule(self):
+        resolved = [resolve_prompt(raw) for raw in self._preset_prompt_raws()]
+        self.assertEqual(len(resolved), 4)
+        for prompt in resolved:
+            self.assertIn(RESPONSE_SHAPE_MARKER, prompt)
+            self.assertIn(RESPONSE_SHAPE_FINAL_LINE_RULE, prompt)
+
+    def test_frontend_default_prompt_carries_response_shape_marker_and_final_line_rule(self):
+        with open(APP_JS_SOURCE_PATH, encoding="utf-8") as f:
+            source = f.read()
+        self.assertIn(RESPONSE_SHAPE_MARKER, source)
+        self.assertIn(RESPONSE_SHAPE_FINAL_LINE_RULE, source)
+
 
 def _status_chunks(source):
     """Every bracketed `[Status: ...]` literal/regex in a source file."""
@@ -591,6 +660,46 @@ class TestStatusFormatConstant(unittest.TestCase):
             source = f.read()
         self.assertIn("STATUS_FORMAT", source)
         self.assertIn(STATUS_FORMAT_TEMPLATE, source)
+
+
+class TestResponseShapeConstant(unittest.TestCase):
+    """system-prompt-response-shape — RESPONSE_SHAPE is a single shared
+    complete-turn exemplar that teaches the full response anatomy (in-fiction
+    prose + canonical status line as the very last line), pinned beside
+    STATUS_FORMAT in engine/statusFormat.js.
+    """
+
+    def test_response_shape_exports_the_three_canonical_examples(self):
+        shape = response_shape_constant()
+        self.assertIn(RESPONSE_SHAPE_MARKER, shape)
+        for label in (
+            "Example 1 — exploring a new place:",
+            "Example 2 — talking to someone (no movement):",
+            "Example 3 — a simple action (no movement):",
+        ):
+            self.assertIn(label, shape, f"missing canonical example label: {label}")
+
+    def test_response_shape_status_lines_are_canonical_three_field(self):
+        shape = response_shape_constant()
+        status_lines = re.findall(r"\[Status:[^\]]*\]", shape)
+        self.assertEqual(len(status_lines), 3, f"expected 3 status lines in: {shape}")
+        for line in status_lines:
+            self.assertRegex(
+                line,
+                CANONICAL_STATUS_LINE,
+                f"non-canonical status line in RESPONSE_SHAPE: {line}",
+            )
+
+    def test_response_shape_carries_final_line_rule(self):
+        shape = response_shape_constant()
+        self.assertIn(RESPONSE_SHAPE_FINAL_LINE_RULE, shape)
+        self.assertIn("nothing comes after it", shape)
+
+    def test_response_shape_lives_beside_status_format(self):
+        with open(STATUS_FORMAT_SOURCE_PATH, encoding="utf-8") as f:
+            source = f.read()
+        self.assertIn("RESPONSE_SHAPE", source)
+        self.assertIn("STATUS_FORMAT", source)
 
 
 class TestProducersEmitCanonicalStatusLine(unittest.TestCase):

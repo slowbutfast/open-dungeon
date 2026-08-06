@@ -7,7 +7,7 @@ import { LlmOrchestrator } from './llm.js';
 import { MemoryManager } from './memory/memoryManager.js';
 import { EmbeddingService } from './memory/embeddings.js';
 import { loadPresets, savePresets as savePresetsFile } from './storyPresets.js';
-import { STATUS_FORMAT } from './statusFormat.js';
+import { STATUS_FORMAT, RESPONSE_SHAPE } from './statusFormat.js';
 import { formatUserInput } from './llmAdapter.js';
 import { computeRegions } from './memory/roomMap.js';
 
@@ -26,21 +26,7 @@ Never break character.
 Do not write suggestions, choices, options lists, or any trailing questions asking the player what they want to do next (e.g. do not ask "What do you do?" or "What is your next move?"). Let the player decide entirely on their own.
 Only reference or use items that are in the player's [CURRENT INVENTORY] or that are clearly present in the immediate location. Do not invent, assume, or list options/choices with hallucinated items that the player does not possess.
 
-Example 1:
-Player: open mailbox
-Narrator: Opening the small mailbox reveals a leaflet.
-[Status: West of House | Score: 0 | Moves: 0]
-
-Example 2:
-Player: take leaflet
-Narrator: Taken.
-[Status: West of House | Score: 0 | Moves: 1]
-
-Example 3:
-Player: go north
-Narrator: North of House
-You are facing the north side of a white house. A forest stretches to the north.
-[Status: North of House | Score: 0 | Moves: 2]
+${RESPONSE_SHAPE}
 
 At the very end of EVERY response, you MUST append the current status on a new line in this exact format:
 ${STATUS_FORMAT}
