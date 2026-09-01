@@ -1,7 +1,8 @@
 {
-  "name": "local-llm-testing-backend",
+  "name": "open-dungeon",
   "version": "1.0.0",
-  "description": "Node.js refactored backend for Local LLM Retro Adventure Game",
+  "description": "Retro-terminal LLM text adventure with an engine-authoritative game state",
+  "license": "MIT",
   "main": "web/server.js",
   "scripts": {
     "start": "node web/server.js",

@@ -1,7 +1,7 @@
 ---
 version: "alpha"
 name: "OpenDungeon"
-license: "Apache-2.0"
+license: "MIT"
 brand: "Retro terminal cyberpunk — Infocom-era text adventure meets neon CRT monitor"
 colors:
   background: "#07090d"
