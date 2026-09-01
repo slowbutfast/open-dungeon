@@ -152,7 +152,7 @@ class PlaytestSimulator(unittest.TestCase):
         # 3. Run assertions on captured terminal output
         
         # Verify Zork-style banner and copyright is printed
-        self.assertIn("Copyright (c) 1981, 1982, 1983 Infocom, Inc. All rights reserved.", output_str)
+        self.assertIn("OpenDungeon — in the tradition of Infocom, Inc., 1981-1983.", output_str)
         self.assertIn("Revision 88 / Connection online.", output_str)
         
         # Verify backing out load save works

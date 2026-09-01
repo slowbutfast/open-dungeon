@@ -101,7 +101,7 @@ def main():
     
     engine = AdventureEngine()
     
-    print("Copyright (c) 1981, 1982, 1983 Infocom, Inc. All rights reserved.")
+    print("OpenDungeon — in the tradition of Infocom, Inc., 1981-1983.")
     print("Revision 88 / Connection online.")
     print(f"Neural engine endpoint: {engine.client.base_url}\n")
     
