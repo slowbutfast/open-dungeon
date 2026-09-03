@@ -1,48 +1,43 @@
 name: tdd-rnd
 version: 1
-description: TDD workflow with a research artifact - research → proposal → specs
-  → architecture → tests → tasks
+description: TDD workflow with a research artifact - research → proposal → specs → architecture → tests → tasks
 artifacts:
   - id: research
     generates: research.md
     description: Facts, source material, and external research this change rests on
     template: research.md
     instruction: >
-      Record what is KNOWN before deciding anything. This artifact is the
-      evidence the proposal and architecture will rest on.
+      Record what is KNOWN before deciding anything. This artifact is the evidence the
+      proposal and architecture will rest on.
 
 
       Sections:
 
-      - **Source material**: verbatim notes from meetings, the PI,
-      collaborators. Dated and attributed. Quote in full rather than
-      paraphrasing so a later reader can audit whether the requirements were a
-      fair reading. Include a "Raised but not acted on" subsection — what was
-      mentioned and deliberately skipped, and why.
+      - **Source material**: verbatim notes from meetings, the PI, collaborators. Dated
+      and attributed. Quote in full rather than paraphrasing so a later reader can audit
+      whether the requirements were a fair reading. Include a "Raised but not acted on"
+      subsection — what was mentioned and deliberately skipped, and why.
 
-      - **Glossary**: domain terms, acronyms, and any word used in a non-obvious
-      sense, each with a "Does NOT mean" column. Add an entry the moment a term
-      could be read two ways. This is the primary defence against an implementer
-      inferring nomenclature and carrying the wrong inference into code.
+      - **Glossary**: domain terms, acronyms, and any word used in a non-obvious sense,
+      each with a "Does NOT mean" column. Add an entry the moment a term could be read
+      two ways. This is the primary defence against an implementer inferring nomenclature
+      and carrying the wrong inference into code.
 
-      - **External research**: reference implementations, papers, standards,
-      taxonomies. Record the LICENCE wherever code is involved and the date
-      accessed. Record failed lookups too, so nobody re-runs a dead end.
+      - **External research**: reference implementations, papers, standards, taxonomies.
+      Record the LICENCE wherever code is involved and the date accessed. Record failed
+      lookups too, so nobody re-runs a dead end.
 
-      - **Candidate tech**: packages, frameworks, stacks considered — adopted
-      AND rejected, each with a reason and a date.
+      - **Candidate tech**: packages, frameworks, stacks considered — adopted AND
+      rejected, each with a reason and a date.
 
-      - **Patterns adopted**: techniques taken from external sources, with
-      attribution and where they land in this codebase.
+      - **Patterns adopted**: techniques taken from external sources, with attribution
+      and where they land in this codebase.
 
-      - **Verified facts**: a table of claims with the method that settled each
-      one.
+      - **Verified facts**: a table of claims with the method that settled each one.
 
-      - **Unverified assumptions**: believed but unchecked, with what checking
-      costs.
+      - **Unverified assumptions**: believed but unchecked, with what checking costs.
 
-      - **Superseded claims**: what was believed, why it was wrong, what
-      replaced it.
+      - **Superseded claims**: what was believed, why it was wrong, what replaced it.
 
       - **Links out**: project-scoped material, linked and never copied.
 
@@ -50,24 +45,23 @@ artifacts:
       RULES:
 
 
-      1. Every entry in "Verified facts" MUST name how it was verified. "The
-      field exists" and "the values are usable" are different claims —
-      conflating them is the most common way a plan goes wrong. If you have not
-      checked, it belongs under "Unverified assumptions".
+      1. Every entry in "Verified facts" MUST name how it was verified. "The field
+      exists" and "the values are usable" are different claims — conflating them is the
+      most common way a plan goes wrong. If you have not checked, it belongs under
+      "Unverified assumptions".
 
 
-      2. Scope is CHANGE-SCOPED, not internal-vs-external. External research
-      done to inform this change belongs here. Material spanning multiple
-      changes belongs in the project's docs and is linked, never duplicated.
+      2. Scope is CHANGE-SCOPED, not internal-vs-external. External research done to
+      inform this change belongs here. Material spanning multiple changes belongs in the
+      project's docs and is linked, never duplicated.
 
 
-      3. Do NOT delete corrected claims. Move them to "Superseded claims" with
-      the reason they were wrong.
+      3. Do NOT delete corrected claims. Move them to "Superseded claims" with the reason
+      they were wrong.
 
 
-      4. This artifact stays amendable after the proposal is written. Research
-      continues during implementation, and findings that arrive mid-build belong
-      in the record.
+      4. This artifact stays amendable after the proposal is written. Research continues
+      during implementation, and findings that arrive mid-build belong in the record.
     requires: []
   - id: proposal
     generates: proposal.md
@@ -107,8 +101,8 @@ artifacts:
 
       This is the foundation - specs, design, and tasks all build on this.
 
-      Ground it in research.md: cite verified facts rather than restating
-      beliefs, and use the glossary's terms exactly.
+      Ground it in research.md: cite verified facts rather than restating beliefs, and
+      use the glossary's terms exactly.
     requires:
       - research
   - id: specs
