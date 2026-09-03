@@ -5,7 +5,7 @@ The test suite (`pytest tests/`) is exposed to two latent risks around save dire
 1. **Unconfigured fallback drift**: `engine/index.js` resolves the production save directory `game/adventures/` whenever `process.env.SAVE_DIR` is unset (see `engine/index.js:53`). There is currently **no global pytest safeguard** that injects a safe default — isolation depends on each test file remembering to set `os.environ["SAVE_DIR"]` in `setUp`. New tests (or test files written out-of-band) that forget this will silently target production saves.
 2. **Fragile teardown**: `shutil.rmtree` can raise `PermissionError` on read-only SQLite temp files left behind by crashed processes, leaving orphan directories and aborted test runs. The existing `assert_save_dir_is_safe` guard in `tests/test_helpers.py` validates path bounds, but no permission-aware wrapper exists for the actual `rmtree` call.
 
-Additionally, developers currently lack a clear tiered execution model to run fast component tests independently of slow Playwright E2E browser tests during small iterative edits, and the co-located test architecture documentation ([`tests/ARCHITECTURE.md`](file:///path/to/open-dungeon/tests/ARCHITECTURE.md)) lacks details on recent MCP and E2E additions.
+Additionally, developers currently lack a clear tiered execution model to run fast component tests independently of slow Playwright E2E browser tests during small iterative edits, and the co-located test architecture documentation ([`tests/ARCHITECTURE.md`](tests/ARCHITECTURE.md)) lacks details on recent MCP and E2E additions.
 
 GitHub Issue: #6
 
@@ -39,7 +39,7 @@ During interactive discovery, several key trade-offs and architectural decisions
 - **MCP Client Hardening (`tests/mcp_client.py`)**: Add `assert_save_dir_is_safe(save_dir)` calls inside `_build_env` and `start` (around the existing `tests/mcp_test_data` path computation) so future modifications to that path are caught. Existing `SAVE_DIR` isolation behavior is preserved.
 - **Marker Assignment**: Apply `@pytest.mark.unit`/`integration`/`e2e` to each test module per the mapping table in `tasks.md` §3.2.
 - **Tiered Execution NPM Scripts (`package.json`)**: Add `test:fast` (`pytest -m unit`), `test:e2e` (`pytest -m e2e`), and `test:all` (`pytest tests/ -v --ignore=tests/test_cli_behavior.py --ignore=tests/test_pty_integration.py --ignore=tests/simulate_playtest.py`). The `--ignore` flag explicitly excludes deprecated CLI tests (per `AGENTS.md` and `tests/ARCHITECTURE.md:3-6`).
-- **Updated Test Architecture Documentation**: Update [`tests/ARCHITECTURE.md`](file:///path/to/open-dungeon/tests/ARCHITECTURE.md) to document: the new global fallback, the `safe_rmtree` helper, the marker tier matrix per the mapping table, the deprecated-CLI test exclusion, and current MCP/E2E test files missing from the existing catalog.
+- **Updated Test Architecture Documentation**: Update [`tests/ARCHITECTURE.md`](tests/ARCHITECTURE.md) to document: the new global fallback, the `safe_rmtree` helper, the marker tier matrix per the mapping table, the deprecated-CLI test exclusion, and current MCP/E2E test files missing from the existing catalog.
 
 ## Capabilities
 

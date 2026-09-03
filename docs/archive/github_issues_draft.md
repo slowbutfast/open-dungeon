@@ -8,9 +8,9 @@ This document outlines the drafts for four new GitHub issues to improve session 
 * **Category**: Bug / Performance
 * **Label**: `bug`, `enhancement`
 * **Target Files**:
-  * [web/routes/game.js](file:///path/to/open-dungeon/web/routes/game.js)
-  * [engine/llm.js](file:///path/to/open-dungeon/engine/llm.js)
-  * [engine/memory/memoryManager.js](file:///path/to/open-dungeon/engine/memory/memoryManager.js)
+  * [web/routes/game.js](web/routes/game.js)
+  * [engine/llm.js](engine/llm.js)
+  * [engine/memory/memoryManager.js](engine/memory/memoryManager.js)
 
 ### Description
 When a new adventure session starts, the character's description and opening scene often introduce starting inventory items (e.g., a "steel sword and shield" for Valen the Warrior). However, the memory system's `flushIfReady` method only extracts events and inventory changes when the buffer reaches a batch size of `3` turns. This causes the player's initial inventory to remain empty for the first several turns of gameplay.
@@ -33,9 +33,9 @@ When a new adventure session starts, the character's description and opening sce
 * **Category**: UX Enhancement
 * **Label**: `enhancement`, `good first issue`
 * **Target Files**:
-  * [web/templates/index.html](file:///path/to/open-dungeon/web/templates/index.html)
-  * [web/static/js/app.js](file:///path/to/open-dungeon/web/static/js/app.js)
-  * [web/static/js/ui/screens.js](file:///path/to/open-dungeon/web/static/js/ui/screens.js)
+  * [web/templates/index.html](web/templates/index.html)
+  * [web/static/js/app.js](web/static/js/app.js)
+  * [web/static/js/ui/screens.js](web/static/js/ui/screens.js)
 
 ### Description
 The new user setup flow goes through Universe Preset (`preset-screen`), boundaries customization (`custom-preset-screen`), and Hero Genesis (`character-screen`). 
@@ -62,7 +62,7 @@ Do more research on possible session flows inspired by SillyTavern or ai-dungeon
 * **Category**: Enhancement
 * **Label**: `enhancement`
 * **Target Files**:
-  * [web/routes/game.js](file:///path/to/open-dungeon/web/routes/game.js)
+  * [web/routes/game.js](web/routes/game.js)
 
 ### Description
 When using the OpenRouter backend (`LLM_BACKEND=openrouter`), the model select dropdown in the sidebar is populated only with the single model specified in `process.env.OPENROUTER_MODEL` (e.g., `deepseek/deepseek-v4-flash`). Users cannot change the model dynamically from the interface.
@@ -84,9 +84,9 @@ When using the OpenRouter backend (`LLM_BACKEND=openrouter`), the model select d
 * **Category**: Feature Alignment
 * **Label**: `enhancement`, `bug`
 * **Target Files**:
-  * [engine/index.js](file:///path/to/open-dungeon/engine/index.js)
-  * [engine/storyPresets.js](file:///path/to/open-dungeon/engine/storyPresets.js)
-  * [engine/llm.js](file:///path/to/open-dungeon/engine/llm.js)
+  * [engine/index.js](engine/index.js)
+  * [engine/storyPresets.js](engine/storyPresets.js)
+  * [engine/llm.js](engine/llm.js)
 
 ### Description
 The system message provides the model with the current moves counter under `[CURRENT STATUS]`, but the system prompts and preset examples only instruct the model to output a status line with `Location` and `Score` (`[Status: <Location Name> | Score: <Current Score>]`). 

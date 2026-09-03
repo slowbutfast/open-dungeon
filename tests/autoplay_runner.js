@@ -1,9 +1,13 @@
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
-const STATE_FILE = '/path/to/open-dungeon/tests/active_playtest.json';
+// Resolve relative to this module so the runner works from any clone/cwd.
+const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const STATE_FILE = process.env.AUTOPLAY_STATE_FILE
+  || path.join(PROJECT_ROOT, 'tests', 'active_playtest.json');
 
 const transport = new StdioClientTransport({
   command: 'node',

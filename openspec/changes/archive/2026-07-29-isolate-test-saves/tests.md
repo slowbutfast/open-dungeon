@@ -26,5 +26,5 @@
   - **THEN** teardown hooks invoking `safe_rmtree` remove temporary test directories cleanly without leaving stale folders or `PermissionError` tracebacks, even when read-only SQLite temp files are present.
 
 - **Architecture Documentation Accuracy**:
-  - **WHEN** reviewing [`tests/ARCHITECTURE.md`](file:///path/to/open-dungeon/tests/ARCHITECTURE.md)
+  - **WHEN** reviewing [`tests/ARCHITECTURE.md`](tests/ARCHITECTURE.md)
   - **THEN** the document reflects: (a) the new global fallback sandbox and precedence rule, (b) the `safe_rmtree` helper alongside the unchanged `assert_save_dir_is_safe` guard, (c) the marker tier matrix and npm script shortcuts, (d) the deprecated-CLI exclusion, (e) an up-to-date catalog including MCP and E2E test files.

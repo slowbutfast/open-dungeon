@@ -37,7 +37,6 @@ tests/.tmp_saves/
 
 # Local runtime logs
 *.log
-!playtest_run.log
 .tunnel-logs/
 
 # Agent playtest sandbox (MCP server SAVE_DIR)
