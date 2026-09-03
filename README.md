@@ -29,6 +29,22 @@ That's the through-line: every LLM output is treated as a *proposal* that the en
 
 ---
 
+## The rest of the game
+
+The narrator plumbing above is the part I'd defend in a design review, but it wraps an actual game with four systems worth naming.
+
+**Lore cards, hand-written and auto-extracted.** A card is a name, type, description, and a list of trigger words. `getActiveCards` (`engine/context.js`) matches the player's recent text against those triggers whole-word and case-insensitive, and every match rides into the system message as a `[WORLD INFO & LORE]` block for that turn only — so a 40-card lore book costs nothing until the player says the word. Cards are CRUD-able over `/api/lore` and mid-session over MCP (`dungeon_inspect_lore`, `dungeon_delete_lore_card`), which exists because a bad card auto-injects on every turn and you want a way to pull it without restarting the session.
+
+**Two paths write cards, and only one of them is guarded.** The per-turn memory extractor validates trigger words on the way in — `filterTriggerTokens` (`engine/memory/eventExtractor.js`) drops tokens under three characters and anything containing game-mechanical vocabulary (`score`, `inventory`, `admin`, `system`, `prompt`, plus `trade`/`north`/`door` after they were caught over-triggering in live play). A card keyed on `door` fires nearly every turn; a card keyed on `system` is a prompt-injection surface. The manual scanner is the other path: `POST /api/scan` → `autoGenerateCards` feeds recent history to the model under a strict JSON-array schema, strips markdown fencing, slices to the outer brackets, parses, assigns short ids, and dedupes against existing card names case-insensitively — but it does **not** run the trigger filter, which is why the mid-session delete tool matters and why this is an open P0 in the drift audit.
+
+**Context compression is what makes a 35-move session possible.** With `autoSummarize` on, once `state.history` reaches `summarizeThreshold` (default 8), the oldest four turns are lifted out, buffered into the memory manager for event extraction, and compiled by a separate summarization call into a running `[ADVENTURE SUMMARY]` block (`engine/context.js:27`). The prompt stops growing linearly with the session, and the turns that left the window are still reachable through structured events and vector recall rather than just gone.
+
+**Story presets and character genesis.** The setup wizard is three steps — story preset, adventure config, character genesis — over a preset store with full CRUD (`GET/POST/PUT/DELETE /api/presets`, backed by `game/presets.json`). A preset carries its own title, summary, system prompt, and character roster, so the setting is data rather than code; the Star Wars playtest run below is just one of them. Characters come from the preset's roster or a custom form.
+
+**Model selection is curated, not a free-text box.** `web/openrouterModels.js` pins a short list of OpenRouter models with a caption and per-1M input/output pricing for each. `/api/status` puts whatever `OPENROUTER_MODEL` is set to at the head of the list, deduplicates it against the curated entries, and hands the frontend slugs plus captions — so the dropdown shows what a model is good at and what it costs, and your env default is what's already selected.
+
+---
+
 ## How this repo is actually built
 
 Two things here are less common than the game itself, and they're the parts I'd point at first.
