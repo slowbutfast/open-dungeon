@@ -1,15 +1,12 @@
 # OpenDungeon
 
-An open-source, AI-driven Zork-style text adventure RPG where the narration is powered by an LLM, but **the game state is 100% deterministic and engine-owned**.
+An open-source, AI-driven Zork-style text adventure RPG where the narration is powered by an LLM, but the game state is 100% deterministic and engine-owned.
 
 <p align="center">
   <img src="tests/e2e/screenshots/startup-iphone-16-pro.png" width="230" alt="Startup menu">
   <img src="tests/e2e/screenshots/preset-iphone-16-pro.png" width="230" alt="Story preset selection">
   <img src="tests/e2e/screenshots/character-iphone-16-pro.png" width="230" alt="Character genesis">
 </p>
-
-<sub>Screenshots are artifacts committed by the Playwright E2E suite — they regenerate on every viewport run.</sub>
-
 ---
 
 ## Why OpenDungeon?
