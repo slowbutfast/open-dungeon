@@ -7,6 +7,7 @@ An open-source, AI-driven Zork-style text adventure RPG where the narration is p
   <img src="tests/e2e/screenshots/preset-iphone-16-pro.png" width="230" alt="Story preset selection">
   <img src="tests/e2e/screenshots/character-iphone-16-pro.png" width="230" alt="Character genesis">
 </p>
+
 ---
 
 ## Why OpenDungeon?
