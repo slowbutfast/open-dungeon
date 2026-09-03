@@ -15,6 +15,9 @@ __pycache__/
 # IDE configurations
 .vscode/
 .idea/
+
+# Codex agent config (deliberately not published)
+.codex/
 tests/data
 
 # Local game save files
