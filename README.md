@@ -14,7 +14,7 @@ An open-source, AI-driven Zork-style text adventure RPG where the narration is p
 
 ## Why OpenDungeon?
 
-How do you control the lack of nondeterminism of an LLM-driven text-based RPG?
+How do you control the lack of determinism of an LLM-driven text-based RPG?
 
 When you let a raw language model control game state, it will eventually:
 - Repeat a stale room description while claiming the prose walked you three rooms away.
