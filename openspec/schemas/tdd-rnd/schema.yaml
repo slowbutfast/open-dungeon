@@ -322,6 +322,49 @@ artifacts:
       - specs
       - architecture
       - tests
+  - id: verification
+    generates: verification.md
+    description: Empirical log of verifiable results proving the change adheres to specs and proposal
+    template: verification.md
+    instruction: >
+      Create the verification document that records empirical proof that the implementation
+      fulfills all requirements and scenarios defined in the specs and proposal.
+
+      Sections:
+
+      - **Executive Summary & Environment**: 1-2 sentence status summary, date verified,
+        and test environment (OS, runner version, node/python interpreter).
+
+      - **Requirement Adherence Audit Matrix**: Table mapping every capability requirement
+        and scenario from `specs/` to its corresponding test file, test name, or empirical execution result.
+
+      - **Resolved Assumptions & Empirical Proof**: Transition unverified assumptions from `research.md`
+        into empirically verified facts with proof methods.
+
+      - **Nomenclature & Code Symbol Audit**: Audit glossary terms from `research.md` against final code
+        identifiers (classes, types, API routes) to ensure naming fidelity.
+
+      - **Landed Tech Footprint & Patterns**: Document exact file paths and modules where adopted patterns
+        and packages landed in the codebase.
+
+      - **Invalidated Hypotheses & Mid-Build Adjustments**: Pre-coding beliefs from `research.md` or `architecture.md`
+        that proved wrong during implementation, and what replaced them.
+
+      - **Implementation-Discovered Deferrals**: Edge cases or scope items discovered during build that were
+        intentionally deferred to future changes.
+
+      - **Empirical Execution Logs & Evidence**: Verbatim command outputs, test runner results, and before/after metrics.
+
+      - **Quick Re-Verification (60-Second Audit)**: Copy-pasteable shell commands and expected outputs so future
+        developers can re-verify this feature against HEAD in under a minute.
+
+      RULES:
+      1. Every requirement scenario in `specs/` MUST be accounted for in the Requirement Adherence Audit Matrix.
+      2. Include exact test commands and runner outputs, not general assertions.
+      3. Report before/after metric deltas (e.g. record counts) to prove no data loss.
+    requires:
+      - tasks
+      - specs
 apply:
   requires:
     - tasks
