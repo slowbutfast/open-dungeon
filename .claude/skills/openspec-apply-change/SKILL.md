@@ -92,8 +92,8 @@ Implement tasks from an OpenSpec change.
 
    For each pending task:
    - Show which task is being worked on
-   - Make the code changes required
-   - Keep changes minimal and focused
+   - Make the code changes required adhering to Vertical Slice Architecture principles (keep changes isolated within feature slice boundaries, co-locating endpoints, handlers, logic, and data access)
+   - Keep changes minimal and focused within the feature slice boundary
    - Mark task complete in the tasks file: `- [ ]` → `- [x]`
    - Continue to next task
 
@@ -167,7 +167,7 @@ What would you like to do?
 - Always read context files before starting (from the apply instructions output)
 - If task is ambiguous, pause and ask before implementing
 - If implementation reveals issues, pause and suggest artifact updates
-- Keep code changes minimal and scoped to each task
+- Keep code changes minimal, focused, and scoped to each feature slice boundary adhering to Vertical Slice Architecture principles
 - Update task checkbox immediately after completing each task
 - Pause on errors, blockers, or unclear requirements - don't guess
 - Use contextFiles from CLI output, don't assume specific file names
