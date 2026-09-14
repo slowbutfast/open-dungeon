@@ -41,13 +41,13 @@
 
 ## 7. Regression & Verification
 
-- [ ] 7.1 Run `node --test tests/unit/pathfinding.test.mjs tests/unit/spatialIntegration.test.mjs` — green
-- [ ] 7.2 Run the MOCK_LLM pytest set (`test_mcp_spatial.py`, `test_mcp_protocol.py`, `test_api_endpoints.py`) — green
-- [ ] 7.3 Run the e2e map-render smoke — green
-- [ ] 7.4 Run the Wanderer edge-density playtest (the pre-build gate) and record room/edge counts
+- [x] 7.1 Run `node --test tests/unit/pathfinding.test.mjs tests/unit/spatialIntegration.test.mjs` — green (23/23)
+- [x] 7.2 Run the MOCK_LLM pytest set (`test_mcp_spatial.py`, `test_mcp_protocol.py`, `test_api_endpoints.py`) — green (51 passed)
+- [x] 7.3 Run the e2e map-render smoke — green (4 passed)
+- [~] 7.4 Run the Wanderer edge-density playtest (the pre-build gate) and record room/edge counts — scripted-mock proxy run: 14 turns → 10 rooms / 19 walk edges (12 confirmed, 7 inferred), 1 region, density 1.9 edges/room (`game/playtest/results-edge-density-gate.json`). No LLM API key in this environment, so the live-model half still needs a human/keyed run
 
 ## 8. Docs & Spec Sync
 
-- [ ] 8.1 Update `engine/ARCHITECTURE.md` (routing module + proxy + surfaces)
-- [ ] 8.2 Update `web/FRONTEND_ARCHITECTURE.md` (map panel + refresh seam)
+- [x] 8.1 Update `engine/ARCHITECTURE.md` (routing module + proxy + surfaces)
+- [x] 8.2 Update `web/FRONTEND_ARCHITECTURE.md` (map panel + refresh seam)
 - [ ] 8.3 Sync the capability specs on archive and author `verification.md`

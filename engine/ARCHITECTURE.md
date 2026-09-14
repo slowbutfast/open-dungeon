@@ -192,6 +192,17 @@ graph TD
 *   **Undo restore (D5)**: `engine.undo` snapshots the pre-turn room (last `room_visits` row at or before `preUndoMoves - 1`), rolls the turn back (`rollbackTurns` removes the undone turn's spatial rows), then restores `state.currentRoomId`/`state.location` to the pre-turn room. Undoing the very first turn resets to `West of House`.
 *   **MCP surface**: `dungeon_inspect_map` (rooms, edges, current room, regions) and `dungeon_inspect_room` (room detail) in `mcp/tools/map.js`, reusing the shared `forceFlushBeforeRead` helper (D7). `dungeon_inspect_state` also reports `current_room_id`. Web: `GET /api/map` (6.3, same read-through freshness as the MCP surface).
 
+### 4g. Spatial Pathfinding & Map Visualization (`spatial-map-visualization-pathfinding`)
+
+*   **Status**: **Fully Operational**
+*   **Behavior**: Consumes the persisted graph from 4f to plan routes through it and to render it. Routing is deterministic, directed, and walk-only — it traverses only recorded connectivity and never fabricates a path. The pure module returns ids only; room names are resolved at the payload boundary, and every surface returns the same payload shape.
+*   **Components**:
+    *   `engine/memory/pathfinding.js` — **pure** module (D1/D2/D3): `findRoute(rooms, edges, fromId, toId)` builds adjacency from raw `getEdges` rows (the same row shape `computeRegions` consumes), sorted by `(direction ?? '', to_room)` — because `getEdges` is an unsorted `SELECT *` and route determinism is a requirement. A directed BFS over `kind='walk'` edges only: `inferred` reverse edges are routable and stamped `inferred` on the step; null-direction walks are routable and surface the `onward` fallback label (`FALLBACK_DIRECTION`); `portal`/`time` edges are never traversed. BFS over unweighted edges is shortest-hop by construction. A self-route is a found zero-step result. Unknown endpoint ids return `null`. On failure, `computeRegions` over the walk edges classifies the reason — a different walk component → `different_region`; the same component with no directed path → `no_route`.
+    *   `engine/index.js` — `getPath(fromRoomId, toRoomId)` (D5) is a thin proxy in the spatial block: it feeds the store's raw `getRooms()`/`getEdges()` rows to `findRoute` and resolves `from_room_name`/`to_room_name` per step at this payload boundary, so the pure module stays id-only. Returns `null` for an unknown endpoint id (mirroring `getRoom`).
+    *   `mcp/tools/map.js` — `dungeon_path_to(to, from?)` (D8) reuses the shared `forceFlushBeforeRead` helper for read-through freshness; `from` defaults to `engine.currentRoomId`; a `null` route throws an error naming the endpoint that does not exist. `dungeon_inspect_map`/`dungeon_inspect_room` (4f) live in this file too.
+    *   `web/routes/game.js` — `GET /api/path?to=&from=` (5.1/5.2) sits beside `GET /api/map` with the same `forceFlushBeforeRead` read-through freshness; `from` defaults to the current room and an unknown room is a `404`. `web/static/js/components/mapPanel.js` (with `web/static/js/api/map.js`) renders `GET /api/map` as the MAP sidebar/mobile tab (D6/D7) — see `web/FRONTEND_ARCHITECTURE.md`.
+*   **Route payload (D4)**: identical at every layer. Found: `{ found: true, from_room_id, to_room_id, step_count, steps: [{ from_room_id, from_room_name, direction, to_room_id, to_room_name, kind, inferred }] }`. Not found: `{ found: false, ..., step_count: 0, steps: [], reason: 'no_route' | 'different_region' }`. Unknown id: `null` from the pure module and proxy, surfaced as a not-found error by the outer surfaces.
+
 ### 5. Dynamic Local Network (LAN) Binding
 *   **Status**: **Fully Operational**
 *   **Behavior**: Enables remote devices on the same Wi-Fi/local network to access the web panel without compromising automated test environments.
@@ -275,6 +286,30 @@ graph TD
 *   **`POST /api/saves/<id>`**: Loads the saved adventure variables into the active engine instance.
 *   **`DELETE /api/saves/<id>`**: Deletes the saved adventure JSON file from disk.
 
+### 7. Spatial Map & Pathfinding
+*   **`GET /api/map`**: Returns the persisted spatial room graph behind the `dungeon_inspect_map` MCP tool — rooms (id, canonical name, visit counts), edges (from, direction, to, kind, inferred flag), the current room id, and region groupings of walk-connected rooms. Same read-through freshness as the MCP surface (`forceFlushBeforeRead`).
+    *   *Output*:
+        ```json
+        {
+          "rooms": [{"id": "r1", "name": "West of House", "first_turn": 0, "last_visit_turn": 3, "visit_count": 2}],
+          "edges": [{"from": "r1", "direction": "north", "to": "r2", "kind": "walk", "inferred": 0}],
+          "current_room_id": "r1",
+          "regions": [{"room_ids": ["r1", "r2"]}]
+        }
+        ```
+*   **`GET /api/path?to=<roomId>&from=<roomId>`**: Returns the deterministic directed walk route behind the `dungeon_path_to` MCP tool. `from` defaults to the current room; an unknown room responds `404` with an error body. Same read-through freshness as the other spatial surfaces (`forceFlushBeforeRead`).
+    *   *Output* (found):
+        ```json
+        {
+          "found": true,
+          "from_room_id": "r1",
+          "to_room_id": "r2",
+          "step_count": 1,
+          "steps": [{"from_room_id": "r1", "from_room_name": "West of House", "direction": "north", "to_room_id": "r2", "to_room_name": "North of House", "kind": "walk", "inferred": 0}]
+        }
+        ```
+    *   *Output* (not found): `{"found": false, "from_room_id": "r1", "to_room_id": "r9", "step_count": 0, "steps": [], "reason": "different_region"}` — `reason` is `no_route` or `different_region`.
+
 ---
 
 ## 🧪 Testing Coverage
@@ -286,12 +321,13 @@ The entire backend status is covered by 45+ integration/unit tests:
 4. **PTY Integration (`tests/test_pty_integration.py`)**: Tests keyboard input loops in terminal-only modes.
 5. **E2E Playwright Browser (`tests/e2e/test_menu_navigation.py`)**: Tests UI actions (init, character setup, keyboard menus, confirm panels, exits, and loads) interacting with a running mock Node.js Express server process.
 6. **E2E Barter UI (`tests/e2e/test_barter_ui.py`)**: Tests action chip rendering, Barter Modal open/close, and one-click trade execution in the browser.
+7. **Spatial Pathfinding (`tests/unit/pathfinding.test.mjs`)**: Tests the pure routing matrix — within-region shortest route, directed asymmetry, inferred and null-direction edges, time-edge exclusion, `no_route` vs `different_region`, zero-step self-route, unknown-id null, and deterministic ordering. The end-to-end route over the scripted-narrator four-room graph lives in `tests/unit/spatialIntegration.test.mjs`.
 
 ---
 
 ## 🧩 MCP Server (`mcp/server.js`)
 
-The MCP (Model Context Protocol) server provides a JSON-RPC interface for AI agents to autonomously playtest and debug the game. It exposes 20 tools organized into 7 categories.
+The MCP (Model Context Protocol) server provides a JSON-RPC interface for AI agents to autonomously playtest and debug the game. It exposes 21 tools organized into 7 categories.
 
 ### Architecture
 
@@ -314,7 +350,7 @@ MCP Client (AI Agent)  ←→  JSON-RPC over stdio/SSE  ←→  mcp/server.js  �
 | State Inspection | `dungeon_inspect_state`, `dungeon_inspect_history`, `dungeon_inspect_lore`, `dungeon_delete_lore_card` | `mcp/tools/state.js` |
 | Memory & Inventory | `dungeon_inspect_inventory`, `dungeon_inspect_events`, `dungeon_inspect_stats`, `dungeon_search_memories` | `mcp/tools/memory.js` |
 | Barter & Quests | `dungeon_inspect_offers`, `dungeon_execute_trade`, `dungeon_inspect_goals`, `dungeon_complete_goal` | `mcp/tools/barter.js` |
-| Spatial Map | `dungeon_inspect_map`, `dungeon_inspect_room` | `mcp/tools/map.js` |
+| Spatial Map | `dungeon_inspect_map`, `dungeon_inspect_room`, `dungeon_path_to` | `mcp/tools/map.js` |
 | Diagnostics | `dungeon_get_debug_info` | `mcp/tools/diagnostics.js` |
 
 ### Usage
@@ -370,7 +406,7 @@ mcp/
     ├── state.js           # State inspection tools
     ├── memory.js          # Memory and inventory tools
     ├── barter.js          # Barter and quest tools
-    ├── map.js             # Spatial map inspection tools
+    ├── map.js             # Spatial map inspection + path routing tools
     └── diagnostics.js     # Diagnostics tool
 ```
 
@@ -387,8 +423,8 @@ mcp/
 | `tests/test_mcp_memory.py` | Memory tools (inventory, events, stats, search) |
 | `tests/test_mcp_barter.py` | Barter and quest operations |
 | `tests/test_mcp_diagnostics.py` | Debug info retrieval |
-| `tests/test_mcp_spatial.py` | Spatial map tools (map + room inspection, freshness) |
-| `tests/test_mcp_tools.py` | All 20 tools individually |
+| `tests/test_mcp_spatial.py` | Spatial map tools (map + room inspection + path routing, freshness) |
+| `tests/test_mcp_tools.py` | All 21 tools individually |
 | `tests/test_injection_defense.py` | Injection reproduction harness, delimiter framing, forged-status guard, lore delete |
 
 Run with: `pytest tests/test_mcp_*.py -v`

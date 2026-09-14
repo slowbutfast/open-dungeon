@@ -19,6 +19,7 @@ web/static/
     components/
       barterModal.js    (Barter Modal UI — inventory + trader offers side-by-side)
       actionChips.js    (Action chips — Talk, Barter, Goals rendered from NPC entities)
+      mapPanel.js       (MAP panel — cartographic + node-graph render modes, current-room highlight)
     api/
       saves.js          (loadSavesList, loadSaveGame, deleteSaveGame)
       settings.js       (pingLlm, saveSystemPrompt, saveSummaryMemory)
@@ -28,6 +29,7 @@ web/static/
       streaming.js      (submitPlayerCommand, executeStreamAction, revealAssistantText)
       debug.js          (pollDebugData, startDebugPolling, toggleCallDetails)
       barter.js         (fetchInventory, fetchOffers, executeTrade, fetchGoals, createGoal, completeGoal, acceptGoal, failGoal)
+      map.js            (fetchMap — spatial room graph for the MAP panel)
   style.css
 ```
 
@@ -40,19 +42,23 @@ app.js
   ├── state.js          (leaf — no deps)
   ├── utils.js          (leaf — no deps)
   ├── ui/toast.js       (leaf — no deps)
-  ├── ui/screens.js     ── utils.js (scrollToBottom)
+  ├── ui/screens.js     ── utils.js (scrollToBottom), components/mapPanel.js
   ├── ui/renderers.js   ── utils.js (cleanMarkdownText, scrollToBottom, escapeHtml)
   ├── components/barterModal.js  ── ui/toast.js, ui/screens.js, api/memory.js, api/barter.js
   ├── components/actionChips.js  ── components/barterModal.js, ui/toast.js, state.js, api/barter.js
+  ├── components/mapPanel.js     ── api/map.js
   ├── api/settings.js   ── ui/toast.js, ui/screens.js
   ├── api/saves.js      ── ui/toast.js, ui/screens.js
   ├── api/presets.js    ── ui/screens.js
   ├── api/lore.js       ── ui/toast.js, ui/screens.js, utils.js
   ├── api/memory.js     ── ui/renderers.js
-  ├── api/streaming.js  ── utils.js, ui/screens.js, ui/renderers.js, api/memory.js, components/actionChips.js
+  ├── api/streaming.js  ── utils.js, ui/screens.js, ui/renderers.js, api/memory.js, components/actionChips.js, components/mapPanel.js
   ├── api/debug.js      ── utils.js, ui/renderers.js
-  └── api/barter.js     (leaf — no module deps)
+  ├── api/barter.js     (leaf — no module deps)
+  └── api/map.js        (leaf — no module deps)
 ```
+
+`components/mapPanel.js` is imported by both `ui/screens.js` (tab activation) and `api/streaming.js` (post-turn refresh); it depends only on `api/map.js`, so there is no dependency cycle.
 
 ---
 
@@ -114,7 +120,8 @@ The application switches between 6 main screens by toggling the `.hidden` and `.
   - **Suggestions**: Interactive recommendation chips (`#suggestions-list`) rendered by `renderSuggestions()` in `js/ui/renderers.js`.
   - **Control Line**: Main command input field (`#console-input`) and Send button (`#btn-send`). Handled by `submitPlayerCommand()` in `js/api/streaming.js`.
   - **Utility Bar**: Utility command triggers (`#btn-undo`, `#btn-retry`, `#btn-continue`, `#btn-scan`, `#btn-system-edit`, `#btn-menu`).
-  - **Sidebar Tabs**: Toggles between Lorebook list/editor (`#tab-lore`, `#btn-add-lore`, `#lore-cards-list`) and memory summary/token controls (`#tab-memory`, `#summary-editor`, `#btn-save-summary`, `#token-limit-slider`). Tab switching via `switchSidebarTab()` in `js/ui/screens.js`.
+  - **Sidebar Tabs**: Toggles between Lorebook list/editor (`#tab-lore`, `#btn-add-lore`, `#lore-cards-list`), memory summary/token controls (`#tab-memory`, `#summary-editor`, `#btn-save-summary`, `#token-limit-slider`), and the MAP panel (`#tab-map`, `#tab-btn-map`, `#map-panel`, `#map-mode-toggle`). Tab switching via `switchSidebarTab()` in `js/ui/screens.js`, which calls `refreshMapPanel()` when the map tab is selected.
+  - **Mobile Tab Bar (`#mobile-tab-bar`)**: Bottom `.mobile-tab` buttons (`data-panel`) switch the console/sidebar on small viewports. The MAP entry (`data-panel="map"`) routes through `Screens.switchSidebarTab("map")` in `js/app.js`.
   - **Barter Modal (`#modal-barter`)**: Side-by-side modal showing player inventory (left) and trader offers (right). Supports one-click trade execution. Managed by `barterModal.js`.
 
 ---
@@ -165,6 +172,7 @@ Consumed by modules in `js/api/`:
 | GET | `/api/memory/events` | memory.js | Fetches recent event log |
 | GET | `/api/memory/stats` | memory.js | Fetches memory statistics |
 | GET | `/api/debug/info` | debug.js | Fetches LLM call info and debug logs |
+| GET | `/api/map` | map.js | Fetches the spatial room graph (rooms, edges, regions, current room) |
 | POST | `/api/trade/offer` | barterModal.js | Registers a barter trade offer |
 | GET | `/api/trade/offers` | barterModal.js | Lists barter offers for a trader |
 | POST | `/api/trade` | barterModal.js | Executes a barter trade (SSE stream) |
@@ -180,7 +188,10 @@ Consumed by modules in `js/api/`:
 2. Slash commands are intercepted locally; regular actions POST to `/api/action`
 3. SSE stream is consumed by `executeStreamAction()` — accumulates chunks, filters system events
 4. On stream end → re-fetches `/api/state`, calls `renderState()` with `skipLastAssistant=true`
-5. The final assistant response is revealed character-by-character via `revealAssistantText()`
-6. After reveal completes → `setCurrentNarration(text)` in `actionChips.js` parses NPC/trader entities from the narration text and renders `💬 Talk`, `🔄 Barter`, `📜 Goals` chips below the console log
-7. `syncMemoryAndLore()` silently updates sidebar (lore cards, inventory, event log, memory stats)
-8. Clicking `🔄 Barter` opens the Barter Modal (`barterModal.js`) which fetches `/api/memory/inventory` and `/api/trade/offers` and displays them side-by-side; one-click trade executes via `POST /api/trade` and triggers a toast notification
+5. Immediately after that post-stream `renderState(state, true)`, `refreshMapPanel()` (in `js/api/streaming.js`) refreshes the MAP panel from `/api/map` through the existing post-turn render cycle — scoped to this path, no store refactor (GH #31)
+6. The final assistant response is revealed character-by-character via `revealAssistantText()`
+7. After reveal completes → `setCurrentNarration(text)` in `actionChips.js` parses NPC/trader entities from the narration text and renders `💬 Talk`, `🔄 Barter`, `📜 Goals` chips below the console log
+8. `syncMemoryAndLore()` silently updates sidebar (lore cards, inventory, event log, memory stats)
+9. Clicking `🔄 Barter` opens the Barter Modal (`barterModal.js`) which fetches `/api/memory/inventory` and `/api/trade/offers` and displays them side-by-side; one-click trade executes via `POST /api/trade` and triggers a toast notification
+
+The MAP panel renderer (`components/mapPanel.js`) is hand-rolled per D6: DOM room nodes (`.map-room[data-room-id]`) plus an SVG edge layer, zero-build with no graph library. Cartographic mode clusters rooms by region with curved walk paths, distinct portal/time arrows, and dashed inferred edges; node-graph mode renders straight labelled edges and highlights the current room.
