@@ -86,26 +86,6 @@ def start_server():
 
 
 @pytest.fixture(scope="function")
-def page():
-    """A chromium page.
-
-    Self-contained instead of relying on the pytest-playwright `page` fixture:
-    the `playwright` package is installed but the pytest plugin is not declared
-    in this environment, and the smoke must be runnable to prove RED. A
-    module-level fixture overrides the plugin fixture when the plugin is present.
-    """
-    with sync_playwright() as p:
-        browser = p.chromium.launch(args=["--no-sandbox"])
-        context = browser.new_context()
-        pg = context.new_page()
-        try:
-            yield pg
-        finally:
-            context.close()
-            browser.close()
-
-
-@pytest.fixture(scope="function")
 def game_page(page):
     """Launch a game session so we're on the gameplay screen."""
     errors = []
