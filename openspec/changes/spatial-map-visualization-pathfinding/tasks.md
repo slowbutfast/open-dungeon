@@ -50,4 +50,4 @@
 
 - [x] 8.1 Update `engine/ARCHITECTURE.md` (routing module + proxy + surfaces)
 - [x] 8.2 Update `web/FRONTEND_ARCHITECTURE.md` (map panel + refresh seam)
-- [ ] 8.3 Sync the capability specs on archive and author `verification.md`
+- [~] 8.3 Sync the capability specs on archive and author `verification.md` — `verification.md` authored; the capability-spec sync is performed by `openspec archive` (suggested, not run automatically per the apply workflow)
