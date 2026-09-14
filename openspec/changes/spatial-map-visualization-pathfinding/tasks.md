@@ -33,11 +33,11 @@
 
 ## 6. Frontend Map Panel (Slice B)
 
-- [ ] 6.1 Add `web/static/js/api/map.js` client fetching `/api/map`
-- [ ] 6.2 Implement `web/static/js/components/mapPanel.js` with both render modes, the toggle, current-room highlight, visited state, and an empty state (renderer per the D6 decision)
-- [ ] 6.3 Add the MAP sidebar tab and mobile-tab entry in `web/templates/index.html`, wired through `switchSidebarTab`
-- [ ] 6.4 Refresh the panel through the existing post-turn render cycle in `web/static/js/api/streaming.js`
-- [ ] 6.5 Add the e2e render smoke
+- [x] 6.1 Add `web/static/js/api/map.js` client fetching `/api/map`
+- [x] 6.2 Implement `web/static/js/components/mapPanel.js` with both render modes, the toggle, current-room highlight, visited state, and an empty state (renderer per the D6 decision)
+- [x] 6.3 Add the MAP sidebar tab and mobile-tab entry in `web/templates/index.html`, wired through `switchSidebarTab`
+- [x] 6.4 Refresh the panel through the existing post-turn render cycle in `web/static/js/api/streaming.js`
+- [x] 6.5 Add the e2e render smoke
 
 ## 7. Regression & Verification
 

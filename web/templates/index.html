@@ -296,6 +296,7 @@
                         <button id="tab-btn-lore" class="tab-btn active" onclick="switchSidebarTab('lore')">LOREBOOK</button>
                         <button id="tab-btn-memory" class="tab-btn" onclick="switchSidebarTab('memory')">MEMORIES</button>
                         <button id="tab-btn-debug" class="tab-btn" onclick="switchSidebarTab('debug')">DEBUG <span id="debug-pulse" class="debug-pulse-inactive"></span></button>
+                        <button id="tab-btn-map" class="tab-btn" onclick="switchSidebarTab('map')">MAP</button>
                     </div>
                     
                     <div class="tab-body">
@@ -392,6 +393,17 @@
                                 </div>
                             </div>
                         </div>
+
+                        <!-- SPATIAL MAP PANEL -->
+                        <div id="tab-map" class="tab-content">
+                            <div id="map-panel" class="map-panel" data-mode="cartographic" data-current-room-id="">
+                                <div class="map-toolbar">
+                                    <span class="map-toolbar-title">SPATIAL MAP</span>
+                                    <button id="map-mode-toggle" type="button" class="btn btn-sm map-mode-toggle" aria-pressed="false">MODE: CARTOGRAPHIC</button>
+                                </div>
+                                <div id="map-canvas" class="map-canvas"></div>
+                            </div>
+                        </div>
                     </div>
                 </aside>
                 
@@ -403,6 +415,7 @@
                 <button class="mobile-tab" data-panel="lore">LORE</button>
                 <button class="mobile-tab" data-panel="memory">MEMORY</button>
                 <button class="mobile-tab" data-panel="debug">DEBUG</button>
+                <button class="mobile-tab" data-panel="map">MAP</button>
             </nav>
         </div>
         

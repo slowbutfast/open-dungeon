@@ -1,5 +1,6 @@
 import { showConfirm } from './toast.js';
 import { scrollToBottom } from '../utils.js';
+import { refreshMapPanel } from '../components/mapPanel.js';
 
 const SCREEN_IDS = [
   "startup-screen", "preset-screen", "custom-preset-screen",
@@ -110,12 +111,16 @@ export function switchSidebarTab(tabName) {
   document.getElementById("tab-btn-lore").classList.toggle("active", tabName === "lore");
   document.getElementById("tab-btn-memory").classList.toggle("active", tabName === "memory");
   document.getElementById("tab-btn-debug").classList.toggle("active", tabName === "debug");
+  document.getElementById("tab-btn-map").classList.toggle("active", tabName === "map");
   document.getElementById("tab-lore").classList.toggle("active", tabName === "lore");
   document.getElementById("tab-memory").classList.toggle("active", tabName === "memory");
   document.getElementById("tab-debug").classList.toggle("active", tabName === "debug");
+  document.getElementById("tab-map").classList.toggle("active", tabName === "map");
 
   if (tabName === "debug") {
     window.pollDebugData();
+  } else if (tabName === "map") {
+    refreshMapPanel();
   }
 }
 
