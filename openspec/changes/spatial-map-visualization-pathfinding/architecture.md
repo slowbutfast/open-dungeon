@@ -73,8 +73,8 @@ The result shape is identical at every layer: `{ found, from_room_id, to_room_id
 ### D5. Engine proxy
 `AdventureEngine.getPath(fromRoomId, toRoomId)` is a thin proxy in the existing spatial proxy block, feeding the store's raw `getEdges()` rows; it returns `null` for unknown ids (mirroring `getRoom`). No reconciliation change.
 
-### D6. Renderer — open decision
-The map renderer is deliberately left open: a hand-rolled canvas/DOM renderer (default; no committed asset, full control, manual hit-testing) versus a vendored ESM graph library (buys zoom/pan/selection at ~500 KB committed; vendoring preserves the no-build/no-CDN constraint). The spec is renderer-agnostic. Whichever is chosen, a pure layout/elements seam keeps the render testable.
+### D6. Renderer — hand-rolled canvas/DOM (resolved 2026-09-14)
+The map renderer is a hand-rolled canvas/DOM renderer. It commits no third-party asset, adds no npm dependency, and preserves the zero-build/no-CDN constraint with full control over both render modes. The trade-off accepted: zoom/pan/selection must be hand-rolled and maintained; a vendored ESM graph library (~500 KB, buys those interactions) remains a documented follow-up if interaction complexity grows. A pure layout/elements seam keeps the render testable. The capability spec stays renderer-agnostic.
 
 ### D7. Map panel integration
 `web/static/js/api/map.js` fetches `/api/map` (per-domain client convention); `web/static/js/components/mapPanel.js` renders it (component convention). The panel mounts as a MAP sidebar tab (and mobile-tab entry) and refreshes through the existing post-turn render cycle in `api/streaming.js`.
@@ -86,6 +86,6 @@ The map renderer is deliberately left open: a hand-rolled canvas/DOM renderer (d
 
 - **[Visible soft spot] Duplicate nodes from exact-name matching become visible in the map.** → Accepted; fuzzy matching is deferred, and the map makes the limitation legible rather than hidden.
 - **[Live gate] Routing usefulness depends on edge density in real play.** → The narrator-fidelity gate proved rooms grow and GH #39 restored first-person edge recording, but the edge density of a natural session is unmeasured; the Wanderer playtest is the pre-build gate for the visualization slice.
-- **[Renderer] Library adds a ~500 KB committed asset and a third-party API surface; hand-rolled adds interaction-maintenance cost.** → Kept open; D6 records the trade-off.
+- **[Renderer] Library adds a ~500 KB committed asset and a third-party API surface; hand-rolled adds interaction-maintenance cost.** → Resolved: hand-rolled canvas/DOM (D6); the vendored-library interaction upgrade is a documented follow-up.
 - **[Frontend] The panel hooks the post-turn render path flagged by GH #31 (zombie store / two render paths).** → Scope the panel to the existing cycle; do not refactor the store here.
 - **[Determinism] Route stability depends on sorted adjacency.** → Explicit in D1 and covered by a determinism scenario.
