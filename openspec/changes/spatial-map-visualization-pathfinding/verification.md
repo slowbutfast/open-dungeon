@@ -2,7 +2,7 @@
 
 ## Executive Summary & Environment
 
-- **Status**: All specs verified passing. 29/30 tasks complete; task 7.4 (edge-density gate) is recorded as a scripted-mock proxy run — the live-model half needs an LLM API key (absent in this environment).
+- **Status**: All specs verified passing. 29/30 tasks complete; task 7.4 (edge-density gate) is recorded as a scripted-mock proxy run — the live-model half needs an LLM API key (absent in this environment). Headless playtests P2–P6 pass (P7 route-overlay is out of scope by spec); the P6 visual-legibility call is `- [~]` (human).
 - **Date**: 2026-09-14
 - **Change**: phase 2 of the spatial room graph — deterministic walk-only BFS routing + a zero-build frontend map panel, consuming the phase-1 `rooms`/`exits`/`room_visits` tables and `computeRegions`. No new storage, no new dependencies.
 - **Environment**: Linux; Node `v22.23.2`; Python `3.11.2` (`venv/bin/python`); pytest `9.1.1`; Playwright chromium (`playwright` 1.62.0, browsers pre-installed). Backend started with `node web/server.js`; LLM mock `MOCK_LLM=1`.
@@ -61,6 +61,22 @@ Every requirement and scenario in `specs/` is accounted for.
 3. The post-turn refresh seam is exercised indirectly, not asserted directly.
 4. Mobile MAP access is hands-on, not asserted in `tests/e2e/test_map_render.py`.
 
+## Playtest Verification (P2–P7, `open-dungeon-playtest` framework)
+
+Headless Debug/Test-Systems protocol (Step 4 user checkpoint replaced by an assertion). Because the registered MCP server runs the *canned* mock narrator (which cannot grow the graph past ~2 rooms), the scripted routing scenarios were driven through isolated `tests/probe_runner.py` servers with a `MOCK_SCRIPT_FILE`; the probe exposes the same engine surfaces as the MCP tools (`dungeon_inspect_map` ↔ `GET /api/map`, `dungeon_path_to` ↔ `GET /api/path`). No shared `dungeon_*` tool ran in parallel with a probe.
+
+| Scenario | Result | Evidence |
+| :--- | :--- | :--- |
+| **P2 — Route back to X** (walk loop north/east/south/west) | **PASS** | `/api/path?to=<North Hall>` → `found:true`, `step_count:3`, directions `["east","north","west"]`, every step `inferred:1`, names `Crypt→Cellar→Gallery→North Hall` = walked path reversed |
+| **P3 — One-way honesty** (`slide down the chute`) | **PASS** | one `direction:null` walk edge, no reverse; `/api/path` → `found:false`, `reason:"no_route"`, `steps:[]` — no fabricated return |
+| **P4 — Cross-region mystery** (`step through the glowing archway`) | **PASS** | map → 2 regions + one `kind:"portal"` edge; `/api/path` → `found:false`, `reason:"different_region"`, portal not traversed |
+| **P5 — Determinism** | **PASS** | two `North Hall→Crypt` routes around a non-moving turn are byte-identical (deep-equal) |
+| **P6 — Map truthfulness (visual)** | **PASS, legibility `- [~]`** | Playwright DOM cross-check vs `/api/map`: `data-mode="cartographic"`, `data-current-room-id` matches, `.map-room` 4=4, `.map-region` 3=3, `.map-edge-walk` 2 / `-portal` 1 / `-time` 1 / `-inferred` 1, current room highlighted, all rooms `.visited`. Screenshot reviewed: walk curve + dashed inferred + distinct portal arrow + region boxes + visited state all render; **but** the narrow sidebar clips Region 2 and the current room (`Dawn Camp`) off-canvas — the map scrolls horizontally. Human legibility call left open (`- [~]`): correct but cramped for multi-region graphs; a fit-to-width/zoom polish is a candidate follow-up. |
+| **P7 — Route overlay** | **N/A (out of scope)** | No route-overlay feature exists in `mapPanel.js`, and neither the capability spec nor `tasks.md` requires one. Candidate follow-up; not a defect. |
+| **MCP-native smoke** (registered server) | **PASS** | tool list = 21 incl. `dungeon_path_to`; `dungeon_init_session` → `go north` → `dungeon_inspect_map` (1 room) → `dungeon_path_to(current)` → `found:true`, `step_count:0` |
+
+Scratch files (`.scratch/`) and probe sandboxes were removed after the run.
+
 ## Resolved Assumptions & Empirical Proof
 
 | Assumption from `research.md` | How Verified | Result / Value | Volatility |
@@ -100,6 +116,7 @@ Every requirement and scenario in `specs/` is accounted for.
 | :--- | :--- | :--- | :--- |
 | D6 "the renderer is deliberately left open (hand-rolled canvas vs vendored library)." | A pure-canvas renderer cannot satisfy the testable DOM contract (`.map-room[data-room-id]`, `.current-room`) that the e2e smoke pins. | Resolved to **hand-rolled DOM room nodes + an SVG edge layer** (still no library, no asset, zero-build). Recorded in `architecture.md` D6. | Testability + the zero-build/no-dependency constraints; the vendored-library interaction upgrade stays a documented follow-up. |
 | "Both render modes drawable with canvas primitives" (`research.md` Candidate tech). | Same as above — DOM nodes are the stable contract; edges render cleanly as SVG paths/markers. | DOM nodes + SVG edges. | Keeps the spec renderer-agnostic while giving deterministic, assertable structure. |
+| The map e2e smoke could self-define a `page` fixture to be runnable without the `pytest-playwright` plugin. | It only works when the plugin is absent. With the repo's real e2e environment (`pytest-playwright` installed — the other 82 e2e tests require it), the module-local sync fixture collides with the plugin's asyncio loop: `fixture 'page' not found` / "Sync API inside the asyncio loop". | Removed the local fixture; `tests/e2e/test_map_render.py` now uses the plugin's `page` fixture like `test_barter_ui.py`. Full e2e suite: **86 passed**. | The plugin is the repo's actual e2e runner; matching the existing convention is what makes the smoke run in CI. |
 
 ## Implementation-Discovered Deferrals
 
@@ -133,7 +150,19 @@ MOCK_LLM=1 venv/bin/python -m pytest tests/e2e/test_map_render.py -q
 venv/bin/python game/playtest/wanderer_edge_density.py
 # 14 turns → 10 rooms / 19 walk edges (12 confirmed, 7 inferred), 1 region, 1.9 edges/room
 
-# 6. Change validity
+# 6. Full Python suite (incl. e2e; pytest-playwright installed)
+MOCK_LLM=1 ./venv/bin/python -m pytest tests/ -q \
+  --ignore=tests/test_cli_behavior.py --ignore=tests/test_pty_integration.py --ignore=tests/simulate_playtest.py
+# 3 failed, 381 passed, 2 skipped
+#   the 3 failures are the same pre-existing make-undo-and-trades-consistent reds
+#   (test_barter_engine.py / test_undo_consistency.py); their source files are
+#   untouched by this change (git log b18fe29..HEAD --name-only confirms).
+
+# 7. E2E suite alone
+./venv/bin/python -m pytest tests/e2e -q
+# 86 passed  (82 pre-existing + the 4 map-panel smokes)
+
+# 8. Change validity
 openspec validate spatial-map-visualization-pathfinding
 # Change 'spatial-map-visualization-pathfinding' is valid
 ```
@@ -146,6 +175,9 @@ openspec validate spatial-map-visualization-pathfinding
 | Unit tests | 141 (138 pass / 3 fail) | 156 (153 pass / 3 fail) | +15 new tests; same 3 pre-existing reds, no regressions |
 | New pure module | — | `engine/memory/pathfinding.js` | +135 lines |
 | npm dependencies | 9 | 9 | 0 added |
+| E2E suite | — | 86 passed | 82 pre-existing + 4 map-panel smokes |
+| Full Python suite (incl. e2e) | — | 381 passed / 3 failed / 2 skipped | 3 failures pre-existing (`make-undo-and-trades-consistent`) |
+| Playtests P2–P6 | — | 6 pass | P7 out of scope; P6 legibility `- [~]` |
 | Edge-density (14-turn journey) | — | 10 rooms / 19 walk edges | 1.9 edges/room; 1 region |
 
 ## Quick Re-Verification (60-Second Audit)
