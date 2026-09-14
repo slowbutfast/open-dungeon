@@ -270,6 +270,74 @@ class TestApiEndpoints(unittest.TestCase):
         self.assertIsNotNone(data["current_room_id"])
         self.assertIn("name", data["rooms"][0])
 
+    # ─── GET /api/path (spatial-map-visualization-pathfinding, 1.3/5.3) ──────
+
+    def _seed_two_rooms(self):
+        """Init a game and commit two turns so the mock graph has two rooms.
+
+        Returns the parsed /api/map payload (rooms, edges, current_room_id,
+        regions) after the turns commit.
+        """
+        self.app.post("/api/init", json={"preset_idx": 0})
+        self.app.post("/api/action", json={"action_type": "do", "text": "go north"})
+        self.app.post("/api/action", json={"action_type": "do", "text": "go south"})
+        res = self.app.get("/api/map")
+        self.assertEqual(res.status_code, 200)
+        return json.loads(res.data)
+
+    def _other_room_id(self, map_data):
+        """A room id distinct from the current room (asserts one exists)."""
+        current = map_data["current_room_id"]
+        self.assertIsNotNone(current)
+        others = [r["id"] for r in map_data["rooms"] if r["id"] != current]
+        self.assertTrue(
+            others,
+            f"expected a second room after two turns, got rooms={map_data['rooms']}"
+        )
+        return others[0]
+
+    def test_get_api_path_to_only_defaults_to_current_room(self):
+        """GET /api/path?to=<id> routes from the current room."""
+        map_data = self._seed_two_rooms()
+        current = map_data["current_room_id"]
+        target = self._other_room_id(map_data)
+
+        res = self.app.get(f"/api/path?to={target}")
+        self.assertEqual(res.status_code, 200)
+        data = json.loads(res.data)
+        self.assertTrue(data["found"])
+        self.assertEqual(data["from_room_id"], current)
+        self.assertEqual(data["to_room_id"], target)
+        self.assertGreaterEqual(data["step_count"], 1)
+        self.assertEqual(len(data["steps"]), data["step_count"])
+        for key in ("from_room_id", "from_room_name", "direction",
+                    "to_room_id", "to_room_name", "kind", "inferred"):
+            self.assertIn(key, data["steps"][0])
+
+    def test_get_api_path_between_explicit_rooms(self):
+        """GET /api/path?to=<id>&from=<id> honours the explicit origin."""
+        map_data = self._seed_two_rooms()
+        current = map_data["current_room_id"]
+        origin = self._other_room_id(map_data)
+
+        res = self.app.get(f"/api/path?to={current}&from={origin}")
+        self.assertEqual(res.status_code, 200)
+        data = json.loads(res.data)
+        self.assertTrue(data["found"])
+        self.assertEqual(data["from_room_id"], origin)
+        self.assertEqual(data["to_room_id"], current)
+
+    def test_get_api_path_unknown_target_returns_404(self):
+        """GET /api/path with a room that does not exist responds 404."""
+        self.app.post("/api/init", json={"preset_idx": 0})
+        self.app.post("/api/action", json={"action_type": "do", "text": "go north"})
+
+        res = self.app.get("/api/path?to=no-such-room")
+        self.assertEqual(res.status_code, 404)
+        self.assertEqual(res.mimetype, "application/json")
+        data = json.loads(res.data)
+        self.assertIn("error", data)
+
     def test_update_system_prompt_api(self):
         """Verify system prompt updating works."""
         self.app.post("/api/init", json={"preset_idx": 0})

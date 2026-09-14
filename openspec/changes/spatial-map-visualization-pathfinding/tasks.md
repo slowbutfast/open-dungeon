@@ -1,35 +1,35 @@
 ## 1. Test Scaffolding (TDD)
 
-- [ ] 1.1 Write failing `tests/unit/pathfinding.test.mjs` for Deterministic Route Planning: within-region shortest route, directed asymmetry, inferred edges routable + stamped, null-direction edges routable, time edges excluded, cross-region `different_region`, same-region `no_route`, zero-step, unknown-id null, deterministic ordering
-- [ ] 1.2 Write failing tests for Route Result Payload: found shape (steps with names/kind/inferred), not-found shape with reason
-- [ ] 1.3 Write failing tests for Route API Surface: `engine.getPath` proxy (default/explicit/unknown) and `GET /api/path` (to-only, explicit from, 404)
-- [ ] 1.4 Write failing tests for Spatial Pathfinding Tools: `dungeon_path_to` shape, default origin, unknown-room error, freshness; bump the tool-count gate to 21
-- [ ] 1.5 Write failing frontend tests for the Map Panel: render from `/api/map`, mode toggle, current-room highlight, empty state (e2e smoke)
+- [x] 1.1 Write failing `tests/unit/pathfinding.test.mjs` for Deterministic Route Planning: within-region shortest route, directed asymmetry, inferred edges routable + stamped, null-direction edges routable, time edges excluded, cross-region `different_region`, same-region `no_route`, zero-step, unknown-id null, deterministic ordering
+- [x] 1.2 Write failing tests for Route Result Payload: found shape (steps with names/kind/inferred), not-found shape with reason
+- [x] 1.3 Write failing tests for Route API Surface: `engine.getPath` proxy (default/explicit/unknown) and `GET /api/path` (to-only, explicit from, 404)
+- [x] 1.4 Write failing tests for Spatial Pathfinding Tools: `dungeon_path_to` shape, default origin, unknown-room error, freshness; bump the tool-count gate to 21
+- [x] 1.5 Write failing frontend tests for the Map Panel: render from `/api/map`, mode toggle, current-room highlight, empty state (e2e smoke)
 
 ## 2. Pathfinding Module (Slice A)
 
-- [ ] 2.1 Implement `engine/memory/pathfinding.js`: build adjacency from raw `getEdges` rows, sorted by `(direction ?? '', to_room)`
-- [ ] 2.2 Implement directed walk-only BFS: traverse `kind='walk'` in the recorded direction, include null-direction edges, stamp `inferred` per step, exclude portal/time
-- [ ] 2.3 Implement route assembly: ordered steps, step count, `from === to` zero-step success, `null` for unknown ids
-- [ ] 2.4 Implement failure classification via `computeRegions`: `no_route` vs `different_region`
-- [ ] 2.5 Resolve `from_room_name` / `to_room_name` at the payload boundary
+- [x] 2.1 Implement `engine/memory/pathfinding.js`: build adjacency from raw `getEdges` rows, sorted by `(direction ?? '', to_room)`
+- [x] 2.2 Implement directed walk-only BFS: traverse `kind='walk'` in the recorded direction, include null-direction edges, stamp `inferred` per step, exclude portal/time
+- [x] 2.3 Implement route assembly: ordered steps, step count, `from === to` zero-step success, `null` for unknown ids
+- [x] 2.4 Implement failure classification via `computeRegions`: `no_route` vs `different_region`
+- [x] 2.5 Resolve `from_room_name` / `to_room_name` at the payload boundary
 
 ## 3. Engine Proxy (Slice A)
 
-- [ ] 3.1 Add `AdventureEngine.getPath(fromRoomId, toRoomId)` in the spatial proxy block, feeding raw `getEdges()` rows; return `null` for unknown ids
-- [ ] 3.2 Add the end-to-end route test over the scripted-narrator four-room graph
+- [x] 3.1 Add `AdventureEngine.getPath(fromRoomId, toRoomId)` in the spatial proxy block, feeding raw `getEdges()` rows; return `null` for unknown ids
+- [x] 3.2 Add the end-to-end route test over the scripted-narrator four-room graph
 
 ## 4. MCP Tool (Slice A)
 
-- [ ] 4.1 Register `dungeon_path_to(to, from?)` in `registerMapTools` (`mcp/tools/map.js`), reusing `forceFlushBeforeRead`; `from` defaults to the current room
-- [ ] 4.2 Map `null` → thrown `Room '<id>' not found`
-- [ ] 4.3 Bump `EXPECTED_TOOLS` and the count assertion in `tests/test_mcp_protocol.py` to 21
+- [x] 4.1 Register `dungeon_path_to(to, from?)` in `registerMapTools` (`mcp/tools/map.js`), reusing `forceFlushBeforeRead`; `from` defaults to the current room
+- [x] 4.2 Map `null` → thrown `Room '<id>' not found`
+- [x] 4.3 Bump `EXPECTED_TOOLS` and the count assertion in `tests/test_mcp_protocol.py` to 21
 
 ## 5. HTTP Endpoint (Slice A)
 
-- [ ] 5.1 Add `GET /api/path?to=&from=` beside `GET /api/map` in `web/routes/game.js`, reusing `forceFlushBeforeRead`; `from` defaults to the current room
-- [ ] 5.2 Return 404 with an error body for an unknown target room
-- [ ] 5.3 Add HTTP shape tests (to-only, explicit from, 404)
+- [x] 5.1 Add `GET /api/path?to=&from=` beside `GET /api/map` in `web/routes/game.js`, reusing `forceFlushBeforeRead`; `from` defaults to the current room
+- [x] 5.2 Return 404 with an error body for an unknown target room
+- [x] 5.3 Add HTTP shape tests (to-only, explicit from, 404)
 
 ## 6. Frontend Map Panel (Slice B)
 

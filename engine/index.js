@@ -10,6 +10,7 @@ import { loadPresets, savePresets as savePresetsFile } from './storyPresets.js';
 import { STATUS_FORMAT, RESPONSE_SHAPE } from './statusFormat.js';
 import { formatUserInput } from './llmAdapter.js';
 import { computeRegions } from './memory/roomMap.js';
+import { findRoute } from './memory/pathfinding.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -420,6 +421,34 @@ export class AdventureEngine {
                 kind: e.kind,
                 inferred: e.inferred
             }))
+        };
+    }
+
+    /**
+     * The deterministic directed walk route between two rooms
+     * (spatial-map-visualization-pathfinding, D5). Thin proxy over the pure
+     * `findRoute` module fed the store's raw rows; room names are resolved
+     * here (the payload boundary) so the pure module stays id-only. Returns
+     * null for an unknown endpoint id.
+     */
+    async getPath(fromRoomId, toRoomId) {
+        const store = this.memory?.structuredStore;
+        const adventureId = this.state.adventureId;
+        if (!store || !adventureId || !fromRoomId || !toRoomId) return null;
+
+        const rooms = store.getRooms(adventureId);
+        const edges = store.getEdges(adventureId);
+        const route = findRoute(rooms, edges, fromRoomId, toRoomId);
+        if (!route) return null;
+
+        const namesById = new Map(rooms.map(r => [r.id, r.name]));
+        return {
+            ...route,
+            steps: route.steps.map(step => ({
+                ...step,
+                from_room_name: namesById.get(step.from_room_id) ?? null,
+                to_room_name: namesById.get(step.to_room_id) ?? null,
+            })),
         };
     }
 
