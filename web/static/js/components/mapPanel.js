@@ -29,6 +29,9 @@ const REGION_INSET_Y = 20;
 // A hidden panel reports clientWidth 0; remember the last real width and fall
 // back to a typical sidebar width on the very first paint.
 const FALLBACK_PANEL_WIDTH = 300;
+// How far outside a room box an edge endpoint sits, so its arrowhead is not
+// hidden behind the opaque room node painted above the SVG layer.
+const EDGE_GAP = 3;
 
 // Edge kind → arrow colour. Portal/time are visually distinct from walk.
 const EDGE_COLORS = {
@@ -322,24 +325,44 @@ function buildEdgeLayer(data, layout) {
     const to = layout.positions.get(edge.to);
     if (!from || !to) continue;
 
-    const x1 = from.x + ROOM_WIDTH / 2;
-    const y1 = from.y + ROOM_HEIGHT / 2;
-    const x2 = to.x + ROOM_WIDTH / 2;
-    const y2 = to.y + ROOM_HEIGHT / 2;
+    const fromCx = from.x + ROOM_WIDTH / 2;
+    const fromCy = from.y + ROOM_HEIGHT / 2;
+    const toCx = to.x + ROOM_WIDTH / 2;
+    const toCy = to.y + ROOM_HEIGHT / 2;
+
+    // Trim both ends to the room borders so the arrowhead (marker-end) lands
+    // outside the opaque target node instead of behind it.
+    const start = boxBorderPoint(fromCx, fromCy, toCx, toCy);
+    const end = boxBorderPoint(toCx, toCy, fromCx, fromCy);
 
     const kind = EDGE_COLORS[edge.kind] ? edge.kind : 'walk';
     const path = document.createElementNS(SVG_NS, 'path');
     path.setAttribute('class', edgeClassName(edge, kind, isNodeGraph));
     path.setAttribute('marker-end', `url(#map-arrow-${kind})`);
-    path.setAttribute('d', edgePathD(x1, y1, x2, y2, isNodeGraph));
+    path.setAttribute('d', edgePathD(start.x, start.y, end.x, end.y, isNodeGraph));
     svg.appendChild(path);
 
     if (isNodeGraph) {
-      svg.appendChild(buildEdgeLabel(edge, kind, x1, y1, x2, y2));
+      svg.appendChild(buildEdgeLabel(edge, kind, start.x, start.y, end.x, end.y));
     }
   }
 
   return svg;
+}
+
+// Intersection of the ray (cx,cy)->(towardX,towardY) with the rectangle border
+// of a room box (half-extents ROOM_WIDTH/2 + gap, ROOM_HEIGHT/2 + gap). `t` is
+// capped at 1 so tightly packed rooms cannot invert the segment.
+function boxBorderPoint(cx, cy, towardX, towardY) {
+  const dx = towardX - cx;
+  const dy = towardY - cy;
+  if (dx === 0 && dy === 0) return { x: cx, y: cy };
+  const hw = ROOM_WIDTH / 2 + EDGE_GAP;
+  const hh = ROOM_HEIGHT / 2 + EDGE_GAP;
+  const tx = dx !== 0 ? hw / Math.abs(dx) : Infinity;
+  const ty = dy !== 0 ? hh / Math.abs(dy) : Infinity;
+  const t = Math.min(tx, ty, 1);
+  return { x: cx + dx * t, y: cy + dy * t };
 }
 
 function edgeClassName(edge, kind, isNodeGraph) {
