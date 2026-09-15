@@ -2,7 +2,7 @@
 
 ## Executive Summary & Environment
 
-- **Status**: All specs verified passing. 29/30 tasks complete; task 7.4 (edge-density gate) is recorded as a scripted-mock proxy run — the live-model half needs an LLM API key (absent in this environment). Headless playtests P2–P6 pass (P7 route-overlay is out of scope by spec). The P6 map-legibility defect was fixed and pinned by e2e (see "P6 legibility fix"). The only open `[~]`s are 7.4 (live-model half) and 8.3 (spec sync at archive).
+- **Status**: All specs verified passing. 35/37 tasks complete; task 7.4 (edge-density gate) is recorded as a scripted-mock proxy run — the live-model half needs an LLM API key (absent in this environment). Headless playtests P2–P6 pass (P7 route-overlay is out of scope by spec). The P6 map-legibility defect was fixed and pinned by e2e (see "P6 legibility fix"), and the `Map Panel Legibility` requirement was added to the spec (tasks 1.6, 6.6–6.9, 7.5, 8.4). The only open `[~]`s are 7.4 (live-model half) and 8.3 (spec sync at archive).
 - **Date**: 2026-09-14
 - **Change**: phase 2 of the spatial room graph — deterministic walk-only BFS routing + a zero-build frontend map panel, consuming the phase-1 `rooms`/`exits`/`room_visits` tables and `computeRegions`. No new storage, no new dependencies.
 - **Environment**: Linux; Node `v22.23.2`; Python `3.11.2` (`venv/bin/python`); pytest `9.1.1`; Playwright chromium (`playwright` 1.62.0, browsers pre-installed). Backend started with `node web/server.js`; LLM mock `MOCK_LLM=1`.
@@ -54,6 +54,11 @@ Every requirement and scenario in `specs/` is accounted for.
 | `#### Scenario: Empty map` | `tests/e2e/test_map_render.py` → `test_map_empty_state` (intercepted `rooms: []` renders visible `.map-empty`, no error) | **PASS** |
 | `#### Scenario: Refresh after a turn` | `api/streaming.js` calls `refreshMapPanel()` immediately after the post-stream `renderState(state, true)`; exercised by the empty-state test's post-turn fetch; hands-on Chromium confirmed 2 committed moves → 2 rooms. No dedicated e2e assertion (WARNING 3). | **PASS (with note)** |
 | `#### Scenario: Mobile access` | `index.html` mobile tab `<button class="mobile-tab" data-panel="map">MAP</button>` routes through `switchSidebarTab("map")`; hands-on Chromium confirmed reachable at a mobile viewport. Not asserted by the map e2e (WARNING 4). | **PASS (with note)** |
+| `### Requirement: Map Panel Legibility`<br>`#### Scenario: Map stays within the panel` | `tests/e2e/test_map_render.py` → `test_map_panel_fits_sidebar_and_centres_current_room`: `#map-canvas` right edge ≤ `#tab-map` right edge for the multi-region fixture, and every `.map-room` is within `#map-canvas-content` bounds | **PASS** |
+| `#### Scenario: Current room in view` | Same test: `.map-room.current-room` bounding box is fully inside `#map-canvas`'s visible rect after render | **PASS** |
+| `#### Scenario: Regions wrap in a narrow panel` | Same test + headless visual pass: 3 regions stack vertically in the 306px sidebar (region tops 214/422/546), region labels fully visible (`labelMinTop 203` > canvas top) | **PASS** |
+| `#### Scenario: Re-layout on width change` | Same test: `page.set_viewport_size(800×900)` triggers the debounced (150ms) re-render; canvas still within the tab and all 4 rooms retained | **PASS** |
+| `#### Scenario: Edge arrowheads visible` | `components/mapPanel.js` `boxBorderPoint()` trims both endpoints to the room border + `EDGE_GAP`; headless visual pass confirms portal (purple) and time (yellow) arrowheads render outside the target boxes (code-inspected, not pixel-asserted — WARNING 1) | **PASS (with note)** |
 
 **Warnings (no CRITICAL):**
 1. Cartographic/node-graph visual specifics (dashed inferred edges, portal/time arrow styling, edge labels) are code-inspected + hands-on, not pixel-asserted.
@@ -111,6 +116,9 @@ Evidence — headless visual pass at 1280×900 with the P6 fixture: canvas `clie
 | (new) pure routing entry | `findRoute(rooms, edges, fromId, toId)` | `engine/memory/pathfinding.js` | Yes |
 | (new) engine proxy | `AdventureEngine.getPath(fromRoomId, toRoomId)` | `engine/index.js` | Yes |
 | (new) HTTP surface | `GET /api/path?to=&from=` | `web/routes/game.js` | Yes |
+| (new) scroll box / sized content layer | `#map-canvas` (scroll) / `#map-canvas-content` (sized) | `web/static/js/components/mapPanel.js`, `web/static/style.css` | Yes |
+| (new) width-aware layout | `computeLayout(data, panelWidth)` | `web/static/js/components/mapPanel.js` | Yes |
+| (new) edge border trimming | `boxBorderPoint(cx, cy, towardX, towardY)` | `web/static/js/components/mapPanel.js` | Yes |
 
 ## Landed Tech Footprint & Patterns
 
