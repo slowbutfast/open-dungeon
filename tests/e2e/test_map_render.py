@@ -280,3 +280,21 @@ def test_map_panel_fits_sidebar_and_centres_current_room(game_page):
         }"""
     )
     assert current_in_view, "the current room must be scrolled into view"
+
+    # Re-layout on width change: the debounced resize listener re-renders and the
+    # map still stays within its tab without losing data.
+    page.set_viewport_size({"width": 800, "height": 900})
+    page.wait_for_timeout(400)  # debounced re-render is 150ms
+    resized = page.evaluate(
+        """() => {
+            const tab = document.querySelector('#tab-map').getBoundingClientRect();
+            const canvas = document.querySelector('#map-canvas').getBoundingClientRect();
+            return {
+                tabRight: tab.right,
+                canvasRight: canvas.right,
+                rooms: document.querySelectorAll('.map-room').length,
+            };
+        }"""
+    )
+    assert resized["canvasRight"] <= resized["tabRight"] + 0.5, resized
+    assert resized["rooms"] == 4, resized
