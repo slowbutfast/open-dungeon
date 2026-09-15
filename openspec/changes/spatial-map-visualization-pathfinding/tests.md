@@ -4,7 +4,7 @@
 - `node --test tests/unit/spatialIntegration.test.mjs`: an end-to-end route over the scripted-narrator four-room graph — drives the real turn-commit path, then asserts `engine.getPath(...)` returns the expected ordered steps (with names resolved) and the deterministic return route.
 - `python -m pytest tests/test_mcp_spatial.py`: `dungeon_path_to` payload shape, default origin, unknown-room error, read-through freshness, and the tool-count gate (`test_mcp_protocol.py` bumped to 21).
 - `python -m pytest tests/test_api_endpoints.py`: `GET /api/path` shape for `to`-only (defaults to current room), explicit `from`, and 404 for an unknown target.
-- `python -m pytest tests/e2e/test_map_render.py` (Playwright): the map panel renders from `/api/map`, the mode toggle switches render modes, and the current room is highlighted.
+- `python -m pytest tests/e2e/test_map_render.py` (Playwright): the map panel renders from `/api/map`, the mode toggle switches render modes, the current room is highlighted, and — with a multi-region payload served via `page.route` — the canvas stays within `#tab-map`, the current room is inside the canvas's visible rect, every room is within the canvas scroll bounds, and a viewport resize re-lays out within the panel.
 
 ## Manual Verification
 
@@ -28,9 +28,13 @@
   - **WHEN** an agent calls `dungeon_path_to` for a previously visited room
   - **THEN** the returned route matches the traversed path (including inferred return legs), and a cross-region target with no portal returns `different_region`
 
+- **Map panel — legibility (desktop sidebar + mobile)**:
+  - **WHEN** a map with three or more regions is opened in the 340px desktop sidebar and at a mobile viewport
+  - **THEN** no region or room is clipped off the panel, region labels are fully visible, the current room is on screen without scrolling, and edge arrowheads are visible
+
 - **Mobile viewport**:
   - **WHEN** the gameplay screen is viewed at a mobile viewport
-  - **THEN** the MAP panel is reachable from the mobile tab bar and renders legibly
+  - **THEN** the MAP panel is reachable from the mobile tab bar
 
 - **Edge-density gate (pre-build for the visualization slice)**:
   - **WHEN** a natural Wanderer playtest runs against current HEAD
