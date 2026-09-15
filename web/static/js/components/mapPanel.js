@@ -21,7 +21,14 @@ const ROOM_HEIGHT = 54;
 const COL_GAP = 190;
 const ROW_GAP = 84;
 const REGION_GAP = 70;
-const PAD = 28;
+// Outer padding. Large enough that a region box drawn REGION_INSET_Y above its
+// first room row leaves the label (top: -0.75rem) inside the canvas.
+const PAD = 34;
+const REGION_INSET_X = 14;
+const REGION_INSET_Y = 20;
+// A hidden panel reports clientWidth 0; remember the last real width and fall
+// back to a typical sidebar width on the very first paint.
+const FALLBACK_PANEL_WIDTH = 300;
 
 // Edge kind → arrow colour. Portal/time are visually distinct from walk.
 const EDGE_COLORS = {
@@ -33,6 +40,9 @@ const EDGE_COLORS = {
 let cachedMap = null;
 let currentMode = 'cartographic';
 let toggleWired = false;
+let resizeWired = false;
+let resizeTimer = null;
+let lastPanelWidth = 0;
 
 export function toggleMapMode() {
   const idx = MODES.indexOf(currentMode);
@@ -67,25 +77,35 @@ export function renderMapPanel(data) {
 
   cachedMap = data;
   wireToggle();
+  wireResize();
   applyModeAttributes();
   panel.setAttribute('data-current-room-id', data.current_room_id || '');
 
   const canvas = ensureCanvas(panel);
-  canvas.innerHTML = '';
+  const content = ensureContent(canvas);
+  content.innerHTML = '';
 
   const rooms = Array.isArray(data.rooms) ? data.rooms : [];
   if (rooms.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'map-empty';
     empty.innerText = '[NO ROOMS MAPPED YET]';
-    canvas.appendChild(empty);
-    canvas.style.width = '';
-    canvas.style.height = '';
-    canvas.style.minHeight = '';
+    content.appendChild(empty);
+    content.style.width = '';
+    content.style.height = '';
+    canvas.scrollLeft = 0;
+    canvas.scrollTop = 0;
     return;
   }
 
-  const layout = computeLayout(data);
+  // #map-canvas is the scroll box; the layout sizes the content layer inside
+  // it. Sizing the scroll box itself made it grow past #tab-map (overflow:
+  // hidden) instead of scrolling.
+  const measured = canvas.clientWidth;
+  if (measured > 0) lastPanelWidth = measured;
+  const panelWidth = measured > 0 ? measured : (lastPanelWidth || FALLBACK_PANEL_WIDTH);
+
+  const layout = computeLayout(data, panelWidth);
 
   // Region cluster boxes sit behind the edges and nodes.
   for (const box of layout.regionBoxes) {
@@ -99,21 +119,22 @@ export function renderMapPanel(data) {
     label.className = 'map-region-label';
     label.innerText = `REGION ${box.index + 1}`;
     regionEl.appendChild(label);
-    canvas.appendChild(regionEl);
+    content.appendChild(regionEl);
   }
 
-  canvas.appendChild(buildEdgeLayer(data, layout));
+  content.appendChild(buildEdgeLayer(data, layout));
 
   const currentRoomId = data.current_room_id || null;
   for (const room of rooms) {
     const pos = layout.positions.get(room.id);
     if (!pos) continue;
-    canvas.appendChild(buildRoomNode(room, pos, currentRoomId));
+    content.appendChild(buildRoomNode(room, pos, currentRoomId));
   }
 
-  canvas.style.width = `${layout.width}px`;
-  canvas.style.height = `${layout.height}px`;
-  canvas.style.minHeight = `${layout.height}px`;
+  content.style.width = `${layout.width}px`;
+  content.style.height = `${layout.height}px`;
+
+  scrollCurrentRoomIntoView(canvas, layout, currentRoomId);
 }
 
 function applyModeAttributes() {
@@ -149,10 +170,56 @@ function ensureCanvas(panel) {
   return canvas;
 }
 
-// Deterministic region-clustered layout. Each region gets a horizontal band;
-// rooms inside a region are placed on a near-square grid ordered by
-// (first_turn, name). Every room is placed even if `regions` is incomplete.
-function computeLayout(data) {
+// The sized layer inside the scroll box. Region boxes / SVG / room nodes are
+// positioned relative to this, so the canvas itself stays at 100% width and
+// scrolls when the content is larger.
+function ensureContent(canvas) {
+  let content = canvas.querySelector('.map-canvas-content');
+  if (!content) {
+    content = document.createElement('div');
+    content.id = 'map-canvas-content';
+    content.className = 'map-canvas-content';
+    canvas.appendChild(content);
+  }
+  return content;
+}
+
+// Re-lay out when the panel width changes (desktop sidebar <-> mobile tab).
+// Debounced so a drag-resize doesn't thrash the renderer.
+function wireResize() {
+  if (resizeWired) return;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      if (cachedMap) renderMapPanel(cachedMap);
+    }, 150);
+  });
+  resizeWired = true;
+}
+
+// Centre the current room in the scroll box, clamped to the scrollable range.
+function scrollCurrentRoomIntoView(canvas, layout, currentRoomId) {
+  const pos = currentRoomId ? layout.positions.get(currentRoomId) : null;
+  if (!pos) {
+    canvas.scrollLeft = 0;
+    canvas.scrollTop = 0;
+    return;
+  }
+  const targetLeft = pos.x + ROOM_WIDTH / 2 - canvas.clientWidth / 2;
+  const targetTop = pos.y + ROOM_HEIGHT / 2 - canvas.clientHeight / 2;
+  const maxLeft = Math.max(0, canvas.scrollWidth - canvas.clientWidth);
+  const maxTop = Math.max(0, canvas.scrollHeight - canvas.clientHeight);
+  canvas.scrollLeft = Math.max(0, Math.min(targetLeft, maxLeft));
+  canvas.scrollTop = Math.max(0, Math.min(targetTop, maxTop));
+}
+
+// Deterministic region-clustered layout. Each region gets a band; rooms inside
+// a region are placed on a near-square grid ordered by (first_turn, name).
+// Width-aware: columns are capped to what fits `panelWidth`, and bands wrap
+// onto new rows, so a narrow sidebar grows downward instead of off-canvas.
+// Every room is placed even if `regions` is incomplete. The (first_turn, name)
+// sort is load-bearing for reproducible renders — do not change it.
+function computeLayout(data, panelWidth) {
   const rooms = data.rooms || [];
   const byId = new Map(rooms.map(r => [r.id, r]));
 
@@ -165,9 +232,15 @@ function computeLayout(data) {
   if (leftovers.length > 0) regionIds.push(leftovers);
   if (regionIds.length === 0) regionIds.push(rooms.map(r => r.id));
 
+  const usable = Math.max(ROOM_WIDTH, (panelWidth || FALLBACK_PANEL_WIDTH) - PAD * 2);
+  const maxCols = Math.max(1, Math.floor((usable - ROOM_WIDTH) / COL_GAP) + 1);
+
   const positions = new Map();
   const regionBoxes = [];
   let cursorX = PAD;
+  let cursorY = PAD;
+  let rowHeight = 0;
+  let firstInRow = true;
   let maxRight = PAD;
   let maxBottom = PAD;
 
@@ -181,16 +254,27 @@ function computeLayout(data) {
       return String(ra.name || a).localeCompare(String(rb.name || b));
     });
 
-    const rows = Math.max(1, Math.ceil(Math.sqrt(sorted.length)));
-    const cols = Math.ceil(sorted.length / rows);
+    const count = sorted.length;
+    const cols = Math.min(maxCols, Math.max(1, Math.ceil(Math.sqrt(count))));
+    const rows = Math.ceil(count / cols);
     const bandWidth = (cols - 1) * COL_GAP + ROOM_WIDTH;
     const bandHeight = (rows - 1) * ROW_GAP + ROOM_HEIGHT;
 
+    // Wrap to a new row when this band would overrun the usable width. The
+    // first band on a row is always placed, so an over-wide band scrolls
+    // rather than being dropped.
+    if (!firstInRow && cursorX + bandWidth > PAD + usable) {
+      cursorX = PAD;
+      cursorY += rowHeight + REGION_GAP;
+      rowHeight = 0;
+      firstInRow = true;
+    }
+
     regionBoxes.push({
-      x: cursorX - 14,
-      y: PAD - 24,
-      w: bandWidth + 28,
-      h: bandHeight + 44,
+      x: cursorX - REGION_INSET_X,
+      y: cursorY - REGION_INSET_Y,
+      w: bandWidth + REGION_INSET_X * 2,
+      h: bandHeight + REGION_INSET_Y + 20,
       index: regionIdx
     });
 
@@ -199,13 +283,15 @@ function computeLayout(data) {
       const row = Math.floor(i / cols);
       positions.set(id, {
         x: cursorX + col * COL_GAP,
-        y: PAD + row * ROW_GAP
+        y: cursorY + row * ROW_GAP
       });
     });
 
     maxRight = Math.max(maxRight, cursorX + bandWidth);
-    maxBottom = Math.max(maxBottom, PAD + bandHeight);
+    maxBottom = Math.max(maxBottom, cursorY + bandHeight);
+    rowHeight = Math.max(rowHeight, bandHeight);
     cursorX += bandWidth + REGION_GAP;
+    firstInRow = false;
   });
 
   return {
