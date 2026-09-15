@@ -196,3 +196,87 @@ def test_map_empty_state(game_page):
 
     expect(page.locator("#map-panel")).to_be_visible()
     expect(page.locator("#map-panel .map-empty")).to_be_visible()
+
+
+# The P6 fixture: 4 rooms in 3 regions with a confirmed walk edge, an inferred
+# reverse, a portal and a time edge; the current room is in region 3.
+P6_FIXTURE = {
+    "rooms": [
+        {"id": "r1", "name": "North Hall", "first_turn": 1, "last_visit_turn": 5, "visit_count": 1},
+        {"id": "r2", "name": "Gallery", "first_turn": 2, "last_visit_turn": 4, "visit_count": 1},
+        {"id": "r3", "name": "Vault of Echoes", "first_turn": 3, "last_visit_turn": 3, "visit_count": 1},
+        {"id": "r4", "name": "Dawn Camp", "first_turn": 4, "last_visit_turn": 5, "visit_count": 1},
+    ],
+    "edges": [
+        {"from": "r1", "direction": "east", "to": "r2", "kind": "walk", "inferred": 0},
+        {"from": "r2", "direction": "west", "to": "r1", "kind": "walk", "inferred": 1},
+        {"from": "r2", "direction": "archway", "to": "r3", "kind": "portal", "inferred": 0},
+        {"from": "r3", "direction": None, "to": "r4", "kind": "time", "inferred": 0},
+    ],
+    "regions": [{"room_ids": ["r1", "r2"]}, {"room_ids": ["r3"]}, {"room_ids": ["r4"]}],
+    "current_room_id": "r4",
+}
+
+
+def test_map_panel_fits_sidebar_and_centres_current_room(game_page):
+    """A multi-region graph fits the narrow sidebar without clipping.
+
+    Regression for the P6 defect: renderMapPanel sized the scroll box
+    (#map-canvas) instead of a content layer inside it, so the box grew past
+    #tab-map (overflow: hidden) and the right-hand region + current room were
+    unreachable (no scrollbar).
+    """
+    page = game_page
+    page.route(
+        "**/api/map",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(P6_FIXTURE),
+        ),
+    )
+    _commit_move(page, "look around")
+    _open_map_tab(page)
+
+    expect(page.locator("#map-panel")).to_have_attribute("data-current-room-id", "r4")
+    assert page.locator(".map-room").count() == 4
+
+    # The scroll box must not overflow its tab.
+    metrics = page.evaluate(
+        """() => {
+            const tab = document.querySelector('#tab-map').getBoundingClientRect();
+            const canvas = document.querySelector('#map-canvas');
+            const rect = canvas.getBoundingClientRect();
+            return { tabRight: tab.right, canvasRight: rect.right };
+        }"""
+    )
+    assert metrics["canvasRight"] <= metrics["tabRight"] + 0.5, metrics
+
+    # Every room is inside the scrollable content bounds (reachable).
+    reachable = page.evaluate(
+        """() => {
+            const canvas = document.querySelector('#map-canvas');
+            const content = document.querySelector('#map-canvas-content');
+            const maxX = content.offsetWidth;
+            const maxY = content.offsetHeight;
+            return [...document.querySelectorAll('.map-room')].every(el => (
+                el.offsetLeft >= 0 && el.offsetLeft + el.offsetWidth <= maxX + 0.5 &&
+                el.offsetTop >= 0 && el.offsetTop + el.offsetHeight <= maxY + 0.5
+            ));
+        }"""
+    )
+    assert reachable, "every room must be within the canvas scroll bounds"
+
+    # The current room (region 3) is scrolled into the visible rect.
+    current_in_view = page.evaluate(
+        """() => {
+            const canvas = document.querySelector('#map-canvas');
+            const cur = document.querySelector('.map-room.current-room');
+            if (!cur) return false;
+            const c = canvas.getBoundingClientRect();
+            const r = cur.getBoundingClientRect();
+            return r.left >= c.left - 0.5 && r.right <= c.right + 0.5 &&
+                   r.top >= c.top - 0.5 && r.bottom <= c.bottom + 0.5;
+        }"""
+    )
+    assert current_in_view, "the current room must be scrolled into view"
