@@ -106,6 +106,71 @@ test('mock integration: west→north→east→south forms the expected room grap
     }
 });
 
+test('mock integration: getPath routes the scripted four-room graph with names and a deterministic return', async (t) => {
+    const tempRoot = createTempDir('od-int-path-');
+    const saveDir = path.join(tempRoot, 'saves');
+    t.after(() => cleanupDir(tempRoot));
+
+    const engine = new AdventureEngine(saveDir);
+    await engine.newAdventure('Four-Room Route');
+    // Four rooms discovered by walking the real turn-commit path:
+    //   W -north-> N -east-> E -north-> P   (confirmed)
+    //   N -south-> W, E -west-> N, P -south-> E (inferred reverses)
+    const restore = installScriptedNarrator(engine, [
+        'You step into the Western Clearing.\n[Status: Western Clearing | Score: 0 | Moves: 1]',
+        'You find the Northern Trail.\n[Status: Northern Trail | Score: 0 | Moves: 2]',
+        'You reach the Eastern Ridge.\n[Status: Eastern Ridge | Score: 0 | Moves: 3]',
+        'You climb to the Northern Peak.\n[Status: Northern Peak | Score: 0 | Moves: 4]',
+    ]);
+
+    try {
+        await runTurn(engine, 'do', 'go west');
+        await runTurn(engine, 'do', 'go north');
+        await runTurn(engine, 'do', 'go east');
+        await runTurn(engine, 'do', 'go north');
+
+        const store = engine.memory.structuredStore;
+        const adv = engine.adventureId;
+        const w = store.findRoomByName(adv, 'Western Clearing');
+        const n = store.findRoomByName(adv, 'Northern Trail');
+        const e = store.findRoomByName(adv, 'Eastern Ridge');
+        const p = store.findRoomByName(adv, 'Northern Peak');
+        assert.ok(w && n && e && p, 'all four scripted rooms exist');
+        assert.equal(store.getRooms(adv).length, 4, 'four distinct rooms, no duplicates');
+
+        // Forward route W → N → E → P over confirmed walk edges.
+        const forward = await engine.getPath(w.id, p.id);
+        assert.equal(forward.found, true);
+        assert.equal(forward.from_room_id, w.id);
+        assert.equal(forward.to_room_id, p.id);
+        assert.equal(forward.step_count, 3);
+        assert.deepEqual(forward.steps.map(s => s.direction), ['north', 'east', 'north']);
+        assert.deepEqual(forward.steps.map(s => s.from_room_name),
+            ['Western Clearing', 'Northern Trail', 'Eastern Ridge']);
+        assert.deepEqual(forward.steps.map(s => s.to_room_name),
+            ['Northern Trail', 'Eastern Ridge', 'Northern Peak']);
+        assert.ok(forward.steps.every(s => s.kind === 'walk'), 'every step is a walk edge');
+        assert.ok(forward.steps.every(s => s.inferred === 0), 'the forward leg rides confirmed edges');
+
+        // Deterministic return P → E → N → W via the inferred reverse edges.
+        const back = await engine.getPath(p.id, w.id);
+        assert.equal(back.found, true);
+        assert.equal(back.step_count, 3);
+        assert.deepEqual(back.steps.map(s => s.direction), ['south', 'west', 'south']);
+        assert.deepEqual(back.steps.map(s => s.from_room_name),
+            ['Northern Peak', 'Eastern Ridge', 'Northern Trail']);
+        assert.deepEqual(back.steps.map(s => s.to_room_name),
+            ['Eastern Ridge', 'Northern Trail', 'Western Clearing']);
+        assert.ok(back.steps.every(s => s.inferred === 1), 'the return leg rides inferred reverse edges');
+
+        // Repeated routing over the same graph is identical.
+        assert.deepEqual(await engine.getPath(p.id, w.id), back, 'repeated routing is identical');
+    } finally {
+        restore();
+        engine.memory.structuredStore.close();
+    }
+});
+
 test('mock integration: a directionless walk ("walk on") records the forward edge and advances currentRoomId (8.1)', async (t) => {
     const tempRoot = createTempDir('od-int-oneway-');
     const saveDir = path.join(tempRoot, 'saves');

@@ -277,6 +277,31 @@ router.get('/map', async (req, res) => {
     }
 });
 
+// GET /api/path (spatial-map-visualization-pathfinding, 5.1/5.2): the
+// deterministic directed walk route behind the dungeon_path_to MCP tool.
+// `from` defaults to the current room; an unknown endpoint is a 404. Same
+// read-through freshness as the other spatial surfaces.
+router.get('/path', async (req, res) => {
+    try {
+        if (!engine.adventureId) {
+            return res.status(400).json({ error: 'No active adventure.' });
+        }
+        await forceFlushBeforeRead(engine);
+        const fromId = req.query.from || engine.currentRoomId;
+        const route = await engine.getPath(fromId, req.query.to);
+        if (!route) {
+            // Name the endpoint that actually does not exist (the target is
+            // the common case; an explicit bad origin is the other).
+            const target = await engine.getRoom(req.query.to);
+            const missing = target ? fromId : req.query.to;
+            return res.status(404).json({ error: `Room '${missing}' not found.` });
+        }
+        res.json(route);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 router.post('/state', async (req, res) => {
     const data = req.body || {};
     const activeEngine = engine;

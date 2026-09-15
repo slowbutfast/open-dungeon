@@ -1616,6 +1616,198 @@ body:not(.crt-effect) .screen-flicker {
     to { opacity: 1; }
 }
 
+/* ==================== Spatial Map Panel ==================== */
+#tab-map.active {
+    overflow: hidden;
+}
+
+.map-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    height: 100%;
+    min-height: 260px;
+    width: 100%;
+    min-width: 0;
+}
+
+.map-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    flex-shrink: 0;
+}
+
+.map-toolbar-title {
+    font-family: 'VT323', monospace;
+    font-size: 1.2rem;
+    color: var(--text-neon);
+    letter-spacing: 0.05em;
+}
+
+.map-mode-toggle {
+    font-family: 'VT323', monospace;
+    font-size: 0.95rem;
+}
+
+.map-canvas {
+    position: relative;
+    flex: 1;
+    width: 100%;
+    min-width: 0;
+    min-height: 260px;
+    overflow: auto;
+    border: 1px solid var(--border-light);
+    border-radius: 4px;
+    background:
+        linear-gradient(rgba(56, 189, 248, 0.05) 1px, transparent 1px) 0 0 / 100% 28px,
+        linear-gradient(90deg, rgba(56, 189, 248, 0.05) 1px, transparent 1px) 0 0 / 28px 100%,
+        rgba(7, 9, 13, 0.55);
+}
+
+/* Sized layer inside the scroll box. The canvas scrolls; this grows. */
+.map-canvas-content {
+    position: relative;
+    min-width: 100%;
+    min-height: 100%;
+}
+
+.map-region {
+    position: absolute;
+    border: 1px dashed rgba(56, 189, 248, 0.25);
+    border-radius: 6px;
+    background: rgba(56, 189, 248, 0.04);
+    pointer-events: none;
+}
+
+.map-region-label {
+    position: absolute;
+    top: -0.75rem;
+    left: 0.5rem;
+    padding: 0 0.35rem;
+    font-family: 'VT323', monospace;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    background: var(--bg-dark);
+}
+
+.map-edges {
+    position: absolute;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+    overflow: visible;
+}
+
+.map-edge {
+    fill: none;
+    stroke-width: 2;
+    stroke-linecap: round;
+}
+
+.map-edge-walk {
+    stroke: #38bdf8;
+}
+
+.map-edge-portal {
+    stroke: #c084fc;
+    stroke-width: 2.5;
+}
+
+.map-edge-time {
+    stroke: #facc15;
+}
+
+.map-edge-inferred {
+    stroke-dasharray: 6 5;
+    opacity: 0.85;
+}
+
+.map-edge-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    fill: var(--text-muted);
+    paint-order: stroke;
+    stroke: var(--bg-dark);
+    stroke-width: 3px;
+    stroke-linejoin: round;
+}
+
+.map-room {
+    position: absolute;
+    width: 132px;
+    min-height: 54px;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+    padding: 0.4rem 0.55rem;
+    border: 1px solid var(--border-light);
+    border-radius: 4px;
+    background: rgba(7, 9, 13, 0.92);
+    font-family: 'JetBrains Mono', monospace;
+    z-index: 2;
+}
+
+.map-room-name {
+    font-size: 0.78rem;
+    color: var(--text-user);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.map-room-meta {
+    font-size: 0.62rem;
+    color: var(--text-muted);
+    letter-spacing: 0.03em;
+}
+
+.map-room.unvisited {
+    opacity: 0.65;
+    border-style: dashed;
+}
+
+.map-room.visited {
+    border-color: rgba(74, 222, 128, 0.5);
+}
+
+.map-room.current-room {
+    border-color: var(--text-neon);
+    box-shadow: 0 0 12px rgba(56, 189, 248, 0.5);
+    background: rgba(56, 189, 248, 0.16);
+    opacity: 1;
+}
+
+.map-room.current-room .map-room-name {
+    color: var(--text-neon);
+    text-shadow: 0 0 5px rgba(56, 189, 248, 0.5);
+}
+
+.map-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: 220px;
+    font-family: 'VT323', monospace;
+    font-size: 1.2rem;
+    color: var(--text-muted);
+    letter-spacing: 0.05em;
+}
+
+@media (max-width: 767px) {
+    .map-panel {
+        min-height: 200px;
+    }
+
+    .map-canvas {
+        min-height: 200px;
+    }
+}
+
 /* ==================== Mobile Tab Bar ==================== */
 .mobile-tab-bar {
     display: none;
