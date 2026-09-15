@@ -2,7 +2,7 @@
 
 ## Executive Summary & Environment
 
-- **Status**: All specs verified passing. 29/30 tasks complete; task 7.4 (edge-density gate) is recorded as a scripted-mock proxy run — the live-model half needs an LLM API key (absent in this environment). Headless playtests P2–P6 pass (P7 route-overlay is out of scope by spec); the P6 visual-legibility call is `- [~]` (human).
+- **Status**: All specs verified passing. 29/30 tasks complete; task 7.4 (edge-density gate) is recorded as a scripted-mock proxy run — the live-model half needs an LLM API key (absent in this environment). Headless playtests P2–P6 pass (P7 route-overlay is out of scope by spec). The P6 map-legibility defect was fixed and pinned by e2e (see "P6 legibility fix"). The only open `[~]`s are 7.4 (live-model half) and 8.3 (spec sync at archive).
 - **Date**: 2026-09-14
 - **Change**: phase 2 of the spatial room graph — deterministic walk-only BFS routing + a zero-build frontend map panel, consuming the phase-1 `rooms`/`exits`/`room_visits` tables and `computeRegions`. No new storage, no new dependencies.
 - **Environment**: Linux; Node `v22.23.2`; Python `3.11.2` (`venv/bin/python`); pytest `9.1.1`; Playwright chromium (`playwright` 1.62.0, browsers pre-installed). Backend started with `node web/server.js`; LLM mock `MOCK_LLM=1`.
@@ -71,11 +71,24 @@ Headless Debug/Test-Systems protocol (Step 4 user checkpoint replaced by an asse
 | **P3 — One-way honesty** (`slide down the chute`) | **PASS** | one `direction:null` walk edge, no reverse; `/api/path` → `found:false`, `reason:"no_route"`, `steps:[]` — no fabricated return |
 | **P4 — Cross-region mystery** (`step through the glowing archway`) | **PASS** | map → 2 regions + one `kind:"portal"` edge; `/api/path` → `found:false`, `reason:"different_region"`, portal not traversed |
 | **P5 — Determinism** | **PASS** | two `North Hall→Crypt` routes around a non-moving turn are byte-identical (deep-equal) |
-| **P6 — Map truthfulness (visual)** | **PASS, legibility `- [~]`** | Playwright DOM cross-check vs `/api/map`: `data-mode="cartographic"`, `data-current-room-id` matches, `.map-room` 4=4, `.map-region` 3=3, `.map-edge-walk` 2 / `-portal` 1 / `-time` 1 / `-inferred` 1, current room highlighted, all rooms `.visited`. Screenshot reviewed: walk curve + dashed inferred + distinct portal arrow + region boxes + visited state all render; **but** the narrow sidebar clips Region 2 and the current room (`Dawn Camp`) off-canvas — the map scrolls horizontally. Human legibility call left open (`- [~]`): correct but cramped for multi-region graphs; a fit-to-width/zoom polish is a candidate follow-up. |
+| **P6 — Map truthfulness (visual)** | **PASS** | Playwright DOM cross-check vs `/api/map`: `data-mode="cartographic"`, `data-current-room-id` matches, `.map-room` 4=4, `.map-region` 3=3, `.map-edge-walk` 2 / `-portal` 1 / `-time` 1 / `-inferred` 1, current room highlighted, all rooms `.visited`. The initial run found the narrow sidebar clipped Region 2 and the current room off-canvas; that defect was fixed (see "P6 legibility fix") and the legibility call is now resolved by the new e2e assertions + a headless visual pass at 1280×900 and 390×844. |
 | **P7 — Route overlay** | **N/A (out of scope)** | No route-overlay feature exists in `mapPanel.js`, and neither the capability spec nor `tasks.md` requires one. Candidate follow-up; not a defect. |
 | **MCP-native smoke** (registered server) | **PASS** | tool list = 21 incl. `dungeon_path_to`; `dungeon_init_session` → `go north` → `dungeon_inspect_map` (1 room) → `dungeon_path_to(current)` → `found:true`, `step_count:0` |
 
 Scratch files (`.scratch/`) and probe sandboxes were removed after the run.
+
+### P6 legibility fix (post-playtest)
+
+The P6 run exposed a real clipping bug, not just cramping: `renderMapPanel()` sized `#map-canvas` (the `overflow: auto` box) with inline pixel `width`/`height` instead of sizing a content layer inside it. An explicit width on a scroll box makes it grow, not scroll, so it overran `#tab-map` (`overflow: hidden`) and the clipped half was unreachable — there was no scrollbar.
+
+Fix (Slice B only; Slice A untouched):
+
+- `#map-canvas-content` is now the sized layer inside `#map-canvas`; the canvas stays `width: 100%` and scrolls.
+- `computeLayout(data, panelWidth)` is width-aware: columns are capped to what fits, region bands wrap onto new rows, so a narrow sidebar grows downward instead of off-canvas. `PAD` 28→34 and named region insets stop the labels clipping at the canvas top.
+- The current room is scrolled into view (clamped to the scrollable range) after render.
+- Edges are trimmed to the room border (`boxBorderPoint`) so portal/time arrowheads are not hidden behind the opaque room nodes.
+
+Evidence — headless visual pass at 1280×900 with the P6 fixture: canvas `clientWidth 304` inside a `306px` tab, `scrollWidth == clientWidth`, 4/4 rooms in view, 3 regions stacked vertically, region labels not clipped, current room in view, all four edge kinds rendered. At 390×844 the panel fits and centres the current room (other regions reachable by scroll). New e2e `test_map_panel_fits_sidebar_and_centres_current_room` asserts the canvas does not overflow the tab, every room is within the scroll bounds, and the current room is in view. `tests/e2e/test_map_render.py`: **5 passed**.
 
 ## Resolved Assumptions & Empirical Proof
 
@@ -117,13 +130,15 @@ Scratch files (`.scratch/`) and probe sandboxes were removed after the run.
 | D6 "the renderer is deliberately left open (hand-rolled canvas vs vendored library)." | A pure-canvas renderer cannot satisfy the testable DOM contract (`.map-room[data-room-id]`, `.current-room`) that the e2e smoke pins. | Resolved to **hand-rolled DOM room nodes + an SVG edge layer** (still no library, no asset, zero-build). Recorded in `architecture.md` D6. | Testability + the zero-build/no-dependency constraints; the vendored-library interaction upgrade stays a documented follow-up. |
 | "Both render modes drawable with canvas primitives" (`research.md` Candidate tech). | Same as above — DOM nodes are the stable contract; edges render cleanly as SVG paths/markers. | DOM nodes + SVG edges. | Keeps the spec renderer-agnostic while giving deterministic, assertable structure. |
 | The map e2e smoke could self-define a `page` fixture to be runnable without the `pytest-playwright` plugin. | It only works when the plugin is absent. With the repo's real e2e environment (`pytest-playwright` installed — the other 82 e2e tests require it), the module-local sync fixture collides with the plugin's asyncio loop: `fixture 'page' not found` / "Sync API inside the asyncio loop". | Removed the local fixture; `tests/e2e/test_map_render.py` now uses the plugin's `page` fixture like `test_barter_ui.py`. Full e2e suite: **86 passed**. | The plugin is the repo's actual e2e runner; matching the existing convention is what makes the smoke run in CI. |
+| The hand-rolled renderer's sizing model (set the scroll box's `width`/`height` from the layout) works for a narrow sidebar. | It does not: an explicit width on an `overflow: auto` box grows the box past its `overflow: hidden` parent instead of scrolling, so multi-region graphs were clipped and unreachable. | Size a `#map-canvas-content` layer inside the scroll box; `computeLayout` is width-aware (capped columns + band wrapping); scroll the current room into view. | The container must stay at its parent's width and scroll; the layout owns the content size. |
 
 ## Implementation-Discovered Deferrals
 
 - **Live-model edge-density run**: the gate was executed with the scriptable mock narrator because no LLM API key is present. Reason: environment limitation, not code. A keyed Wanderer run should confirm the live number.
-- **Zoom / pan / selection**: not implemented in the hand-rolled renderer. Reason: D6 accepts manual interaction cost for v1; the vendored-library upgrade is the documented follow-up.
+- **Zoom / pan / selection**: still not implemented in the hand-rolled renderer. The P6 fix makes the map fit and scroll (with the current room auto-centred) but adds no zoom/pan. Reason: D6 accepts the manual-interaction cost for v1; the vendored-library upgrade is the documented follow-up.
 - **Fuzzy/vector room-name matching**: duplicate nodes from exact-name matching remain visible in the map. Reason: explicitly out of scope (already in `research.md`/`architecture.md`).
 - **Portal-admitting cross-region routing**: walk-only v1; cross-region targets return `different_region`. Reason: locked decision (D2/D3); portal mode is a follow-up.
+- **E2E manual-review screenshots** (`tests/e2e/screenshots/*.png`): intentionally left uncommitted. They are nondeterministic captures from `test_mobile_viewport.py` (no animation stabilization — three consecutive runs produced different bytes) and are not compared baselines. The MAP tab lives inside `#gameplay-screen`, so the startup/preset/character captures are unaffected by this change.
 
 ## Empirical Execution Logs & Evidence
 
@@ -160,7 +175,7 @@ MOCK_LLM=1 ./venv/bin/python -m pytest tests/ -q \
 
 # 7. E2E suite alone
 ./venv/bin/python -m pytest tests/e2e -q
-# 86 passed  (82 pre-existing + the 4 map-panel smokes)
+# 87 passed  (82 pre-existing + the 5 map-panel smokes)
 
 # 8. Change validity
 openspec validate spatial-map-visualization-pathfinding
@@ -175,9 +190,9 @@ openspec validate spatial-map-visualization-pathfinding
 | Unit tests | 141 (138 pass / 3 fail) | 156 (153 pass / 3 fail) | +15 new tests; same 3 pre-existing reds, no regressions |
 | New pure module | — | `engine/memory/pathfinding.js` | +135 lines |
 | npm dependencies | 9 | 9 | 0 added |
-| E2E suite | — | 86 passed | 82 pre-existing + 4 map-panel smokes |
+| E2E suite | — | 87 passed | 82 pre-existing + 5 map-panel smokes (fit/scroll regression added) |
 | Full Python suite (incl. e2e) | — | 381 passed / 3 failed / 2 skipped | 3 failures pre-existing (`make-undo-and-trades-consistent`) |
-| Playtests P2–P6 | — | 6 pass | P7 out of scope; P6 legibility `- [~]` |
+| Playtests P2–P6 | — | 6 pass | P7 out of scope; P6 legibility resolved by the fit/scroll fix |
 | Edge-density (14-turn journey) | — | 10 rooms / 19 walk edges | 1.9 edges/room; 1 region |
 
 ## Quick Re-Verification (60-Second Audit)
@@ -194,7 +209,7 @@ Expected output:
 # pass 23
 # fail 0
 ...
-55 passed
+56 passed
 ```
 
 (`npm run test:unit` will additionally report the 3 known pre-existing reds from `make-undo-and-trades-consistent`; those are unrelated to this change.)
