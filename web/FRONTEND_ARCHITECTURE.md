@@ -225,14 +225,36 @@ default-deny auth + quota middleware. The frontend surfaces that state through
   `/api/action` response and on the undo request so a rejected request never
   falls through to JSON parsing.
 
-### Direct CDN static serving
+### Gated root document & static CDN serving
 
-Under Vercel the root document and `/static/*` bypass the serverless function
-entirely: `vercel.json` rewrites `/` → `web/templates/index.html` and
-`/static/(.*)` → `web/static/$1`, with immutable caching for
-`/static/js/vendor/*` and `no-store` for unbundled ES modules. The Express app
-is only reached for `/api/*`. Locally, Express still serves the same files via
-`express.static`, so the zero-build ESM workflow is unchanged.
+The root document (`/`) is **server-routed**, not statically rewritten.
+`vercel.json` rewrites `/` → `/api/index.js`, and the Express handler in
+`web/server.js` chooses the template: when `config.isVercel` is true and
+`req.user` is null (no valid signed `od_session` cookie) it sends
+`web/templates/gate.html` — a self-contained retro-terminal access gate with a
+`[ Sign in with Vercel ]` trigger to `/api/auth/login`. Authenticated requests,
+and every local-development request (where the auth middleware attaches
+`LOCAL_DEV_USER`), receive `web/templates/index.html`. Because `/` always
+returns HTTP 200 content — gate or app — it never issues a 302, which removes
+the OAuth redirect-loop class entirely, and `index.html` and its presets are
+never transmitted to an unauthenticated client.
+
+`res.sendFile` resolves a runtime path, so Node File Trace cannot statically
+discover the templates; `vercel.json` therefore declares
+`functions["api/index.js"].includeFiles = "web/templates/**"` to bundle them
+into the lambda. Without it the function would ENOENT at request time.
+
+Static assets stay on the Edge CDN: `/static/(.*)` → `/web/static/$1`, with
+immutable caching for `/static/js/vendor/*` and `no-store` for the unbundled ES
+modules. `api/index.js` is not invoked for them. Locally Express serves the
+same files via `express.static`, so the zero-build ESM workflow is unchanged.
+
+> **CSP note**: the site-wide `Content-Security-Policy` in `vercel.json` sets
+> `script-src 'self'`, which blocks the gate's inline `auth_error` script in
+> production. The gate itself and the `[ Sign in with Vercel ]` trigger are pure
+> HTML/CSS and are unaffected; only the `?auth_error=` banner needs either an
+> external `/static/js/gate.js` module or a `'sha256-…'` CSP hash. Tracked as a
+> follow-up.
 
 ### Fail-closed Diagnostic Reporting
 

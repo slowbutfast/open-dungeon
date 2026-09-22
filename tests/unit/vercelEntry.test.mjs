@@ -4,13 +4,45 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'http';
 import path from 'path';
+import { readFileSync } from 'fs';
 import { spawnSync } from 'child_process';
 import { fileURLToPath } from 'url';
 
 import app from '../../api/index.js';
+import { createApp } from '../../web/server.js';
 import { loadConfig, validateProductionConfig } from '../../web/config.js';
+import { SESSION_COOKIE, signSession } from '../../web/auth/session.js';
 
 const REPO_ROOT = fileURLToPath(new URL('../../', import.meta.url));
+
+// Minimal config for exercising the root route in isolation. `createApp`
+// prefers `overrides.config` over the module singleton, so these tests never
+// depend on the process environment.
+const GATE_SESSION_SECRET = 'unit-test-gate-secret';
+
+function gateTestConfig(overrides = {}) {
+    return {
+        isVercel: false,
+        isProduction: false,
+        configError: null,
+        configErrors: [],
+        missingVars: [],
+        configWarnings: [],
+        nodeEnv: 'test',
+        sessionSecret: GATE_SESSION_SECRET,
+        vercelClientId: null,
+        vercelClientSecret: null,
+        openrouterApiKey: null,
+        llmBackend: null,
+        mockLlm: false,
+        appUrl: null,
+        userSpendLimit: 2.5,
+        globalSpendLimit: 50,
+        kvUrl: null,
+        kvToken: null,
+        ...overrides
+    };
+}
 
 async function withServer(expressApp, fn) {
     const server = http.createServer(expressApp);
@@ -127,4 +159,85 @@ test('booting api/index.js under a complete Vercel environment succeeds', () => 
         env: { PATH: process.env.PATH, HOME: process.env.HOME, ...VALID_PROD_ENV }
     });
     assert.equal(result.status, 0, `expected clean boot, stderr: ${result.stderr}`);
+});
+
+// ─── access gate root routing (enforce-vercel-auth-gate) ────────────────────
+//
+// `GET /` must never leak the simulation startup interface to an anonymous
+// visitor on Vercel. The server terminates the request at the gate template
+// instead (Option B — no 302 redirect, so no redirect-loop class).
+
+test('GET / on Vercel without a session serves the access gate, not index.html', async () => {
+    const gateApp = createApp({ config: gateTestConfig({ isVercel: true }) });
+
+    await withServer(gateApp, async (base) => {
+        const res = await fetch(base + '/');
+        assert.equal(res.status, 200);
+        const body = await res.text();
+        assert.match(body, /\[ OPENDUNGEON \/\/ ACCESS CONTROL \]/);
+        assert.match(body, /\/api\/auth\/login/);
+        assert.ok(!body.includes('id="startup-screen"'), 'index.html must not be delivered unauthenticated');
+    });
+});
+
+test('GET / on Vercel with a signed od_session cookie serves index.html', async () => {
+    const gateApp = createApp({ config: gateTestConfig({ isVercel: true }) });
+    const token = signSession({ sub: 'u_1', email: 'ada@example.com', name: 'Ada' }, GATE_SESSION_SECRET);
+
+    await withServer(gateApp, async (base) => {
+        const res = await fetch(base + '/', {
+            headers: { Cookie: `${SESSION_COOKIE}=${token}` }
+        });
+        assert.equal(res.status, 200);
+        const body = await res.text();
+        assert.match(body, /id="startup-screen"/);
+        assert.ok(!body.includes('ACCESS CONTROL'), 'the gate must be bypassed for authenticated users');
+    });
+});
+
+test('GET / on Vercel with a tampered session cookie falls back to the access gate', async () => {
+    const gateApp = createApp({ config: gateTestConfig({ isVercel: true }) });
+    const token = signSession({ sub: 'u_1' }, GATE_SESSION_SECRET);
+    const [body, sig] = token.split('.');
+    const flipped = sig[0] === 'A' ? 'B' + sig.slice(1) : 'A' + sig.slice(1);
+
+    await withServer(gateApp, async (base) => {
+        const res = await fetch(base + '/', {
+            headers: { Cookie: `${SESSION_COOKIE}=${body}.${flipped}` }
+        });
+        assert.equal(res.status, 200);
+        assert.match(await res.text(), /ACCESS CONTROL/);
+    });
+});
+
+test('GET / in local development mode serves index.html without credentials', async () => {
+    const localApp = createApp({ config: gateTestConfig({ isVercel: false }) });
+
+    await withServer(localApp, async (base) => {
+        const res = await fetch(base + '/');
+        assert.equal(res.status, 200);
+        const body = await res.text();
+        assert.match(body, /id="startup-screen"/);
+        assert.ok(!body.includes('ACCESS CONTROL'), 'local dev must never show the gate');
+    });
+});
+
+test('vercel.json routes / through api/index.js and bundles web/templates', () => {
+    const raw = readFileSync(path.join(REPO_ROOT, 'vercel.json'), 'utf8');
+    const vc = JSON.parse(raw);
+
+    const rewrites = vc.rewrites || [];
+    assert.ok(
+        rewrites.some(r => r.source === '/' && r.destination === '/api/index.js'),
+        'root must rewrite to the serverless function'
+    );
+    assert.ok(
+        rewrites.some(r => r.source === '/static/(.*)' && r.destination === '/web/static/$1'),
+        'static assets must keep their CDN rewrite'
+    );
+    assert.equal(
+        vc.functions['api/index.js'].includeFiles,
+        'web/templates/**',
+        'templates must be packaged into the lambda'
+    );
 });

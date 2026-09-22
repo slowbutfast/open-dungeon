@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>OpenDungeon &mdash; Access Control</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=JetBrains+Mono:wght@400;500;700&family=VT323&display=swap" rel="stylesheet">
+    <!-- Shared CRT / phosphor variables and scanline overlays -->
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        /* Access Gate — standalone retro-terminal lock screen.
+           Reuses the shared CRT overlays (.scanlines/.screen-flicker) and root
+           variables from style.css, then layers gate-specific phosphor chrome. */
+        :root {
+            --gate-amber: #facc15;
+            --gate-amber-dim: rgba(250, 204, 21, 0.65);
+            --gate-green: #4ade80;
+            --gate-green-dim: rgba(74, 222, 128, 0.55);
+        }
+
+        .gate-container {
+            width: 100%;
+            min-height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 1.5rem;
+            position: relative;
+            z-index: 10;
+        }
+
+        .gate-panel {
+            width: 100%;
+            max-width: 520px;
+            text-align: center;
+            border-color: rgba(250, 204, 21, 0.25);
+            box-shadow: 0 0 24px rgba(250, 204, 21, 0.08), inset 0 0 60px rgba(0, 0, 0, 0.45);
+            animation: gate-boot 0.45s ease-out both;
+        }
+
+        .gate-panel:hover {
+            border-color: rgba(250, 204, 21, 0.55);
+            box-shadow: 0 0 32px rgba(250, 204, 21, 0.16), inset 0 0 60px rgba(0, 0, 0, 0.45);
+        }
+
+        @keyframes gate-boot {
+            from { opacity: 0; transform: translateY(8px); filter: brightness(1.6); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
+        .gate-kicker {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.7rem;
+            letter-spacing: 0.22em;
+            color: var(--gate-green-dim);
+            margin-bottom: 1.1rem;
+            text-transform: uppercase;
+        }
+
+        .gate-title {
+            font-family: 'VT323', monospace;
+            font-size: clamp(1.6rem, 6vw, 2.4rem);
+            line-height: 1.15;
+            color: var(--gate-amber);
+            text-shadow: 0 0 10px rgba(250, 204, 21, 0.55);
+            letter-spacing: 1px;
+            margin-bottom: 1rem;
+            word-break: break-word;
+        }
+
+        .gate-status {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.78rem;
+            color: var(--gate-green);
+            letter-spacing: 0.05em;
+            margin-bottom: 1.4rem;
+            animation: gate-pulse 1.6s ease-in-out infinite;
+        }
+
+        @keyframes gate-pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.55; }
+        }
+
+        .gate-copy {
+            font-size: 0.9rem;
+            line-height: 1.6;
+            color: var(--text-muted);
+            margin: 0 auto 1.6rem;
+            max-width: 42ch;
+        }
+
+        .gate-error {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.78rem;
+            line-height: 1.5;
+            text-align: left;
+            color: var(--gate-amber);
+            background: rgba(250, 204, 21, 0.08);
+            border: 1px solid var(--gate-amber-dim);
+            border-left-width: 3px;
+            border-radius: 4px;
+            padding: 0.75rem 0.9rem;
+            margin-bottom: 1.4rem;
+            text-shadow: 0 0 6px rgba(250, 204, 21, 0.35);
+        }
+
+        .gate-signin {
+            display: inline-block;
+            text-decoration: none;
+            font-size: 0.95rem;
+            padding: 0.9rem 1.4rem;
+            border-color: var(--gate-amber);
+            background: rgba(250, 204, 21, 0.12);
+            color: var(--gate-amber);
+            box-shadow: 0 0 14px rgba(250, 204, 21, 0.18);
+        }
+
+        .gate-signin:hover {
+            background: rgba(250, 204, 21, 0.24);
+            border-color: var(--gate-amber);
+            box-shadow: 0 0 20px rgba(250, 204, 21, 0.4);
+            text-shadow: 0 0 6px rgba(250, 204, 21, 0.7);
+        }
+
+        .gate-footnote {
+            margin-top: 1.6rem;
+            font-size: 0.66rem;
+            letter-spacing: 0.08em;
+            color: var(--gate-green-dim);
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .gate-panel { animation: none; }
+            .gate-status { animation: none; }
+        }
+    </style>
+</head>
+<body class="theme-default crt-effect">
+
+    <!-- Phosphor Scanline Overlay -->
+    <div class="scanlines"></div>
+    <div class="screen-flicker"></div>
+
+    <main class="gate-container">
+        <section id="access-gate" class="gate-panel glass-panel" aria-labelledby="gate-title">
+            <p class="gate-kicker">// Secure Shell Rev 88</p>
+
+            <h1 id="gate-title" class="gate-title">[ OPENDUNGEON // ACCESS CONTROL ]</h1>
+
+            <p class="gate-status">&#9679; SYSTEM STATUS: LOCKED &nbsp;//&nbsp; SESSION: ABSENT</p>
+
+            <p class="gate-copy">
+                The simulation interface is sealed behind operator authentication.
+                Establish a Vercel identity to open a session and link to the dungeon mainframe.
+            </p>
+
+            <div id="auth-error" class="gate-error" role="alert" hidden></div>
+
+            <a id="gate-signin" class="btn btn-primary gate-signin" href="/api/auth/login">[ Sign in with Vercel ]</a>
+
+            <p class="gate-footnote code-font">OD_SESSION :: NULL &nbsp;|&nbsp; PROTOCOL :: OAUTH 2.0 + PKCE</p>
+        </section>
+    </main>
+
+    <script>
+        // Surface an OAuth failure passed back as ?auth_error=... without ever
+        // auto-redirecting (a 302 loop is the exact failure mode this gate
+        // exists to avoid). The sign-in trigger stays an explicit click.
+        (function () {
+            var params = new URLSearchParams(window.location.search);
+            var code = params.get('auth_error');
+            if (!code) return;
+
+            var messages = {
+                oauth_failed: 'AUTHENTICATION FAILURE // The Vercel authorization was denied, expired, or could not be verified. Retry the sign-in handshake.',
+                oauth_not_configured: 'CONFIGURATION FAULT // Vercel OAuth is not configured for this deployment. Notify the operator before retrying.'
+            };
+
+            var banner = document.getElementById('auth-error');
+            if (!banner) return;
+            banner.textContent = '> ' + (messages[code] || ('AUTH ERROR // ' + code));
+            banner.hidden = false;
+        })();
+    </script>
+</body>
+</html>
