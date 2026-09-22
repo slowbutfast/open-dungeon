@@ -95,6 +95,25 @@ Fix (Slice B only; Slice A untouched):
 
 Evidence — headless visual pass at 1280×900 with the P6 fixture: canvas `clientWidth 304` inside a `306px` tab, `scrollWidth == clientWidth`, 4/4 rooms in view, 3 regions stacked vertically, region labels not clipped, current room in view, all four edge kinds rendered. At 390×844 the panel fits and centres the current room (other regions reachable by scroll). New e2e `test_map_panel_fits_sidebar_and_centres_current_room` asserts the canvas does not overflow the tab, every room is within the scroll bounds, and the current room is in view. `tests/e2e/test_map_render.py`: **5 passed**.
 
+## Independent Visual Verification (2026-09-15)
+
+An independent observer (not the implementing agent) drove the full wizard → gameplay → MAP flow with headless Chromium and captured screenshots plus DOM counts against a live scripted-mock server (`MOCK_SCRIPT_FILE`, five turns: walk, walk, portal, walk, time).
+
+**Tooling caveat.** The Playwright **MCP** could not be used: it launches the system Chrome without `--no-sandbox`, which this container's sandbox denies (`No usable sandbox!`). The repo's bundled-Chromium Playwright (`chromium.launch(args=["--no-sandbox"])`) runs fine, so the verification was done through it. To enable the MCP, add `--no-sandbox` to the `@playwright/mcp` command in `opencode.jsonc`.
+
+**Fixture (5 rooms / 3 regions):** `Western Clearing ↔ Northern Trail` (walk + inferred reverse) · `Northern Trail --archway(portal)--> Glowing Archway` · `Glowing Archway ↔ Shadow Vault` (walk + inferred reverse) · `Shadow Vault --time--> Year Later Meadow`.
+
+| Check | Observed | Result |
+| :--- | :--- | :--- |
+| Cartographic render | 5 `.map-room`, 3 `.map-region` (REGION 1/2/3), 4 `.map-edge-walk` (blue), 1 `.map-edge-portal` (purple, crossing the region seam), 1 `.map-edge-time` (yellow), 2 `.map-edge-inferred` | **PASS** |
+| Current-room highlight + visited | exactly 1 `.map-room.current-room` ("◆ YOU ARE HERE"); 5 `.map-room.visited` ("visited ×1") | **PASS** |
+| Node-graph render | 6 labelled edges: `north · walk`, `archway · portal`, `south · walk · inferred`, `east · walk`, `time · time`, `west · walk · inferred` | **PASS** |
+| Mode toggle | `data-mode` cartographic → node-graph with `.map-room` count unchanged (5) | **PASS** |
+| Mobile access | at 390×844, `.mobile-tab[data-panel="map"]` activates the MAP panel (5 rooms / 3 regions) and scrolls the current room into view | **PASS** |
+| Console / page errors | `[]` | **PASS** |
+
+Screenshots were captured during the run (cartographic, node-graph, mobile-MAP) but are not committed, consistent with the repo's uncommitted-screenshot convention. This resolves WARNING 1 (visual specifics) and WARNING 4 (mobile access) by direct observation; WARNINGs 2 and 3 (visited classes, refresh seam) remain code-inspected / indirectly exercised.
+
 ## Resolved Assumptions & Empirical Proof
 
 | Assumption from `research.md` | How Verified | Result / Value | Volatility |

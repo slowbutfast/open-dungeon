@@ -30,6 +30,7 @@ web/static/
       debug.js          (pollDebugData, startDebugPolling, toggleCallDetails)
       barter.js         (fetchInventory, fetchOffers, executeTrade, fetchGoals, createGoal, completeGoal, acceptGoal, failGoal)
       map.js            (fetchMap — spatial room graph for the MAP panel)
+      auth.js           (initAuthBanner, renderQuota, handleAuthError — sign-in/profile + quota) 
   style.css
 ```
 
@@ -52,10 +53,11 @@ app.js
   ├── api/presets.js    ── ui/screens.js
   ├── api/lore.js       ── ui/toast.js, ui/screens.js, utils.js
   ├── api/memory.js     ── ui/renderers.js
-  ├── api/streaming.js  ── utils.js, ui/screens.js, ui/renderers.js, api/memory.js, components/actionChips.js, components/mapPanel.js
+  ├── api/streaming.js  ── utils.js, ui/screens.js, ui/renderers.js, api/memory.js, components/actionChips.js, components/mapPanel.js, api/auth.js
   ├── api/debug.js      ── utils.js, ui/renderers.js
   ├── api/barter.js     (leaf — no module deps)
-  └── api/map.js        (leaf — no module deps)
+  ├── api/map.js        (leaf — no module deps)
+  └── api/auth.js       (leaf — no module deps)
 ```
 
 `components/mapPanel.js` is imported by both `ui/screens.js` (tab activation) and `api/streaming.js` (post-turn refresh); it depends only on `api/map.js`, so there is no dependency cycle.
@@ -197,3 +199,37 @@ Consumed by modules in `js/api/`:
 The MAP panel renderer (`components/mapPanel.js`) is hand-rolled per D6: DOM room nodes (`.map-room[data-room-id]`) plus an SVG edge layer, zero-build with no graph library. Cartographic mode clusters rooms by region with curved walk paths, distinct portal/time arrows, and dashed inferred edges; node-graph mode renders straight labelled edges and highlights the current room.
 
 The panel's sizing model keeps the graph within its container: `#map-canvas` is a panel-bound scroll box (`width: 100%`) that is never sized from JS, and only the inner `#map-canvas-content` layer is sized from the layout. `computeLayout(data, panelWidth)` is width-aware — it caps the columns per region to the available width and wraps region bands onto new rows, so a narrow sidebar grows downward instead of overflowing. After every render the current room is scrolled into view (clamped), and edge endpoints are trimmed to the room border (`boxBorderPoint`) so arrowheads are not hidden beneath the room nodes. The panel re-renders from its cached payload on a debounced `window resize` (150 ms) as well as on tab activation and post-turn refresh, so the desktop-sidebar ↔ mobile-tab switch re-lays out. Layout is deterministic per `(payload, width)`.
+
+---
+
+## 7. Authentication & Quota UI (`vercel-deployment-and-auth`)
+
+When deployed on Vercel, every LLM-touching request is gated by the backend's
+default-deny auth + quota middleware. The frontend surfaces that state through
+`js/api/auth.js`:
+
+- **Sign-in / profile banner** (`#auth-banner`, rendered into the startup
+  header): `initAuthBanner()` calls `GET /api/user/me`. An authenticated user
+  sees *"Signed in as &lt;name|email|sub&gt;"* plus a **Sign out** link to
+  `/api/auth/logout`; otherwise a **Sign in with Vercel** link to
+  `/api/auth/login` is shown.
+- **Remaining-quota indicator** (`#val-quota` in the status bar):
+  `initAuthBanner()` calls `GET /api/user/quota` and `renderQuota()` prints
+  `$remaining / $limit`, flagging the element when the balance hits zero.
+- **Live SSE updates**: `executeStreamAction()` recognizes the backend's
+  `data: {"type":"user_quota", ...}` event and calls `renderQuota()`, so the
+  balance decrements as each turn's cost is committed to the ledger.
+- **HTTP failure handling**: `handleAuthError(status)` maps `401` →
+  redirect to `/api/auth/login`, `402` → *"quota exhausted"* alert, and `429`
+  → *"turn already in progress"* alert. It is invoked on the initial
+  `/api/action` response and on the undo request so a rejected request never
+  falls through to JSON parsing.
+
+### Direct CDN static serving
+
+Under Vercel the root document and `/static/*` bypass the serverless function
+entirely: `vercel.json` rewrites `/` → `web/templates/index.html` and
+`/static/(.*)` → `web/static/$1`, with immutable caching for
+`/static/js/vendor/*` and `no-store` for unbundled ES modules. The Express app
+is only reached for `/api/*`. Locally, Express still serves the same files via
+`express.static`, so the zero-build ESM workflow is unchanged.

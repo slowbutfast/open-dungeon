@@ -1,15 +1,35 @@
 import express from 'express';
-import { engine } from '../engineInstance.js';
+import { resolveEngine } from '../../engine/sessionManager.js';
+import { requireAuth, enforceQuota, getLedger } from '../middleware/quota.js';
+import { createTurnLockMiddleware } from '../middleware/lock.js';
+import { llmTracker } from '../../engine/llmTracker.js';
 
 const router = express.Router();
 
-router.post('/lore', async (req, res) => {
+// `/scan` runs an LLM card-extraction pass, so it carries the full default-deny
+// chain and commits its cost to the spend ledger.
+const turnLock = createTurnLockMiddleware();
+const scanGuards = [requireAuth, enforceQuota, turnLock, resolveEngine];
+
+async function commitTurnSpend(req) {
+    try {
+        const ledger = getLedger(req);
+        const turn = llmTracker.endTurn();
+        if (turn.estimated_cost_usd > 0) {
+            await ledger.recordSpend(req.user.sub, turn.estimated_cost_usd);
+        }
+    } catch {
+        // Non-fatal: narration/scan output must not depend on ledger health.
+    }
+}
+
+router.post('/lore', requireAuth, enforceQuota, resolveEngine, async (req, res) => {
     const data = req.body || {};
     const action = data.action;
     const cardIdx = data.index;
     const cardData = data.card || {};
 
-    const activeEngine = engine;
+    const activeEngine = req.engine;
 
     try {
         if (action === "add") {
@@ -51,16 +71,20 @@ router.post('/lore', async (req, res) => {
     }
 });
 
-router.post('/scan', async (req, res) => {
-    const activeEngine = engine;
+router.post('/scan', scanGuards, async (req, res) => {
+    const activeEngine = req.engine;
+    llmTracker.beginTurn(req.user.sub);
     try {
         const newCards = await activeEngine.autoGenerateCards();
         if (newCards && newCards.length > 0) {
             const names = newCards.map(c => c.name).join(", ");
+            await commitTurnSpend(req);
             return res.json({ status: "success", message: `Scan complete. Found cards: ${names}`, cards: activeEngine.cards });
         }
+        await commitTurnSpend(req);
         res.json({ status: "success", message: "Scan complete. No new cards identified.", cards: activeEngine.cards });
     } catch (e) {
+        llmTracker.resetTurn();
         res.status(400).json({ status: "error", message: e.message });
     }
 });

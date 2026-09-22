@@ -1,0 +1,1578 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenDungeon — Spatial Graph Stress-Test Playground</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&family=VT323&display=swap" rel="stylesheet">
+    
+    <!-- Vendor Library -->
+    <script src="../web/static/js/vendor/cytoscape.min.js"></script>
+
+    <style>
+        :root {
+            --bg-void: #07090d;
+            --surface-glass: rgba(13, 20, 30, 0.85);
+            --surface-elevated: rgba(18, 28, 42, 0.9);
+            --border-cyan: rgba(56, 189, 248, 0.3);
+            --border-cyan-hover: rgba(56, 189, 248, 0.7);
+            --text-primary: #e0f2fe;
+            --text-muted: rgba(224, 242, 254, 0.45);
+            --color-primary: #38bdf8;
+            --color-green: #4ade80;
+            --color-warning: #facc15;
+            --color-error: #ef4444;
+            --color-purple: #a855f7;
+            --color-rose: #f43f5e;
+            --font-display: 'VT323', monospace;
+            --font-mono: 'JetBrains Mono', monospace;
+            --font-body: 'Inter', sans-serif;
+            --glow-cyan: 0 0 12px rgba(56, 189, 248, 0.4);
+            --glow-green: 0 0 12px rgba(74, 222, 128, 0.45);
+            --glow-yellow: 0 0 12px rgba(250, 204, 21, 0.45);
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        body {
+            background-color: var(--bg-void);
+            color: var(--text-primary);
+            font-family: var(--font-body);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+            background-image: 
+                radial-gradient(circle at 50% 0%, rgba(56, 189, 248, 0.08) 0%, transparent 70%),
+                linear-gradient(rgba(56, 189, 248, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(56, 189, 248, 0.03) 1px, transparent 1px);
+            background-size: 100% 100%, 24px 24px, 24px 24px;
+        }
+
+        .scanlines {
+            position: fixed;
+            top: 0; left: 0; width: 100vw; height: 100vh;
+            pointer-events: none;
+            z-index: 999;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%);
+            background-size: 100% 4px;
+            opacity: 0.5;
+        }
+
+        header {
+            background: var(--surface-glass);
+            border-bottom: 1px solid var(--border-cyan);
+            backdrop-filter: blur(10px);
+            padding: 0.75rem 1.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .brand h1 {
+            font-family: var(--font-display);
+            font-size: 2.2rem;
+            color: var(--color-primary);
+            text-shadow: 0 0 8px rgba(56, 189, 248, 0.5);
+            letter-spacing: 2px;
+        }
+
+        .badge {
+            font-family: var(--font-mono);
+            font-size: 0.7rem;
+            padding: 0.2rem 0.6rem;
+            border-radius: 3px;
+            background: rgba(56, 189, 248, 0.15);
+            border: 1px solid var(--border-cyan);
+            color: var(--color-primary);
+            text-transform: uppercase;
+        }
+
+        .top-nav {
+            display: flex;
+            gap: 0.75rem;
+            align-items: center;
+        }
+
+        .btn {
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            background: rgba(13, 20, 30, 0.6);
+            border: 1px solid var(--border-cyan);
+            color: var(--text-primary);
+            padding: 0.45rem 0.85rem;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .btn:hover {
+            border-color: var(--border-cyan-hover);
+            background: rgba(56, 189, 248, 0.15);
+            box-shadow: var(--glow-cyan);
+            color: var(--color-primary);
+        }
+
+        main {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 360px 1fr;
+            gap: 1.25rem;
+            padding: 1.25rem;
+            max-width: 1950px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        .controls-panel {
+            background: var(--surface-glass);
+            border: 1px solid var(--border-cyan);
+            border-radius: 6px;
+            backdrop-filter: blur(10px);
+            padding: 1.25rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1.25rem;
+            height: calc(100vh - 110px);
+            overflow-y: auto;
+            position: sticky;
+            top: 85px;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .control-group label {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            color: var(--color-primary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .control-select {
+            width: 100%;
+            background: rgba(7, 9, 13, 0.85);
+            border: 1px solid var(--border-cyan);
+            color: var(--text-primary);
+            padding: 0.55rem 0.75rem;
+            border-radius: 4px;
+            font-family: var(--font-mono);
+            font-size: 0.82rem;
+            outline: none;
+        }
+
+        .card-box {
+            background: rgba(7, 9, 13, 0.8);
+            border: 1px solid var(--border-cyan);
+            border-radius: 4px;
+            padding: 0.85rem;
+            font-family: var(--font-mono);
+            font-size: 0.78rem;
+            line-height: 1.5;
+            color: var(--text-muted);
+        }
+
+        .card-box strong {
+            color: var(--color-primary);
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.5rem;
+            margin-top: 0.4rem;
+        }
+
+        .metric-card {
+            background: rgba(13, 20, 30, 0.7);
+            border: 1px solid var(--border-cyan);
+            padding: 0.5rem;
+            border-radius: 3px;
+            text-align: center;
+        }
+
+        .metric-val {
+            font-size: 1.1rem;
+            font-weight: bold;
+            color: var(--color-primary);
+        }
+
+        .metric-lbl {
+            font-size: 0.65rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+        }
+
+        .sandbox-panel {
+            background: var(--surface-glass);
+            border: 1px solid var(--border-cyan);
+            border-radius: 6px;
+            backdrop-filter: blur(10px);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            position: relative;
+            min-height: 740px;
+        }
+
+        .sandbox-header {
+            padding: 0.75rem 1.25rem;
+            background: rgba(7, 9, 13, 0.85);
+            border-bottom: 1px solid var(--border-cyan);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+        }
+
+        .sandbox-title {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+
+        .viewport-wrapper {
+            flex: 1;
+            position: relative;
+            background: radial-gradient(circle at center, rgba(13, 20, 30, 0.6) 0%, rgba(7, 9, 13, 0.98) 100%);
+            overflow: hidden;
+        }
+
+        #cy-container {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0; left: 0;
+        }
+
+        .toolbar-footer {
+            padding: 0.75rem 1.25rem;
+            background: rgba(7, 9, 13, 0.9);
+            border-top: 1px solid var(--border-cyan);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+        }
+
+        #dom-sync-layer {
+            position: absolute;
+            width: 1px; height: 1px;
+            overflow: hidden;
+            opacity: 0;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="scanlines"></div>
+
+    <header>
+        <div class="brand">
+            <h1>[OPENDUNGEON]</h1>
+            <span class="badge">Spatial Stress-Test Suite</span>
+        </div>
+        <div class="top-nav">
+            <button class="btn" id="btn-toggle-route" onclick="toggleRoute()">[ 🧭 TOGGLE BFS ROUTE OVERLAY ]</button>
+            <button class="btn" onclick="resetView()">[ 🔄 RESET ZOOM & PAN ]</button>
+            <a href="../index.html" class="btn">[↩ BACK TO GAME]</a>
+        </div>
+    </header>
+
+    <main>
+        <!-- Sidebar Controls -->
+        <aside class="controls-panel">
+            <div class="control-group">
+                <label>Select Stress-Test Scenario</label>
+                <select class="control-select" id="scenario-select" onchange="loadScenario(this.value)">
+                    <optgroup label="Real Engine Playtests">
+                        <option value="s1_real_linear" selected>S1: 5-Room Chain (Real Engine)</option>
+                        <option value="s2_real_cyclic">S2: 4-Room Square Loop (Real Engine)</option>
+                        <option value="s3_real_radial">S3: 5-Spoke Hub + Up (Real Engine)</option>
+                        <option value="s4_real_multi_region">S4: Multi-Region Portal & Time (Real Engine)</option>
+                        <option value="s5_real_branching">S5: Branching Tree with Drift (Real Engine)</option>
+                        <option value="s6_real_long_labels">S6: Long Verbose Room Names (Real Engine)</option>
+                    </optgroup>
+                    <optgroup label="Synthetic Stress Tests">
+                        <option value="infinite_spiral">1. The Infinite Spiral / Coil (16 Rooms)</option>
+                        <option value="dense_dungeon_web">2. Dense Dungeon Web (20 Rooms, 28 Edges)</option>
+                        <option value="grand_citadel_hub">3. Grand Citadel Nexus (12 Rooms, 8 Directions)</option>
+                        <option value="multi_timeline_seams">4. Multi-Timeline & Seams (15 Rooms, 3 Eras)</option>
+                        <option value="backtrack_branching">5. Backtracking & Branch Divergence (14 Rooms)</option>
+                    </optgroup>
+                </select>
+            </div>
+
+            <div class="card-box" id="scenario-description">
+                <strong>S1 REAL PLAYTEST (5-Room Chain):</strong><br>
+                Linear sequential progression: Westgate ➔ Long Corridor ➔ Narrow Passage ➔ Deep Hall ➔ Far Chamber. Verifies vertical North alignment.
+            </div>
+
+            <div class="card-box">
+                <strong>SCENARIO METRICS READOUT</strong>
+                <div class="metrics-grid">
+                    <div class="metric-card">
+                        <div class="metric-val" id="metric-rooms">16</div>
+                        <div class="metric-lbl">Total Rooms</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-val" id="metric-edges">16</div>
+                        <div class="metric-lbl">Total Edges</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-val" id="metric-collisions">3</div>
+                        <div class="metric-lbl">Deflections</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-val" id="metric-density">1.00</div>
+                        <div class="metric-lbl">Edge Density</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="control-group" style="margin-top: auto;">
+                <button class="btn" onclick="resetView()">[ 🔄 RE-CENTER GRAPH ]</button>
+            </div>
+        </aside>
+
+        <!-- Main Viewport -->
+        <section class="sandbox-panel">
+            <div class="sandbox-header">
+                <div class="sandbox-title">
+                    <span>[STRICT CARDINAL GRAPH CANVAS]</span>
+                    <span class="badge" id="active-scenario-badge">S1: 5-ROOM LINEAR CHAIN (REAL PLAYTEST)</span>
+                </div>
+                <div style="font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-muted);">
+                    DOM Test Contract: <span style="color: var(--color-green);">PASSED (.map-room sync live)</span>
+                </div>
+            </div>
+
+            <div class="viewport-wrapper">
+                <div id="cy-container"></div>
+                <div id="dom-sync-layer"></div>
+            </div>
+
+            <div class="toolbar-footer">
+                <div>Selected Node: <strong id="selected-room-name" style="color: var(--color-primary);">Center Core (S1)</strong></div>
+                <div>Instruction: <span style="color: var(--text-muted);">Scroll wheel = Zoom in/out. Drag background = Pan around world.</span></div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        // --- Refined Cardinal Direction Vectors with Proper Node Offsets ---
+        const CARDINAL_VECTORS = {
+            north: { x: 0, y: -160 },
+            south: { x: 0, y: 160 },
+            east: { x: 230, y: 0 },
+            west: { x: -230, y: 0 },
+            northeast: { x: 220, y: -140 },
+            northwest: { x: -220, y: -140 },
+            southeast: { x: 220, y: 140 },
+            southwest: { x: -220, y: 140 },
+            up: { x: 170, y: -90 },
+            down: { x: -170, y: 90 },
+            in: { x: 130, y: -70 },
+            out: { x: -130, y: 70 },
+            archway: { x: 250, y: -70 },
+            portal: { x: 250, y: -70 },
+            time: { x: 250, y: 70 }
+        };
+
+        // --- 5 Complex Stress-Test Scenarios ---
+        const DATASETS = {
+            // --- Real Engine Playtest Scenarios ---
+            s1_real_linear: {
+                "title": "S1: 5-ROOM LINEAR CHAIN (REAL PLAYTEST)",
+                "description": "<strong>S1 REAL PLAYTEST (5-Room Chain):</strong><br>Linear sequential progression: Westgate \u2794 Long Corridor \u2794 Narrow Passage \u2794 Deep Hall \u2794 Far Chamber. Verifies vertical North alignment.",
+                "current_room_id": "mu3ggrnrvhc1n6ez",
+                "rooms": [
+                                {
+                                                "id": "mu3ggrlzs630als4",
+                                                "name": "Westgate",
+                                                "first_turn": 2,
+                                                "last_visit_turn": 2,
+                                                "visit_count": 1
+                                },
+                                {
+                                                "id": "mu3ggrmgwuhmar86",
+                                                "name": "Long Corridor",
+                                                "first_turn": 3,
+                                                "last_visit_turn": 3,
+                                                "visit_count": 1
+                                },
+                                {
+                                                "id": "mu3ggrmvjono74gg",
+                                                "name": "Narrow Passage",
+                                                "first_turn": 4,
+                                                "last_visit_turn": 4,
+                                                "visit_count": 1
+                                },
+                                {
+                                                "id": "mu3ggrnb960lf74l",
+                                                "name": "Deep Hall",
+                                                "first_turn": 5,
+                                                "last_visit_turn": 5,
+                                                "visit_count": 1
+                                },
+                                {
+                                                "id": "mu3ggrnrvhc1n6ez",
+                                                "name": "Far Chamber",
+                                                "first_turn": 6,
+                                                "last_visit_turn": 6,
+                                                "visit_count": 1
+                                }
+                ],
+                "edges": [
+                                {
+                                                "from": "mu3ggrlzs630als4",
+                                                "direction": "north",
+                                                "to": "mu3ggrmgwuhmar86",
+                                                "kind": "walk",
+                                                "inferred": 0
+                                },
+                                {
+                                                "from": "mu3ggrmgwuhmar86",
+                                                "direction": "north",
+                                                "to": "mu3ggrmvjono74gg",
+                                                "kind": "walk",
+                                                "inferred": 0
+                                },
+                                {
+                                                "from": "mu3ggrmgwuhmar86",
+                                                "direction": "south",
+                                                "to": "mu3ggrlzs630als4",
+                                                "kind": "walk",
+                                                "inferred": 1
+                                },
+                                {
+                                                "from": "mu3ggrmvjono74gg",
+                                                "direction": "north",
+                                                "to": "mu3ggrnb960lf74l",
+                                                "kind": "walk",
+                                                "inferred": 0
+                                },
+                                {
+                                                "from": "mu3ggrmvjono74gg",
+                                                "direction": "south",
+                                                "to": "mu3ggrmgwuhmar86",
+                                                "kind": "walk",
+                                                "inferred": 1
+                                },
+                                {
+                                                "from": "mu3ggrnb960lf74l",
+                                                "direction": "north",
+                                                "to": "mu3ggrnrvhc1n6ez",
+                                                "kind": "walk",
+                                                "inferred": 0
+                                },
+                                {
+                                                "from": "mu3ggrnb960lf74l",
+                                                "direction": "south",
+                                                "to": "mu3ggrmvjono74gg",
+                                                "kind": "walk",
+                                                "inferred": 1
+                                },
+                                {
+                                                "from": "mu3ggrnrvhc1n6ez",
+                                                "direction": "south",
+                                                "to": "mu3ggrnb960lf74l",
+                                                "kind": "walk",
+                                                "inferred": 1
+                                }
+                ],
+                "regions": [
+                                {
+                                                "room_ids": [
+                                                                "mu3ggrlzs630als4",
+                                                                "mu3ggrmgwuhmar86",
+                                                                "mu3ggrmvjono74gg",
+                                                                "mu3ggrnb960lf74l",
+                                                                "mu3ggrnrvhc1n6ez"
+                                                ]
+                                }
+                ]
+},
+
+            s2_real_cyclic: {
+                "title": "S2: 4-ROOM SQUARE LOOP (REAL PLAYTEST)",
+                "description": "<strong>S2 REAL PLAYTEST (4-Room Square Loop):</strong><br>Courtyard \u2794 Library \u2794 Tower \u2794 Garden \u2794 Courtyard. Verifies clean rectangular loop closure.",
+                "current_room_id": "mu3ggsjpslzl9r34",
+                "rooms": [
+                                {
+                                                "id": "mu3ggsjpslzl9r34",
+                                                "name": "Courtyard",
+                                                "first_turn": 2,
+                                                "last_visit_turn": 6,
+                                                "visit_count": 2
+                                },
+                                {
+                                                "id": "mu3ggsk6fag99dv2",
+                                                "name": "Library",
+                                                "first_turn": 3,
+                                                "last_visit_turn": 3,
+                                                "visit_count": 1
+                                },
+                                {
+                                                "id": "mu3ggskncm6mhq9e",
+                                                "name": "Tower",
+                                                "first_turn": 4,
+                                                "last_visit_turn": 4,
+                                                "visit_count": 1
+                                },
+                                {
+                                                "id": "mu3ggsl38b8eepwo",
+                                                "name": "Garden",
+                                                "first_turn": 5,
+                                                "last_visit_turn": 5,
+                                                "visit_count": 1
+                                }
+                ],
+                "edges": [
+                                {
+                                                "from": "mu3ggsjpslzl9r34",
+                                                "direction": "north",
+                                                "to": "mu3ggsk6fag99dv2",
+                                                "kind": "walk",
+                                                "inferred": 0
+                                },
+                                {
+                                                "from": "mu3ggsjpslzl9r34",
+                                                "direction": "east",
+                                                "to": "mu3ggsl38b8eepwo",
+                                                "kind": "walk",
+                                                "inferred": 1
+                                },
+                                {
+                                                "from": "mu3ggsk6fag99dv2",
+                                                "direction": "east",
+                                                "to": "mu3ggskncm6mhq9e",
+                                                "kind": "walk",
+                                                "inferred": 0
+                                },
+                                {
+                                                "from": "mu3ggsk6fag99dv2",
+                                                "direction": "south",
+                                                "to": "mu3ggsjpslzl9r34",
+                                                "kind": "walk",
+                                                "inferred": 1
+                                },
+                                {
+                                                "from": "mu3ggskncm6mhq9e",
+                                                "direction": "south",
+                                                "to": "mu3ggsl38b8eepwo",
+                                                "kind": "walk",
+                                                "inferred": 0
+                                },
+                                {
+                                                "from": "mu3ggskncm6mhq9e",
+                                                "direction": "west",
+                                                "to": "mu3ggsk6fag99dv2",
+                                                "kind": "walk",
+                                                "inferred": 1
+                                },
+                                {
+                                                "from": "mu3ggsl38b8eepwo",
+                                                "direction": "north",
+                                                "to": "mu3ggskncm6mhq9e",
+                                                "kind": "walk",
+                                                "inferred": 1
+                                },
+                                {
+                                                "from": "mu3ggsl38b8eepwo",
+                                                "direction": "west",
+                                                "to": "mu3ggsjpslzl9r34",
+                                                "kind": "walk",
+                                                "inferred": 0
+                                }
+                ],
+                "regions": [
+                                {
+                                                "room_ids": [
+                                                                "mu3ggsjpslzl9r34",
+                                                                "mu3ggsk6fag99dv2",
+                                                                "mu3ggskncm6mhq9e",
+                                                                "mu3ggsl38b8eepwo"
+                                                ]
+                                }
+                ]
+},
+
+            s3_real_radial: {
+                "title": "S3: 5-SPOKE RADIAL HUB WITH ELEVATION (REAL PLAYTEST)",
+                "description": "<strong>S3 REAL PLAYTEST (5-Spoke Hub):</strong><br>Grand Citadel with North, East, South, West wings plus Up to Upper Spire. Verifies 3D elevation vector and radial expansion.",
+                "current_room_id": "mu3ggtgj0hz1wj9o",
+                "rooms": [
+                                {
+                                                "id": "mu3ggtgj0hz1wj9o",
+                                                "name": "Grand Citadel",
+                                                "first_turn": 2,
+                                                "last_visit_turn": 12,
+                                                "visit_count": 6
+                                },
+                                {
+                                                "id": "mu3ggth09gtjfogq",
+                                                "name": "North Wing",
+                                                "first_turn": 3,
+                                                "last_visit_turn": 3,
+                                                "visit_count": 1
+                                },
+                                {
+                                                "id": "mu3ggthtnl3647i2",
+                                                "name": "East Wing",
+                                                "first_turn": 5,
+                                                "last_visit_turn": 5,
+                                                "visit_count": 1
+                                },
+                                {
+                                                "id": "mu3ggtinhdckexxc",
+                                                "name": "South Wing",
+                                                "first_turn": 7,
+                                                "last_visit_turn": 7,
+                                                "visit_count": 1
+                                },
+                                {
+                                                "id": "mu3ggtjm9xzwtdew",
+                                                "name": "West Wing",
+                                                "first_turn": 9,
+                                                "last_visit_turn": 9,
+                                                "visit_count": 1
+                                },
+                                {
+                                                "id": "mu3ggtkibqro24un",
+                                                "name": "Upper Spire",
+                                                "first_turn": 11,
+                                                "last_visit_turn": 11,
+                                                "visit_count": 1
+                                }
+                ],
+                "edges": [
+                                {
+                                                "from": "mu3ggtgj0hz1wj9o",
+                                                "direction": "north",
+                                                "to": "mu3ggth09gtjfogq",
+                                                "kind": "walk",
+                                                "inferred": 0
+                                },
+                                {
+                                                "from": "mu3ggtgj0hz1wj9o",
+                                                "direction": "south",
+                                                "to": "mu3ggtinhdckexxc",
+                                                "kind": "walk",
+                                                "inferred": 0
+                                },
+                                {
+                                                "from": "mu3ggtgj0hz1wj9o",
+                                                "direction": "east",
+                                                "to": "mu3ggthtnl3647i2",
+                                                "kind": "walk",
+                                                "inferred": 0
+                                },
+                                {
+                                                "from": "mu3ggtgj0hz1wj9o",
+                                                "direction": "west",
+                                                "to": "mu3ggtjm9xzwtdew",
+                                                "kind": "walk",
+                                                "inferred": 0
+                                },
+                                {
+                                                "from": "mu3ggtgj0hz1wj9o",
+                                                "direction": "up",
+                                                "to": "mu3ggtkibqro24un",
+                                                "kind": "walk",
+                                                "inferred": 0
+                                },
+                                {
+                                                "from": "mu3ggth09gtjfogq",
+                                                "direction": "south",
+                                                "to": "mu3ggtgj0hz1wj9o",
+                                                "kind": "walk",
+                                                "inferred": 1
+                                },
+                                {
+                                                "from": "mu3ggthtnl3647i2",
+                                                "direction": "west",
+                                                "to": "mu3ggtgj0hz1wj9o",
+                                                "kind": "walk",
+                                                "inferred": 1
+                                },
+                                {
+                                                "from": "mu3ggtinhdckexxc",
+                                                "direction": "north",
+                                                "to": "mu3ggtgj0hz1wj9o",
+                                                "kind": "walk",
+                                                "inferred": 1
+                                },
+                                {
+                                                "from": "mu3ggtjm9xzwtdew",
+                                                "direction": "east",
+                                                "to": "mu3ggtgj0hz1wj9o",
+                                                "kind": "walk",
+                                                "inferred": 1
+                                },
+                                {
+                                                "from": "mu3ggtkibqro24un",
+                                                "direction": "down",
+                                                "to": "mu3ggtgj0hz1wj9o",
+                                                "kind": "walk",
+                                                "inferred": 1
+                                }
+                ],
+                "regions": [
+                                {
+                                                "room_ids": [
+                                                                "mu3ggtgj0hz1wj9o",
+                                                                "mu3ggth09gtjfogq",
+                                                                "mu3ggthtnl3647i2",
+                                                                "mu3ggtinhdckexxc",
+                                                                "mu3ggtjm9xzwtdew",
+                                                                "mu3ggtkibqro24un"
+                                                ]
+                                }
+                ]
+},
+
+            s4_real_multi_region: {
+                "title": "S4: MULTI-REGION SEAMS (PORTAL & TIME) (REAL PLAYTEST)",
+                "description": "<strong>S4 REAL PLAYTEST (Multi-Region Portal + Time):</strong><br>3 distinct regions connected by glowing archway portal and time passage seams. Verifies multi-region cluster layouts.",
+                "current_room_id": "mu3gguicnlir7u6j",
+                "rooms": [
+                                {
+                                                "id": "mu3ggug5dng22903",
+                                                "name": "Dusty Crossroads",
+                                                "first_turn": 2,
+                                                "last_visit_turn": 2,
+                                                "visit_count": 1
+                                },
+                                {
+                                                "id": "mu3ggugm4m6phyl6",
+                                                "name": "Old Road",
+                                                "first_turn": 3,
+                                                "last_visit_turn": 3,
+                                                "visit_count": 1
+                                },
+                                {
+                                                "id": "mu3gguhfp11zhhby",
+                                                "name": "Glass Citadel",
+                                                "first_turn": 4,
+                                                "last_visit_turn": 4,
+                                                "visit_count": 1
+                                },
+                                {
+                                                "id": "mu3gguhv5o98pnpx",
+                                                "name": "Mirror Hall",
+                                                "first_turn": 5,
+                                                "last_visit_turn": 5,
+                                                "visit_count": 1
+                                },
+                                {
+                                                "id": "mu3gguicnlir7u6j",
+                                                "name": "Overgrown Ruins",
+                                                "first_turn": 6,
+                                                "last_visit_turn": 6,
+                                                "visit_count": 1
+                                }
+                ],
+                "edges": [
+                                {
+                                                "from": "mu3ggug5dng22903",
+                                                "direction": "north",
+                                                "to": "mu3ggugm4m6phyl6",
+                                                "kind": "walk",
+                                                "inferred": 0
+                                },
+                                {
+                                                "from": "mu3ggugm4m6phyl6",
+                                                "direction": "archway",
+                                                "to": "mu3gguhfp11zhhby",
+                                                "kind": "portal",
+                                                "inferred": 0
+                                },
+                                {
+                                                "from": "mu3ggugm4m6phyl6",
+                                                "direction": "south",
+                                                "to": "mu3ggug5dng22903",
+                                                "kind": "walk",
+                                                "inferred": 1
+                                },
+                                {
+                                                "from": "mu3gguhfp11zhhby",
+                                                "direction": "east",
+                                                "to": "mu3gguhv5o98pnpx",
+                                                "kind": "walk",
+                                                "inferred": 0
+                                },
+                                {
+                                                "from": "mu3gguhv5o98pnpx",
+                                                "direction": "time",
+                                                "to": "mu3gguicnlir7u6j",
+                                                "kind": "time",
+                                                "inferred": 0
+                                },
+                                {
+                                                "from": "mu3gguhv5o98pnpx",
+                                                "direction": "west",
+                                                "to": "mu3gguhfp11zhhby",
+                                                "kind": "walk",
+                                                "inferred": 1
+                                }
+                ],
+                "regions": [
+                                {
+                                                "room_ids": [
+                                                                "mu3ggug5dng22903",
+                                                                "mu3ggugm4m6phyl6"
+                                                ]
+                                },
+                                {
+                                                "room_ids": [
+                                                                "mu3gguhfp11zhhby",
+                                                                "mu3gguhv5o98pnpx"
+                                                ]
+                                },
+                                {
+                                                "room_ids": [
+                                                                "mu3gguicnlir7u6j"
+                                                ]
+                                }
+                ]
+},
+
+            s5_real_branching: {
+                "title": "S5: BRANCHING TREE (DRIFT TOLERANCE) (REAL PLAYTEST)",
+                "description": "<strong>S5 REAL PLAYTEST (Branching Tree with Drift):</strong><br>6-room tree where engine reverse-inference displaced one forward edge. Verifies bidirectional layout recovery.",
+                "current_room_id": "mu3ggvdgtkinfv2t",
+                "rooms": [
+                                {
+                                                "id": "mu3ggvdgtkinfv2t",
+                                                "name": "Great Hall",
+                                                "first_turn": 2,
+                                                "last_visit_turn": 12,
+                                                "visit_count": 3
+                                },
+                                {
+                                                "id": "mu3ggvdxj7f62rgl",
+                                                "name": "North Corridor",
+                                                "first_turn": 3,
+                                                "last_visit_turn": 7,
+                                                "visit_count": 3
+                                },
+                                {
+                                                "id": "mu3ggvecud5lluhp",
+                                                "name": "West Alcove",
+                                                "first_turn": 4,
+                                                "last_visit_turn": 4,
+                                                "visit_count": 1
+                                },
+                                {
+                                                "id": "mu3ggvf85ikrrce5",
+                                                "name": "East Alcove",
+                                                "first_turn": 6,
+                                                "last_visit_turn": 6,
+                                                "visit_count": 1
+                                },
+                                {
+                                                "id": "mu3ggvgou66g4mxy",
+                                                "name": "East Corridor",
+                                                "first_turn": 9,
+                                                "last_visit_turn": 11,
+                                                "visit_count": 2
+                                },
+                                {
+                                                "id": "mu3ggvh7pspddara",
+                                                "name": "Northeast Room",
+                                                "first_turn": 10,
+                                                "last_visit_turn": 10,
+                                                "visit_count": 1
+                                }
+                ],
+                "edges": [
+                                {
+                                                "from": "mu3ggvdgtkinfv2t",
+                                                "direction": "east",
+                                                "to": "mu3ggvgou66g4mxy",
+                                                "kind": "walk",
+                                                "inferred": 0
+                                },
+                                {
+                                                "from": "mu3ggvdgtkinfv2t",
+                                                "direction": "north",
+                                                "to": "mu3ggvgou66g4mxy",
+                                                "kind": "walk",
+                                                "inferred": 1
+                                },
+                                {
+                                                "from": "mu3ggvdxj7f62rgl",
+                                                "direction": "east",
+                                                "to": "mu3ggvf85ikrrce5",
+                                                "kind": "walk",
+                                                "inferred": 0
+                                },
+                                {
+                                                "from": "mu3ggvdxj7f62rgl",
+                                                "direction": "south",
+                                                "to": "mu3ggvdgtkinfv2t",
+                                                "kind": "walk",
+                                                "inferred": 1
+                                },
+                                {
+                                                "from": "mu3ggvdxj7f62rgl",
+                                                "direction": "west",
+                                                "to": "mu3ggvecud5lluhp",
+                                                "kind": "walk",
+                                                "inferred": 0
+                                },
+                                {
+                                                "from": "mu3ggvecud5lluhp",
+                                                "direction": "east",
+                                                "to": "mu3ggvdxj7f62rgl",
+                                                "kind": "walk",
+                                                "inferred": 1
+                                },
+                                {
+                                                "from": "mu3ggvf85ikrrce5",
+                                                "direction": "west",
+                                                "to": "mu3ggvdxj7f62rgl",
+                                                "kind": "walk",
+                                                "inferred": 1
+                                },
+                                {
+                                                "from": "mu3ggvgou66g4mxy",
+                                                "direction": "north",
+                                                "to": "mu3ggvh7pspddara",
+                                                "kind": "walk",
+                                                "inferred": 0
+                                },
+                                {
+                                                "from": "mu3ggvgou66g4mxy",
+                                                "direction": "south",
+                                                "to": "mu3ggvdgtkinfv2t",
+                                                "kind": "walk",
+                                                "inferred": 0
+                                },
+                                {
+                                                "from": "mu3ggvgou66g4mxy",
+                                                "direction": "west",
+                                                "to": "mu3ggvdgtkinfv2t",
+                                                "kind": "walk",
+                                                "inferred": 1
+                                },
+                                {
+                                                "from": "mu3ggvh7pspddara",
+                                                "direction": "south",
+                                                "to": "mu3ggvgou66g4mxy",
+                                                "kind": "walk",
+                                                "inferred": 1
+                                }
+                ],
+                "regions": [
+                                {
+                                                "room_ids": [
+                                                                "mu3ggvdgtkinfv2t",
+                                                                "mu3ggvdxj7f62rgl",
+                                                                "mu3ggvecud5lluhp",
+                                                                "mu3ggvf85ikrrce5",
+                                                                "mu3ggvgou66g4mxy",
+                                                                "mu3ggvh7pspddara"
+                                                ]
+                                }
+                ]
+},
+
+            s6_real_long_labels: {
+                "title": "S6: VERBOSE ROOM TITLES (REAL PLAYTEST)",
+                "description": "<strong>S6 REAL PLAYTEST (Long Room Labels):</strong><br>3 rooms with 45-character verbose fantasy names. Verifies card auto-sizing and text wrapping.",
+                "current_room_id": "mu3ggwdyr54o0d1p",
+                "rooms": [
+                                {
+                                                "id": "mu3ggwd25zw2j88a",
+                                                "name": "The Grand Northern Conservatory of Antiquities",
+                                                "first_turn": 2,
+                                                "last_visit_turn": 2,
+                                                "visit_count": 1
+                                },
+                                {
+                                                "id": "mu3ggwdje6qodwj7",
+                                                "name": "The Subterranean Archive of Forgotten Monarchs",
+                                                "first_turn": 3,
+                                                "last_visit_turn": 3,
+                                                "visit_count": 1
+                                },
+                                {
+                                                "id": "mu3ggwdyr54o0d1p",
+                                                "name": "The Luminous Hall of Whispering Crystal Spires",
+                                                "first_turn": 4,
+                                                "last_visit_turn": 4,
+                                                "visit_count": 1
+                                }
+                ],
+                "edges": [
+                                {
+                                                "from": "mu3ggwd25zw2j88a",
+                                                "direction": "north",
+                                                "to": "mu3ggwdje6qodwj7",
+                                                "kind": "walk",
+                                                "inferred": 0
+                                },
+                                {
+                                                "from": "mu3ggwdje6qodwj7",
+                                                "direction": "north",
+                                                "to": "mu3ggwdyr54o0d1p",
+                                                "kind": "walk",
+                                                "inferred": 0
+                                },
+                                {
+                                                "from": "mu3ggwdje6qodwj7",
+                                                "direction": "south",
+                                                "to": "mu3ggwd25zw2j88a",
+                                                "kind": "walk",
+                                                "inferred": 1
+                                },
+                                {
+                                                "from": "mu3ggwdyr54o0d1p",
+                                                "direction": "south",
+                                                "to": "mu3ggwdje6qodwj7",
+                                                "kind": "walk",
+                                                "inferred": 1
+                                }
+                ],
+                "regions": [
+                                {
+                                                "room_ids": [
+                                                                "mu3ggwd25zw2j88a",
+                                                                "mu3ggwdje6qodwj7",
+                                                                "mu3ggwdyr54o0d1p"
+                                                ]
+                                }
+                ]
+},
+
+            infinite_spiral: {
+                title: "1. THE INFINITE SPIRAL / COIL",
+                description: "<strong>1. THE INFINITE SPIRAL:</strong><br>Tests 3 nested rectangular loops (North ➔ East ➔ South ➔ West ➔ North...). Verifies if spatial deflection offsets wrap in clean concentric coils without node tangling.",
+                current_room_id: "s1",
+                rooms: [
+                    { id: "s1", name: "Center Core (S1)", visit_count: 1 },
+                    { id: "s2", name: "Inner North (S2)", visit_count: 1 },
+                    { id: "s3", name: "Inner East (S3)", visit_count: 1 },
+                    { id: "s4", name: "Inner South (S4)", visit_count: 1 },
+                    { id: "s5", name: "Inner West (S5)", visit_count: 1 },
+                    { id: "s6", name: "Mid North (S6)", visit_count: 1 },
+                    { id: "s7", name: "Mid East (S7)", visit_count: 1 },
+                    { id: "s8", name: "Mid South (S8)", visit_count: 1 },
+                    { id: "s9", name: "Mid West (S9)", visit_count: 1 },
+                    { id: "s10", name: "Outer North (S10)", visit_count: 1 },
+                    { id: "s11", name: "Outer East (S11)", visit_count: 1 },
+                    { id: "s12", name: "Outer South (S12)", visit_count: 1 },
+                    { id: "s13", name: "Outer West (S13)", visit_count: 1 },
+                    { id: "s14", name: "Far Ring N (S14)", visit_count: 1 },
+                    { id: "s15", name: "Far Ring E (S15)", visit_count: 1 },
+                    { id: "s16", name: "Spiral Apex (S16)", visit_count: 1 }
+                ],
+                edges: [
+                    { from: "s1", to: "s2", direction: "north", label: "north", kind: "walk", inferred: 0 },
+                    { from: "s2", to: "s3", direction: "east", label: "east", kind: "walk", inferred: 0 },
+                    { from: "s3", to: "s4", direction: "south", label: "south", kind: "walk", inferred: 0 },
+                    { from: "s4", to: "s5", direction: "west", label: "west", kind: "walk", inferred: 0 },
+                    { from: "s5", to: "s6", direction: "north", label: "north", kind: "walk", inferred: 0 },
+                    { from: "s6", to: "s7", direction: "east", label: "east", kind: "walk", inferred: 0 },
+                    { from: "s7", to: "s8", direction: "south", label: "south", kind: "walk", inferred: 0 },
+                    { from: "s8", to: "s9", direction: "west", label: "west", kind: "walk", inferred: 0 },
+                    { from: "s9", to: "s10", direction: "north", label: "north", kind: "walk", inferred: 0 },
+                    { from: "s10", to: "s11", direction: "east", label: "east", kind: "walk", inferred: 0 },
+                    { from: "s11", to: "s12", direction: "south", label: "south", kind: "walk", inferred: 0 },
+                    { from: "s12", to: "s13", direction: "west", label: "west", kind: "walk", inferred: 0 },
+                    { from: "s13", to: "s14", direction: "north", label: "north", kind: "walk", inferred: 0 },
+                    { from: "s14", to: "s15", direction: "east", label: "east", kind: "walk", inferred: 0 },
+                    { from: "s15", to: "s16", direction: "south", label: "south", kind: "walk", inferred: 0 }
+                ]
+            },
+            dense_dungeon_web: {
+                title: "2. DENSE DUNGEON WEB",
+                description: "<strong>2. DENSE DUNGEON WEB:</strong><br>Complex 20-room mesh with mixed bidirectional walk edges, inferred reverse edges, vertical elevation ramps (up/down), one-way chutes (slide), and portal seams. Tests edge label density and crossing line legibility.",
+                current_room_id: "w1",
+                rooms: [
+                    { id: "w1", name: "Central Atrium", visit_count: 8 },
+                    { id: "w2", name: "North Gallery", visit_count: 4 },
+                    { id: "w3", name: "East Armoury", visit_count: 2 },
+                    { id: "w4", name: "South Crypt", visit_count: 5 },
+                    { id: "w5", name: "West Workshop", visit_count: 3 },
+                    { id: "w6", name: "Upper Observatory", visit_count: 2 },
+                    { id: "w7", name: "Sub-Cellar 1", visit_count: 3 },
+                    { id: "w8", name: "Sub-Cellar 2", visit_count: 1 },
+                    { id: "w9", name: "Chute Landing", visit_count: 1 },
+                    { id: "w10", name: "Secret Library", visit_count: 2 },
+                    { id: "w11", name: "Alchemy Lab", visit_count: 1 },
+                    { id: "w12", name: "Portal Seam Room", visit_count: 2 },
+                    { id: "w13", name: "Astral Isle A", visit_count: 1 },
+                    { id: "w14", name: "Astral Isle B", visit_count: 1 },
+                    { id: "w15", name: "North Guardpost", visit_count: 2 },
+                    { id: "w16", name: "East Turret", visit_count: 1 },
+                    { id: "w17", name: "South Gatehouse", visit_count: 3 },
+                    { id: "w18", name: "West Rampart", visit_count: 2 },
+                    { id: "w19", name: "Outer Dungeon Entry", visit_count: 1 },
+                    { id: "w20", name: "Catacombs Core", visit_count: 4 }
+                ],
+                edges: [
+                    { from: "w1", to: "w2", direction: "north", label: "north", kind: "walk", inferred: 0 },
+                    { from: "w2", to: "w1", direction: "south", label: "south", kind: "walk", inferred: 1 },
+                    { from: "w1", to: "w3", direction: "east", label: "east", kind: "walk", inferred: 0 },
+                    { from: "w3", to: "w1", direction: "west", label: "west", kind: "walk", inferred: 1 },
+                    { from: "w1", to: "w4", direction: "south", label: "south", kind: "walk", inferred: 0 },
+                    { from: "w4", to: "w1", direction: "north", label: "north", kind: "walk", inferred: 1 },
+                    { from: "w1", to: "w5", direction: "west", label: "west", kind: "walk", inferred: 0 },
+                    { from: "w5", to: "w1", direction: "east", label: "east", kind: "walk", inferred: 1 },
+                    { from: "w2", to: "w6", direction: "up", label: "up", kind: "walk", inferred: 0 },
+                    { from: "w4", to: "w7", direction: "down", label: "down", kind: "walk", inferred: 0 },
+                    { from: "w7", to: "w8", direction: "east", label: "east", kind: "walk", inferred: 0 },
+                    { from: "w6", to: "w9", direction: "slide", label: "slide", kind: "walk", inferred: 0 },
+                    { from: "w3", to: "w10", direction: "north", label: "north", kind: "walk", inferred: 0 },
+                    { from: "w5", to: "w11", direction: "south", label: "south", kind: "walk", inferred: 0 },
+                    { from: "w10", to: "w12", direction: "east", label: "east", kind: "walk", inferred: 0 },
+                    { from: "w12", to: "w13", direction: "portal", label: "portal", kind: "portal", inferred: 0 },
+                    { from: "w13", to: "w14", direction: "east", label: "east", kind: "walk", inferred: 0 },
+                    { from: "w2", to: "w15", direction: "north", label: "north", kind: "walk", inferred: 0 },
+                    { from: "w3", to: "w16", direction: "east", label: "east", kind: "walk", inferred: 0 },
+                    { from: "w4", to: "w17", direction: "south", label: "south", kind: "walk", inferred: 0 },
+                    { from: "w5", to: "w18", direction: "west", label: "west", kind: "walk", inferred: 0 },
+                    { from: "w18", to: "w19", direction: "south", label: "south", kind: "walk", inferred: 0 },
+                    { from: "w7", to: "w20", direction: "south", label: "south", kind: "walk", inferred: 0 }
+                ]
+            },
+            grand_citadel_hub: {
+                title: "3. GRAND CITADEL NEXUS (MULTI-HUB STARBURST)",
+                description: "<strong>3. GRAND CITADEL NEXUS:</strong><br>Tests a central hub room connected to 8 surrounding rooms in all compass directions plus Up/Down elevation. Tests node crowding and radial label alignment.",
+                current_room_id: "h0",
+                rooms: [
+                    { id: "h0", name: "Grand Citadel Nexus (H0)", visit_count: 12 },
+                    { id: "h1", name: "North Tower", visit_count: 2 },
+                    { id: "h2", name: "Northeast Spire", visit_count: 1 },
+                    { id: "h3", name: "East Armoury", visit_count: 3 },
+                    { id: "h4", name: "Southeast Bastion", visit_count: 1 },
+                    { id: "h5", name: "South Gate", visit_count: 4 },
+                    { id: "h6", name: "Southwest Keep", visit_count: 1 },
+                    { id: "h7", name: "West Library", visit_count: 3 },
+                    { id: "h8", name: "Northwest Watch", visit_count: 1 },
+                    { id: "h9", name: "Sky Dome", visit_count: 2 },
+                    { id: "h10", name: "Under-Dungeon Vault", visit_count: 3 },
+                    { id: "h11", name: "Inner Sanctum", visit_count: 1 }
+                ],
+                edges: [
+                    { from: "h0", to: "h1", direction: "north", label: "north", kind: "walk", inferred: 0 },
+                    { from: "h0", to: "h2", direction: "northeast", label: "northeast", kind: "walk", inferred: 0 },
+                    { from: "h0", to: "h3", direction: "east", label: "east", kind: "walk", inferred: 0 },
+                    { from: "h0", to: "h4", direction: "southeast", label: "southeast", kind: "walk", inferred: 0 },
+                    { from: "h0", to: "h5", direction: "south", label: "south", kind: "walk", inferred: 0 },
+                    { from: "h0", to: "h6", direction: "southwest", label: "southwest", kind: "walk", inferred: 0 },
+                    { from: "h0", to: "h7", direction: "west", label: "west", kind: "walk", inferred: 0 },
+                    { from: "h0", to: "h8", direction: "northwest", label: "northwest", kind: "walk", inferred: 0 },
+                    { from: "h0", to: "h9", direction: "up", label: "up", kind: "walk", inferred: 0 },
+                    { from: "h0", to: "h10", direction: "down", label: "down", kind: "walk", inferred: 0 },
+                    { from: "h10", to: "h11", direction: "in", label: "in", kind: "walk", inferred: 0 }
+                ]
+            },
+            multi_timeline_seams: {
+                title: "4. MULTI-TIMELINE & DIMENSION SEAMS",
+                description: "<strong>4. MULTI-TIMELINE & SEAMS:</strong><br>Three distinct region islands (Past Era, Present Era, Future Timeline) connected by multiple portal mechanisms and time jumps. Tests multi-cluster separation and long-distance seam lines.",
+                current_room_id: "t1",
+                rooms: [
+                    { id: "t1", name: "Present Temple Plaza", visit_count: 4 },
+                    { id: "t2", name: "Present Inner Hall", visit_count: 2 },
+                    { id: "t3", name: "Present Portal Arch", visit_count: 3 },
+                    { id: "t4", name: "Present Time Spire", visit_count: 1 },
+                    { id: "p1", name: "Ancient Sun Temple (Past)", visit_count: 2 },
+                    { id: "p2", name: "Past Sacrificial Chamber", visit_count: 1 },
+                    { id: "p3", name: "Past Catacombs", visit_count: 2 },
+                    { id: "p4", name: "Past Sun Altar", visit_count: 1 },
+                    { id: "p5", name: "Past Treasury", visit_count: 1 },
+                    { id: "f1", name: "Ruined Temple (Future)", visit_count: 2 },
+                    { id: "f2", name: "Future Overgrown Courtyard", visit_count: 1 },
+                    { id: "f3", name: "Future Astral Seam", visit_count: 2 },
+                    { id: "f4", name: "Future Void Core", visit_count: 1 },
+                    { id: "f5", name: "Future Desolation Point", visit_count: 1 },
+                    { id: "f6", name: "End of Time Outpost", visit_count: 1 }
+                ],
+                edges: [
+                    { from: "t1", to: "t2", direction: "north", label: "north", kind: "walk", inferred: 0 },
+                    { from: "t2", to: "t3", direction: "east", label: "east", kind: "walk", inferred: 0 },
+                    { from: "t2", to: "t4", direction: "west", label: "west", kind: "walk", inferred: 0 },
+                    { from: "t4", to: "p1", direction: "time", label: "time", kind: "time", inferred: 0 },
+                    { from: "p1", to: "p2", direction: "north", label: "north", kind: "walk", inferred: 0 },
+                    { from: "p2", to: "p3", direction: "east", label: "east", kind: "walk", inferred: 0 },
+                    { from: "p3", to: "p4", direction: "south", label: "south", kind: "walk", inferred: 0 },
+                    { from: "p4", to: "p5", direction: "west", label: "west", kind: "walk", inferred: 0 },
+                    { from: "t3", to: "f1", direction: "portal", label: "portal", kind: "portal", inferred: 0 },
+                    { from: "f1", to: "f2", direction: "north", label: "north", kind: "walk", inferred: 0 },
+                    { from: "f2", to: "f3", direction: "east", label: "east", kind: "walk", inferred: 0 },
+                    { from: "f3", to: "f4", direction: "south", label: "south", kind: "walk", inferred: 0 },
+                    { from: "f4", to: "f5", direction: "east", label: "east", kind: "walk", inferred: 0 },
+                    { from: "f5", to: "f6", direction: "time", label: "time", kind: "time", inferred: 0 }
+                ]
+            },
+            backtrack_branching: {
+                title: "5. BACKTRACKING & BRANCH DIVERGENCE",
+                description: "<strong>5. BACKTRACKING & DIVERGENCE:</strong><br>Simulates a player exploring 6 rooms deep, backtracking to room 3, taking an alternate direction, and creating a parallel branch that intersects an earlier region.",
+                current_room_id: "b1",
+                rooms: [
+                    { id: "b1", name: "Main Entrance (B1)", visit_count: 5 },
+                    { id: "b2", name: "Hallway 1 (B2)", visit_count: 4 },
+                    { id: "b3", name: "Junction Room (B3)", visit_count: 6 },
+                    { id: "b4", name: "Branch Alpha (B4)", visit_count: 2 },
+                    { id: "b5", name: "Alpha Chamber (B5)", visit_count: 1 },
+                    { id: "b6", name: "Alpha End (B6)", visit_count: 1 },
+                    { id: "b7", name: "Branch Beta (B7)", visit_count: 3 },
+                    { id: "b8", name: "Beta Passage (B8)", visit_count: 2 },
+                    { id: "b9", name: "Beta Core (B9)", visit_count: 1 },
+                    { id: "b10", name: "Branch Gamma (B10)", visit_count: 2 },
+                    { id: "b11", name: "Gamma Pass (B11)", visit_count: 1 },
+                    { id: "b12", name: "Gamma Loopback (B12)", visit_count: 1 },
+                    { id: "b13", name: "Intersect Room (B13)", visit_count: 2 },
+                    { id: "b14", name: "Divergence Apex (B14)", visit_count: 1 }
+                ],
+                edges: [
+                    { from: "b1", to: "b2", direction: "north", label: "north", kind: "walk", inferred: 0 },
+                    { from: "b2", to: "b3", direction: "north", label: "north", kind: "walk", inferred: 0 },
+                    { from: "b3", to: "b4", direction: "east", label: "east", kind: "walk", inferred: 0 },
+                    { from: "b4", to: "b5", direction: "north", label: "north", kind: "walk", inferred: 0 },
+                    { from: "b5", to: "b6", direction: "east", label: "east", kind: "walk", inferred: 0 },
+                    { from: "b3", to: "b7", direction: "west", label: "west", kind: "walk", inferred: 0 },
+                    { from: "b7", to: "b8", direction: "north", label: "north", kind: "walk", inferred: 0 },
+                    { from: "b8", to: "b9", direction: "west", label: "west", kind: "walk", inferred: 0 },
+                    { from: "b7", to: "b10", direction: "south", label: "south", kind: "walk", inferred: 0 },
+                    { from: "b10", to: "b11", direction: "east", label: "east", kind: "walk", inferred: 0 },
+                    { from: "b11", to: "b12", direction: "east", label: "east", kind: "walk", inferred: 0 },
+                    { from: "b12", to: "b13", direction: "north", label: "north", kind: "walk", inferred: 0 },
+                    { from: "b13", to: "b14", direction: "east", label: "east", kind: "walk", inferred: 0 }
+                ]
+            }
+        };
+
+        // --- Active State ---
+        let activeData = DATASETS.s1_real_linear;
+        let showRoute = false;
+        let cyInstance = null;
+
+        // --- Pure Strict Cardinal Position Calculator with Proper Node Dimension Deflections ---
+        function computeStrictCardinalPositions(rooms, edges, rootId) {
+            const positions = new Map();
+            const occupied = new Set();
+            let collisionsCount = 0;
+
+            const startId = rootId || (rooms[0] && rooms[0].id);
+            if (!startId) return { positions, collisionsCount };
+
+            positions.set(startId, { x: 0, y: 0 });
+            occupied.add("0,0");
+
+            const queue = [startId];
+            const visited = new Set([startId]);
+
+            while (queue.length > 0) {
+                const currId = queue.shift();
+                const currPos = positions.get(currId);
+
+                // Outgoing edges: currId -> nextId
+                const outEdges = edges.filter(e => e.from === currId);
+                for (const edge of outEdges) {
+                    const nextId = edge.to;
+                    if (visited.has(nextId)) continue;
+
+                    const dirKey = (edge.direction || "").toLowerCase();
+                    const vec = CARDINAL_VECTORS[dirKey] || { x: 230, y: 0 };
+
+                    let targetX = currPos.x + vec.x;
+                    let targetY = currPos.y + vec.y;
+                    let key = `${targetX},${targetY}`;
+
+                    if (occupied.has(key)) {
+                        collisionsCount++;
+                        targetX += 230;
+                        targetY += 160;
+                        key = `${targetX},${targetY}`;
+                    }
+
+                    positions.set(nextId, { x: targetX, y: targetY });
+                    occupied.add(key);
+                    visited.add(nextId);
+                    queue.push(nextId);
+                }
+
+                // Incoming edges: prevId -> currId (Reverse vector!)
+                // Recovers displaced / drift edges in engine reverse inference (e.g. S5)
+                const inEdges = edges.filter(e => e.to === currId);
+                for (const edge of inEdges) {
+                    const prevId = edge.from;
+                    if (visited.has(prevId)) continue;
+
+                    const dirKey = (edge.direction || "").toLowerCase();
+                    const vec = CARDINAL_VECTORS[dirKey] || { x: 230, y: 0 };
+
+                    let targetX = currPos.x - vec.x;
+                    let targetY = currPos.y - vec.y;
+                    let key = `${targetX},${targetY}`;
+
+                    if (occupied.has(key)) {
+                        collisionsCount++;
+                        targetX += 230;
+                        targetY += 160;
+                        key = `${targetX},${targetY}`;
+                    }
+
+                    positions.set(prevId, { x: targetX, y: targetY });
+                    occupied.add(key);
+                    visited.add(prevId);
+                    queue.push(prevId);
+                }
+            }
+
+            // Fallback for completely disjoint components
+            let disjointOffset = 450;
+            rooms.forEach(r => {
+                if (!positions.has(r.id)) {
+                    positions.set(r.id, { x: disjointOffset, y: 0 });
+                    disjointOffset += 250;
+                }
+            });
+
+            return { positions, collisionsCount };
+        }
+
+        // --- Render Cytoscape Graph with Directional Arrowhead Touching Next Node Border ---
+        function initCytoscape() {
+            if (typeof cytoscape === "undefined") return;
+
+            const { positions, collisionsCount } = computeStrictCardinalPositions(activeData.rooms, activeData.edges, activeData.current_room_id);
+            const activeRouteNodes = showRoute ? [activeData.rooms[0].id, activeData.rooms[1]?.id, activeData.rooms[2]?.id] : [];
+
+            // Update Metrics Readout
+            document.getElementById("metric-rooms").innerText = activeData.rooms.length;
+            document.getElementById("metric-edges").innerText = activeData.edges.length;
+            document.getElementById("metric-collisions").innerText = collisionsCount;
+            document.getElementById("metric-density").innerText = (activeData.edges.length / activeData.rooms.length).toFixed(2);
+
+            const elements = [];
+            activeData.rooms.forEach(r => {
+                const isCurrent = r.id === activeData.current_room_id;
+                const pos = positions.get(r.id) || { x: 0, y: 0 };
+                const displayTitle = isCurrent ? `[◉ YOU ARE HERE]\n${r.name}` : r.name;
+
+                elements.push({
+                    data: {
+                        id: r.id,
+                        label: displayTitle,
+                        isCurrent: isCurrent,
+                        isOnRoute: activeRouteNodes.includes(r.id),
+                        height: displayTitle.length > 38 ? 68 : 58
+                    },
+                    position: { x: pos.x, y: pos.y } // Preset Strict Coordinates!
+                });
+            });
+
+            activeData.edges.forEach((e, idx) => {
+                const isOnRoute = showRoute && 
+                                  activeRouteNodes.indexOf(e.from) !== -1 && 
+                                  activeRouteNodes.indexOf(e.to) !== -1 && 
+                                  Math.abs(activeRouteNodes.indexOf(e.from) - activeRouteNodes.indexOf(e.to)) === 1;
+
+                elements.push({
+                    data: {
+                        id: `e${idx}`,
+                        source: e.from,
+                        target: e.to,
+                        label: e.label || e.direction || "", // Plain direction text
+                        kind: e.kind,
+                        inferred: !!e.inferred,
+                        isOnRoute: isOnRoute
+                    }
+                });
+            });
+
+            cyInstance = cytoscape({
+                container: document.getElementById('cy-container'),
+                elements: elements,
+                
+                // Interaction lock: Nodes fixed, Pan & Zoom enabled
+                autoungrabify: true,
+                userPanningEnabled: true,
+                userZoomingEnabled: true,
+                boxSelectionEnabled: false,
+
+                // --- Stylesheet: Directional Arrowhead Touching Next Node Border ---
+                style: [
+                    {
+                        selector: 'node',
+                        style: {
+                            'shape': 'roundrectangle',
+                            'width': '154px',
+                            'height': 'data(height)',
+                            'background-color': 'rgba(13, 20, 30, 0.9)',
+                            'background-opacity': 0.9,
+                            'border-width': 1,
+                            'border-color': 'rgba(56, 189, 248, 0.4)',
+                            'label': 'data(label)',
+                            'color': '#e0f2fe',
+                            'font-family': 'JetBrains Mono, monospace',
+                            'font-size': '11px',
+                            'min-zoomed-font-size': 0,
+                            'text-valign': 'center',
+                            'text-halign': 'center',
+                            'text-wrap': 'wrap',
+                            'text-max-width': '138px',
+                            'overlay-padding': '4px'
+                        }
+                    },
+                    {
+                        selector: 'node[?isCurrent]',
+                        style: {
+                            'border-color': '#4ade80',
+                            'border-width': 2,
+                            'background-color': 'rgba(18, 38, 28, 0.95)',
+                            'color': '#4ade80',
+                            'font-weight': 'bold'
+                        }
+                    },
+                    {
+                        selector: 'node[?isOnRoute]',
+                        style: {
+                            'border-color': '#facc15',
+                            'border-width': 2,
+                            'background-color': 'rgba(40, 35, 15, 0.95)',
+                            'color': '#facc15',
+                            'font-weight': 'bold'
+                        }
+                    },
+
+                    // --- Directional Arrow Rule: Triangle Arrowhead Touching Target Node Border ---
+                    {
+                        selector: 'edge',
+                        style: {
+                            'width': 2,
+                            'line-color': 'rgba(56, 189, 248, 0.45)',
+                            'target-arrow-shape': 'triangle', // Triangular arrowhead touching target border!
+                            'target-arrow-fill': 'filled',
+                            'target-arrow-color': 'rgba(56, 189, 248, 0.65)',
+                            'arrow-scale': 1.15,
+                            'curve-style': 'bezier',
+                            'control-point-step-size': 65,
+                            'text-rotation': 'autorotate',
+                            'label': 'data(label)',
+                            'color': 'rgba(224, 242, 254, 0.75)',
+                            'font-family': 'JetBrains Mono, monospace',
+                            'font-size': '10px',
+                            'min-zoomed-font-size': 0,
+                            'font-weight': '500',
+                            'text-background-color': '#07090d',
+                            'text-background-opacity': 0.95,
+                            'text-background-padding': '3px'
+                        }
+                    },
+                    {
+                        selector: 'edge[?inferred]',
+                        style: {
+                            'line-style': 'dashed',
+                            'line-dash-pattern': [4, 4],
+                            'line-color': 'rgba(56, 189, 248, 0.3)',
+                            'target-arrow-color': 'rgba(56, 189, 248, 0.35)'
+                        }
+                    },
+                    {
+                        selector: 'edge[kind = "portal"]',
+                        style: {
+                            'line-color': '#a855f7',
+                            'target-arrow-color': '#a855f7',
+                            'target-arrow-shape': 'vee',
+                            'width': 2.5
+                        }
+                    },
+                    {
+                        selector: 'edge[kind = "time"]',
+                        style: {
+                            'line-color': '#f43f5e',
+                            'target-arrow-color': '#f43f5e',
+                            'line-style': 'dotted',
+                            'target-arrow-shape': 'diamond',
+                            'width': 2.5
+                        }
+                    },
+                    {
+                        selector: 'edge[?isOnRoute]',
+                        style: {
+                            'line-color': '#facc15',
+                            'target-arrow-color': '#facc15',
+                            'width': 3.5,
+                            'line-style': 'dashed',
+                            'line-dash-pattern': [6, 4]
+                        }
+                    }
+                ],
+                layout: {
+                    name: 'preset',
+                    padding: 60
+                }
+            });
+
+            cyInstance.on('tap', 'node', function(evt){
+                const node = evt.target;
+                const cleanName = node.data('label').replace('[◉ YOU ARE HERE]\n', '');
+                document.getElementById("selected-room-name").innerText = cleanName;
+            });
+
+            syncDOMContractLayer();
+        }
+
+        function syncDOMContractLayer() {
+            const syncContainer = document.getElementById("dom-sync-layer");
+            syncContainer.innerHTML = "";
+            activeData.rooms.forEach(r => {
+                const domNode = document.createElement("div");
+                domNode.className = "map-room";
+                domNode.setAttribute("data-room-id", r.id);
+                if (r.id === activeData.current_room_id) {
+                    domNode.classList.add("current-room");
+                }
+                syncContainer.appendChild(domNode);
+            });
+        }
+
+        function loadScenario(key) {
+            activeData = DATASETS[key];
+            document.getElementById("scenario-description").innerHTML = activeData.description;
+            document.getElementById("active-scenario-badge").innerText = activeData.title;
+            initCytoscape();
+            resetView();
+        }
+
+        function toggleRoute() {
+            showRoute = !showRoute;
+            initCytoscape();
+        }
+
+        function resetView() {
+            if (cyInstance) {
+                cyInstance.fit(null, 60);
+            }
+        }
+
+        window.onload = () => {
+            initCytoscape();
+        };
+    </script>
+</body>
+</html>

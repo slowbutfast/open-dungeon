@@ -1,9 +1,10 @@
 import express from 'express';
-import { engine } from '../engineInstance.js';
+import { resolveEngine } from '../../engine/sessionManager.js';
 
 const router = express.Router();
 
-router.get('/memory/inventory', async (req, res) => {
+router.get('/memory/inventory', resolveEngine, async (req, res) => {
+    const engine = req.engine;
     try {
         if (!engine.adventureId) {
             return res.status(400).json({ error: "No active adventure." });
@@ -15,7 +16,8 @@ router.get('/memory/inventory', async (req, res) => {
     }
 });
 
-router.get('/memory/events', async (req, res) => {
+router.get('/memory/events', resolveEngine, async (req, res) => {
+    const engine = req.engine;
     try {
         if (!engine.adventureId) {
             return res.status(400).json({ error: "No active adventure." });
@@ -28,7 +30,8 @@ router.get('/memory/events', async (req, res) => {
     }
 });
 
-router.post('/memory/search', async (req, res) => {
+router.post('/memory/search', resolveEngine, async (req, res) => {
+    const engine = req.engine;
     try {
         if (!engine.adventureId) {
             return res.status(400).json({ error: "No active adventure." });
@@ -45,7 +48,8 @@ router.post('/memory/search', async (req, res) => {
     }
 });
 
-router.post('/memory/inventory/add', async (req, res) => {
+router.post('/memory/inventory/add', resolveEngine, async (req, res) => {
+    const engine = req.engine;
     try {
         if (!engine.adventureId) {
             return res.status(400).json({ error: "No active adventure." });
@@ -67,7 +71,8 @@ router.post('/memory/inventory/add', async (req, res) => {
     }
 });
 
-router.get('/memory/stats', async (req, res) => {
+router.get('/memory/stats', resolveEngine, async (req, res) => {
+    const engine = req.engine;
     try {
         if (!engine.adventureId) {
             return res.status(400).json({ error: "No active adventure." });

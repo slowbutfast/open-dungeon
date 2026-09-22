@@ -674,6 +674,31 @@ body {
     margin-right: 0.25rem;
 }
 
+.status-item.quota #val-quota.quota-exhausted {
+    color: #ef4444;
+    text-shadow: 0 0 5px rgba(239, 68, 68, 0.5);
+}
+
+.auth-banner {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    margin-top: 0.75rem;
+    min-height: 2rem;
+}
+
+.auth-banner .auth-user {
+    color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+}
+
+.auth-banner .auth-signin,
+.auth-banner .auth-signout {
+    font-size: 0.85rem;
+}
+
 .dashboard-body {
     display: grid;
     grid-template-columns: 1fr 340px;

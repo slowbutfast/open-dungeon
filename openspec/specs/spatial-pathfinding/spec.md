@@ -2,9 +2,7 @@
 
 ## Purpose
 TBD - created by archiving change spatial-map-visualization-pathfinding. Update Purpose after archive.
-
 ## Requirements
-
 ### Requirement: Deterministic Route Planning
 The engine SHALL provide deterministic routing between two rooms in the persisted spatial room graph: a breadth-first search over recorded edges that returns the ordered route and never fabricates connectivity. Routing SHALL traverse only edges actually recorded in the store.
 
@@ -85,3 +83,4 @@ The engine SHALL expose a thin `getPath(fromRoomId, toRoomId)` proxy over the pu
 #### Scenario: Unknown target room
 - **WHEN** `GET /api/path` names a room that does not exist
 - **THEN** the endpoint responds 404
+

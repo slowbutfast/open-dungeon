@@ -1,0 +1,31 @@
+# Edge deployment exclusions (vercel-deployment-and-auth, task 6.4).
+# Tests, docs, Python tooling, diagnostics, scratch, and local playgrounds are
+# not needed to serve the Express app + static assets.
+tests/
+docs/
+diagnostics/
+scratch/
+.scratch/
+playgrounds/
+venv/
+.venv/
+env/
+
+# Python tooling / legacy CLI
+__pycache__/
+*.pyc
+pytest.ini
+requirements.txt
+config.py
+game/
+
+# Local agent + tooling config
+.agent/
+.claude/
+.gemini/
+.opencode/
+.mcp.json
+.openspec/
+openspec/
+DESIGN.md
+README.md

@@ -1,15 +1,16 @@
 import express from 'express';
-import { engine } from '../engineInstance.js';
+import { resolveEngine } from '../../engine/sessionManager.js';
 
 const router = express.Router();
 
-router.get('/saves', async (req, res) => {
-    const saves = await engine.listAdventures();
+router.get('/saves', resolveEngine, async (req, res) => {
+    const saves = await req.engine.listAdventures();
     res.json(saves);
 });
 
-router.post('/saves/:save_id', async (req, res) => {
+router.post('/saves/:save_id', resolveEngine, async (req, res) => {
     const saveId = req.params.save_id;
+    const engine = req.engine;
     try {
         await engine.load(saveId);
         res.json({ status: "success", message: `Loaded adventure: ${engine.title}` });
@@ -18,8 +19,9 @@ router.post('/saves/:save_id', async (req, res) => {
     }
 });
 
-router.delete('/saves/:save_id', async (req, res) => {
+router.delete('/saves/:save_id', resolveEngine, async (req, res) => {
     const saveId = req.params.save_id;
+    const engine = req.engine;
     try {
         await engine.deleteAdventure(saveId);
         res.json({ status: "success", message: `Deleted adventure slot ${saveId}.` });

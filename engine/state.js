@@ -38,12 +38,10 @@ export class AdventureState {
         this.autoSummarize = true;
     }
 
-    async save(saveDir) {
-        if (!this.adventureId) {
-            throw new Error("No active adventure to save.");
-        }
-        const filepath = path.join(saveDir, `${this.adventureId}.json`);
-        const data = {
+    // Serialize to the on-disk JSON shape. Used both by `save` and by the
+    // serverless KV state snapshot (sessionManager).
+    toJSON() {
+        return {
             adventure_id: this.adventureId,
             title: this.title,
             system_prompt: this.systemPrompt,
@@ -64,7 +62,49 @@ export class AdventureState {
             moves: this.moves,
             narrator_style: this.narratorStyle
         };
-        await fs.writeFile(filepath, JSON.stringify(data, null, 4), 'utf-8');
+    }
+
+    // Restore from the on-disk JSON shape (or a KV snapshot). The async model
+    // resolution performed by `load` is intentionally NOT done here — callers
+    // that need a live model override it after hydration.
+    fromJSON(state) {
+        this.adventureId = state.adventure_id;
+        this.title = state.title || "Loaded Adventure";
+        this.systemPrompt = state.system_prompt;
+        this.summary = state.summary || "";
+        this.cards = (state.cards || []).map(card => ({
+            id: card.id,
+            name: card.name,
+            type: card.type,
+            description: card.description,
+            trigger_words: card.trigger_words || card.triggers || [],
+            triggers: card.triggers || card.trigger_words || [],
+            enabled: card.enabled !== undefined ? card.enabled : (card.active !== undefined ? card.active : true),
+            active: card.active !== undefined ? card.active : (card.enabled !== undefined ? card.enabled : true)
+        }));
+        this.history = state.history || [];
+        this.archivedHistory = state.archived_history || [];
+        this.model = state.model || "local-model";
+        this.temperature = state.temperature !== undefined ? state.temperature : 0.8;
+        this.maxTokens = state.max_tokens !== undefined ? state.max_tokens : 300;
+        this.summarizeThreshold = state.summarize_threshold !== undefined ? state.summarize_threshold : 8;
+        this.autoSummarize = state.auto_summarize !== undefined ? state.auto_summarize : true;
+        this.location = state.location || "West of House";
+        this.locationHistory = Array.isArray(state.location_history) ? state.location_history.slice() : [];
+        this.previousLocation = state.previous_location !== undefined ? state.previous_location : null;
+        this.currentRoomId = state.current_room_id !== undefined ? state.current_room_id : null;
+        this.score = state.score !== undefined ? state.score : 0;
+        this.moves = state.moves !== undefined ? state.moves : 0;
+        this.narratorStyle = state.narrator_style !== undefined ? state.narrator_style : null;
+        return this;
+    }
+
+    async save(saveDir) {
+        if (!this.adventureId) {
+            throw new Error("No active adventure to save.");
+        }
+        const filepath = path.join(saveDir, `${this.adventureId}.json`);
+        await fs.writeFile(filepath, JSON.stringify(this.toJSON(), null, 4), 'utf-8');
     }
 
     async load(saveDir, adventureId, getLoadedModelFn) {
@@ -72,42 +112,12 @@ export class AdventureState {
         try {
             const fileData = await fs.readFile(filepath, 'utf-8');
             const state = JSON.parse(fileData);
-            
-            this.adventureId = state.adventure_id;
-            this.title = state.title || "Loaded Adventure";
-            this.systemPrompt = state.system_prompt;
-            this.summary = state.summary || "";
-            this.cards = (state.cards || []).map(card => ({
-                id: card.id,
-                name: card.name,
-                type: card.type,
-                description: card.description,
-                trigger_words: card.trigger_words || card.triggers || [],
-                triggers: card.triggers || card.trigger_words || [],
-                enabled: card.enabled !== undefined ? card.enabled : (card.active !== undefined ? card.active : true),
-                active: card.active !== undefined ? card.active : (card.enabled !== undefined ? card.enabled : true)
-            }));
-            this.history = state.history || [];
-            this.archivedHistory = state.archived_history || [];
-            
+            this.fromJSON(state);
+
             const loadedModel = await getLoadedModelFn();
             if (loadedModel && loadedModel !== "local-model") {
                 this.model = loadedModel;
-            } else {
-                this.model = state.model || "local-model";
             }
-            
-            this.temperature = state.temperature !== undefined ? state.temperature : 0.8;
-            this.maxTokens = state.max_tokens !== undefined ? state.max_tokens : 300;
-            this.summarizeThreshold = state.summarize_threshold !== undefined ? state.summarize_threshold : 8;
-            this.autoSummarize = state.auto_summarize !== undefined ? state.auto_summarize : true;
-            this.location = state.location || "West of House";
-            this.locationHistory = Array.isArray(state.location_history) ? state.location_history.slice() : [];
-            this.previousLocation = state.previous_location !== undefined ? state.previous_location : null;
-            this.currentRoomId = state.current_room_id !== undefined ? state.current_room_id : null;
-            this.score = state.score !== undefined ? state.score : 0;
-            this.moves = state.moves !== undefined ? state.moves : 0;
-            this.narratorStyle = state.narrator_style !== undefined ? state.narrator_style : null;
         } catch (e) {
             throw new Error(`Adventure ${adventureId} not found.`);
         }

@@ -589,7 +589,7 @@ export class LlmOrchestrator {
         }
 
         let stream;
-        const callId = llmTracker.startCall('narration', messages);
+        const callId = llmTracker.startCall('narration', messages, state.model);
         // The narration call reuses one tracker record across the primary and
         // the fallback-model retry, and the caller owns the semantic end
         // (recordUsage, endCall with the sanitized narration, the error event),

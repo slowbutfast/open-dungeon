@@ -1,0 +1,53 @@
+// Vercel OAuth 2.0 / OIDC wire helpers (vercel-deployment-and-auth, task 2.3).
+//
+// Pure builders/exchangers: every function takes an injectable `fetchImpl` so
+// the flow can be unit-tested without hitting Vercel.
+export const VERCEL_AUTHORIZE_URL = 'https://vercel.com/oauth/authorize';
+export const VERCEL_TOKEN_URL = 'https://api.vercel.com/login/oauth/token';
+export const VERCEL_USERINFO_URL = 'https://api.vercel.com/login/oauth/userinfo';
+export const OAUTH_SCOPE = 'openid email profile offline_access';
+
+export function buildAuthorizeUrl({ clientId, redirectUri, state, scope = OAUTH_SCOPE }) {
+    const url = new URL(VERCEL_AUTHORIZE_URL);
+    url.searchParams.set('client_id', clientId);
+    url.searchParams.set('redirect_uri', redirectUri);
+    url.searchParams.set('response_type', 'code');
+    url.searchParams.set('scope', scope);
+    url.searchParams.set('state', state);
+    return url.toString();
+}
+
+export async function exchangeCodeForToken({ code, clientId, clientSecret, redirectUri, fetchImpl = fetch }) {
+    const res = await fetchImpl(VERCEL_TOKEN_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+            grant_type: 'authorization_code',
+            code,
+            client_id: clientId,
+            client_secret: clientSecret,
+            redirect_uri: redirectUri
+        }).toString()
+    });
+    if (!res.ok) {
+        const detail = typeof res.text === 'function' ? await res.text().catch(() => '') : '';
+        throw new Error(`Vercel token exchange failed (${res.status}) ${detail}`.trim());
+    }
+    return res.json();
+}
+
+export async function fetchUserProfile({ accessToken, fetchImpl = fetch }) {
+    const res = await fetchImpl(VERCEL_USERINFO_URL, {
+        headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    if (!res.ok) {
+        const detail = typeof res.text === 'function' ? await res.text().catch(() => '') : '';
+        throw new Error(`Vercel userinfo request failed (${res.status}) ${detail}`.trim());
+    }
+    const profile = await res.json();
+    return {
+        sub: profile.sub,
+        email: profile.email ?? null,
+        name: profile.name ?? profile.preferred_username ?? null
+    };
+}

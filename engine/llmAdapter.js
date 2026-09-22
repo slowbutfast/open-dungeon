@@ -73,7 +73,7 @@ function summarizeEmbeddingResponse(kind, response) {
  */
 export async function llmCall(client, kind, opts = {}) {
     const { messages, model, temperature, maxTokens, stream = false, isOpenRouter = false, reasoningEffort = null } = opts;
-    const callId = opts.callId ?? llmTracker.startCall(kind, messages);
+    const callId = opts.callId ?? llmTracker.startCall(kind, messages, model);
 
     const requestBody = { model, messages };
     if (temperature !== undefined) requestBody.temperature = temperature;
@@ -96,6 +96,9 @@ export async function llmCall(client, kind, opts = {}) {
 
     try {
         const response = await client.chat.completions.create(requestBody);
+        if (response && response.usage) {
+            llmTracker.recordUsage(callId, response.usage);
+        }
         llmTracker.endCall(callId, response.choices?.[0]?.message?.content ?? null);
         return response;
     } catch (e) {
@@ -119,13 +122,16 @@ export async function llmCall(client, kind, opts = {}) {
  * @returns {Promise<object>} the embeddings.create response
  */
 export async function llmEmbed(client, kind, opts = {}) {
-    const callId = llmTracker.startCall(kind, opts.input);
+    const callId = llmTracker.startCall(kind, opts.input, opts.model);
     const requestBody = { model: opts.model, input: opts.input, encoding_format: 'float' };
     if (isMockClient(client)) {
         requestBody.intent = kind;
     }
     try {
         const response = await client.embeddings.create(requestBody);
+        if (response && response.usage) {
+            llmTracker.recordUsage(callId, response.usage);
+        }
         llmTracker.endCall(callId, summarizeEmbeddingResponse(kind, response));
         return response;
     } catch (e) {

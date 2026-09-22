@@ -4,6 +4,7 @@ import { renderState, renderLoreCards, renderCostSummary } from '../ui/renderers
 import { syncMemoryAndLore } from './memory.js';
 import { setCurrentNarration } from '../components/actionChips.js';
 import { refreshMapPanel } from '../components/mapPanel.js';
+import { handleAuthError, renderQuota } from './auth.js';
 
 export function setConsoleDisabled(disabled) {
   document.getElementById("console-input").disabled = disabled;
@@ -25,6 +26,7 @@ export async function triggerUtilityAction(actionType) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action_type: "undo" })
       });
+      if (!res.ok && handleAuthError(res.status)) return;
       const data = await res.json();
       if (data.status === "success") {
         await window.syncState();
@@ -105,6 +107,15 @@ export async function executeStreamAction(actionType, text) {
       body: JSON.stringify({ action_type: actionType, text: text })
     });
 
+    if (!response.ok) {
+      const loaderErrEl = document.getElementById("stream-loader-indicator");
+      if (loaderErrEl) loaderErrEl.remove();
+      if (!handleAuthError(response.status)) {
+        alert(`Action failed (HTTP ${response.status}).`);
+      }
+      return;
+    }
+
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
@@ -131,6 +142,8 @@ export async function executeStreamAction(actionType, text) {
             fullText += event.content;
           } else if (event.type === "cost") {
             sessionCost = event;
+          } else if (event.type === "user_quota") {
+            renderQuota(event);
           } else if (event.type === "system") {
             const contentLower = event.content.toLowerCase();
             const isMemoryRecall = contentLower.includes("memory recall");

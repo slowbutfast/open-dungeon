@@ -2,9 +2,7 @@
 
 ## Purpose
 TBD - created by archiving change spatial-map-visualization-pathfinding. Update Purpose after archive.
-
 ## Requirements
-
 ### Requirement: Map Panel
 The frontend SHALL render the persisted room graph from `GET /api/map` in a map panel with two selectable render modes: a cartographic mode and a node-graph mode. The renderer implementation SHALL require no build step; the choice of a hand-rolled canvas/DOM renderer versus a vendored graph library is an implementation decision and is not constrained by this requirement.
 
@@ -64,3 +62,4 @@ Layout SHALL remain deterministic for a given map payload and panel width.
 #### Scenario: Edge arrowheads visible
 - **WHEN** a directed edge is drawn between two rooms
 - **THEN** its arrowhead is visible and not hidden beneath either room node
+
