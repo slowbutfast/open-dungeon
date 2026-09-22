@@ -44,3 +44,7 @@ tests/.tmp_saves/
 
 # Agent playtest sandbox (MCP server SAVE_DIR)
 game/playtest/
+
+# Scratch and temporary playwright artifacts
+.playwright-mcp/
+scratch/
