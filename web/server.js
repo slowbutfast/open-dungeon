@@ -28,6 +28,9 @@ app.use(express.json());
 // Serve static assets
 app.use('/static', express.static(path.join(__dirname, 'static')));
 
+// Serve playgrounds
+app.use('/playgrounds', express.static(path.join(__dirname, '..', 'playgrounds')));
+
 // Serve main page
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'templates', 'index.html'));
@@ -40,8 +43,8 @@ app.use('/api', loreRouter);
 app.use('/api', memoryRouter);
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 5001;
-// Bind to 127.0.0.1 in mock mode to avoid firewall popup and socket lookup delay
-const host = process.env.MOCK_LLM === "1" ? "127.0.0.1" : "0.0.0.0";
+// Bind to :: (dual-stack IPv6 & IPv4) so 127.0.0.1, ::1, and localhost all connect cleanly
+const host = process.env.HOST || "::";
 
 app.listen(PORT, host, async () => {
     console.log(`Express server running on http://${host}:${PORT}`);
