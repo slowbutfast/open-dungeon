@@ -15,6 +15,7 @@ import { config } from './config.js';
 import { spendLedger, kvStore } from './kvStore.js';
 import { createAttachUserMiddleware } from './middleware/auth.js';
 import { createSessionEngineMiddleware, sessionManager } from '../engine/sessionManager.js';
+import { renderConfigDiagnosticHtml, renderConfigDiagnosticJson } from './diagnostic.js';
 
 // Load environmental variables
 dotenv.config();
@@ -44,6 +45,22 @@ export function createApp(overrides = {}) {
 
     app.use(cors());
     app.use(express.json());
+
+    // Fail-closed guard: if production configuration is invalid or incomplete,
+    // intercept all requests with an informative diagnostic page/JSON instead of
+    // crashing the serverless container or serving unconfigured endpoints.
+    if (cfg.configError) {
+        app.use((req, res) => {
+            const acceptsHtml = req.accepts(['html', 'json']) === 'html';
+            res.status(500);
+            if (acceptsHtml) {
+                res.type('html').send(renderConfigDiagnosticHtml(cfg));
+            } else {
+                res.json(renderConfigDiagnosticJson(cfg));
+            }
+        });
+        return app;
+    }
 
     // Identity first, then the (lazy) per-request engine resolver.
     app.use(createAttachUserMiddleware(cfg));

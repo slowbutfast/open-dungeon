@@ -233,3 +233,15 @@ entirely: `vercel.json` rewrites `/` → `web/templates/index.html` and
 `/static/js/vendor/*` and `no-store` for unbundled ES modules. The Express app
 is only reached for `/api/*`. Locally, Express still serves the same files via
 `express.static`, so the zero-build ESM workflow is unchanged.
+
+### Fail-closed Diagnostic Reporting
+
+When running on Vercel (`VERCEL=1`) without required secrets (`VERCEL_APP_CLIENT_ID`,
+`VERCEL_APP_CLIENT_SECRET`, `SESSION_SECRET`, `OPENROUTER_API_KEY`, or `LLM_BACKEND`),
+the Express server boots into fail-closed diagnostic mode rather than crashing lambda
+cold-start initialization with `500 FUNCTION_INVOCATION_FAILED`. Requests to `/api/*`
+(including `/api/auth/login`) return HTTP 500 with a rich, styled diagnostic HTML
+page (or structured JSON if requested via API) detailing the missing variables,
+configuration issues, and remediation steps. In addition, if redirected with
+`?auth_error=`, `initAuthBanner()` in `js/api/auth.js` renders an informative notice
+on the home screen.

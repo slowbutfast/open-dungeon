@@ -80,6 +80,31 @@ export async function initAuthBanner() {
     renderAuthBanner(null);
   }
 
+  // Display URL auth errors if redirected back from OAuth flow
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const authError = params.get('auth_error');
+    if (authError) {
+      const banner = document.getElementById('auth-banner');
+      if (banner) {
+        const errSpan = document.createElement('span');
+        errSpan.className = 'auth-error-notice';
+        errSpan.style.color = 'var(--accent-red, #ff5555)';
+        errSpan.style.fontSize = '12px';
+        errSpan.style.display = 'block';
+        errSpan.style.marginTop = '4px';
+        if (authError === 'oauth_not_configured') {
+          errSpan.textContent = 'Notice: Vercel OAuth is not configured. VERCEL_APP_CLIENT_ID is missing.';
+        } else {
+          errSpan.textContent = `Notice: Authentication failed (${authError}).`;
+        }
+        banner.appendChild(errSpan);
+      }
+    }
+  } catch (e) {
+    // Ignore URL parsing issues in non-browser environments
+  }
+
   try {
     const quotaRes = await fetch('/api/user/quota');
     if (quotaRes.ok) {
@@ -89,3 +114,4 @@ export async function initAuthBanner() {
     // Leave the indicator blank until the first turn updates it.
   }
 }
+
