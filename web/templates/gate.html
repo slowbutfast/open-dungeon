@@ -162,29 +162,10 @@
 
             <a id="gate-signin" class="btn btn-primary gate-signin" href="/api/auth/login">[ Sign in with Vercel ]</a>
 
-            <p class="gate-footnote code-font">OD_SESSION :: NULL &nbsp;|&nbsp; PROTOCOL :: OAUTH 2.0 + PKCE</p>
+            <p class="gate-footnote code-font">OD_SESSION :: NULL &nbsp;|&nbsp; PROTOCOL :: OAUTH 2.0</p>
         </section>
     </main>
 
-    <script>
-        // Surface an OAuth failure passed back as ?auth_error=... without ever
-        // auto-redirecting (a 302 loop is the exact failure mode this gate
-        // exists to avoid). The sign-in trigger stays an explicit click.
-        (function () {
-            var params = new URLSearchParams(window.location.search);
-            var code = params.get('auth_error');
-            if (!code) return;
-
-            var messages = {
-                oauth_failed: 'AUTHENTICATION FAILURE // The Vercel authorization was denied, expired, or could not be verified. Retry the sign-in handshake.',
-                oauth_not_configured: 'CONFIGURATION FAULT // Vercel OAuth is not configured for this deployment. Notify the operator before retrying.'
-            };
-
-            var banner = document.getElementById('auth-error');
-            if (!banner) return;
-            banner.textContent = '> ' + (messages[code] || ('AUTH ERROR // ' + code));
-            banner.hidden = false;
-        })();
-    </script>
+    <script type="module" src="/static/js/gate.js"></script>
 </body>
 </html>

@@ -210,6 +210,12 @@ test('GET / on Vercel with a tampered session cookie falls back to the access ga
     });
 });
 
+test('gate.html carries no inline script and loads the external banner module', () => {
+    const html = readFileSync(path.join(REPO_ROOT, 'web/templates/gate.html'), 'utf8');
+    assert.ok(!/<script(?![^>]*\bsrc=)/i.test(html), 'gate.html must not contain an inline script');
+    assert.match(html, /src="\/static\/js\/gate\.js"/);
+});
+
 test('GET / marks the gate response private and cookie-varying', async () => {
     const gateApp = createApp({ config: gateTestConfig({ isVercel: true }) });
     await withServer(gateApp, async (base) => {
