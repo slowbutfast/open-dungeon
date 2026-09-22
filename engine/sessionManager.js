@@ -8,7 +8,21 @@
 // local workflow.
 import fs from 'fs';
 import path from 'path';
-import { AdventureEngine } from './index.js';
+
+let AdventureEngineClass = null;
+
+export async function getAdventureEngineClass() {
+    if (!AdventureEngineClass) {
+        const mod = await import('./index.js');
+        AdventureEngineClass = mod.AdventureEngine;
+    }
+    return AdventureEngineClass;
+}
+
+export async function defaultEngineFactory(saveDir) {
+    const Engine = await getAdventureEngineClass();
+    return new Engine(saveDir);
+}
 
 export const STATE_KEY_PREFIX = 'user:state:';
 export const DB_KEY_PREFIX = 'user:db:';
@@ -30,7 +44,7 @@ export class SessionManager {
         kv = null,
         serverless = process.env.VERCEL === '1',
         tmpRoot = process.env.OD_TMP_ROOT || '/tmp/open-dungeon',
-        engineFactory = (saveDir) => new AdventureEngine(saveDir)
+        engineFactory = defaultEngineFactory
     } = {}) {
         this.kv = kv;
         this.serverless = serverless;
@@ -56,7 +70,7 @@ export class SessionManager {
             return this._rehydrate(sub);
         }
         if (!this.cache.has(sub)) {
-            this.cache.set(sub, this.engineFactory(this.saveDir(sub)));
+            this.cache.set(sub, await this.engineFactory(this.saveDir(sub)));
         }
         return this.cache.get(sub);
     }
@@ -65,9 +79,9 @@ export class SessionManager {
     async resetEngine(sub) {
         this.cache.delete(sub);
         if (this.serverless) {
-            return this.engineFactory(this.saveDir(sub));
+            return await this.engineFactory(this.saveDir(sub));
         }
-        const engine = this.engineFactory(this.saveDir(sub));
+        const engine = await this.engineFactory(this.saveDir(sub));
         this.cache.set(sub, engine);
         return engine;
     }
@@ -98,7 +112,7 @@ export class SessionManager {
             fs.writeFileSync(path.join(dataDir, 'memory.db'), Buffer.from(dbBase64, 'base64'));
         }
 
-        const engine = this.engineFactory(this.saveDir(sub));
+        const engine = await this.engineFactory(this.saveDir(sub));
 
         if (stateData) {
             try {

@@ -444,7 +444,9 @@ container-local state assumption**.
 **deleted**. `AdventureEngine` construction performs `mkdirSync` + `new
 Database()`, which crashes with `EROFS` on Vercel's read-only `/var/task`
 before any handler runs. Engines are now created lazily, per request, by
-`engine/sessionManager.js`.
+`engine/sessionManager.js`. `AdventureEngine` itself is loaded asynchronously via
+`defaultEngineFactory` on first demand, ensuring that lightweight or non-game routes
+(such as auth, user profile, and health checks) never load engine or vector modules at cold start.
 
 ### Per-request KV rehydration and persistence
 

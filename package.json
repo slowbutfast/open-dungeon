@@ -22,5 +22,10 @@
     "vectra": "^0.15.0",
     "zod": "^3.24.2"
   },
-  "type": "module"
+  "type": "module",
+  "overrides": {
+    "vectra": {
+      "uuid": "$uuid"
+    }
+  }
 }
