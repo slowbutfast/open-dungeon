@@ -210,6 +210,26 @@ test('GET / on Vercel with a tampered session cookie falls back to the access ga
     });
 });
 
+test('GET / marks the gate response private and cookie-varying', async () => {
+    const gateApp = createApp({ config: gateTestConfig({ isVercel: true }) });
+    await withServer(gateApp, async (base) => {
+        const res = await fetch(base + '/');
+        assert.match(res.headers.get('cache-control'), /no-store/);
+        assert.match(res.headers.get('vary'), /Cookie/i);
+    });
+});
+
+test('GET / on Vercel with an expired session falls back to the access gate', async () => {
+    const gateApp = createApp({ config: gateTestConfig({ isVercel: true }) });
+    const token = signSession({ sub: 'u_1' }, GATE_SESSION_SECRET, { ttlSeconds: -1 });
+    await withServer(gateApp, async (base) => {
+        const res = await fetch(base + '/', {
+            headers: { Cookie: `${SESSION_COOKIE}=${token}` }
+        });
+        assert.match(await res.text(), /ACCESS CONTROL/);
+    });
+});
+
 test('GET / in local development mode serves index.html without credentials', async () => {
     const localApp = createApp({ config: gateTestConfig({ isVercel: false }) });
 
@@ -239,5 +259,9 @@ test('vercel.json routes / through api/index.js and bundles web/templates', () =
         vc.functions['api/index.js'].includeFiles,
         'web/templates/**',
         'templates must be packaged into the lambda'
+    );
+    assert.ok(
+        (vc.redirects || []).some(r => r.source === '/web/(.*)'),
+        'deployed template/source paths must not be directly reachable'
     );
 });

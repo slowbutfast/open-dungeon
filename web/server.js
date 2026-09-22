@@ -77,6 +77,10 @@ export function createApp(overrides = {}) {
     // is never sent over the wire. Locally `createAttachUserMiddleware`
     // attaches LOCAL_DEV_USER, so `req.user` is always set and this is inert.
     app.get('/', (req, res) => {
+        // The body varies by session, so this response must never be shared
+        // by any cache between an authenticated and an anonymous visitor.
+        res.set('Cache-Control', 'private, no-store');
+        res.set('Vary', 'Cookie');
         const template = cfg.isVercel && !req.user ? 'gate.html' : 'index.html';
         res.sendFile(path.join(__dirname, 'templates', template));
     });

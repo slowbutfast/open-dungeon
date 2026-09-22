@@ -6,6 +6,9 @@
       "includeFiles": "web/templates/**"
     }
   },
+  "redirects": [
+    { "source": "/web/(.*)", "destination": "/", "permanent": false }
+  ],
   "rewrites": [
     { "source": "/static/(.*)", "destination": "/web/static/$1" },
     { "source": "/", "destination": "/api/index.js" },
