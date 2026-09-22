@@ -1,20 +1,47 @@
 import express from 'express';
-import { engine, resetEngine } from '../engineInstance.js';
 import { DEFAULT_SYSTEM_PROMPT } from '../../engine/index.js';
 import { llmTracker, getDebugLogs } from '../../engine/llmTracker.js';
 import { getBackendType, getTokenRange, sanitizeForHistory } from '../../engine/llm.js';
 import { llmCall } from '../../engine/llmAdapter.js';
 import { forceFlushBeforeRead } from '../../mcp/tools/memory.js';
 import { OPENROUTER_MODELS } from '../openrouterModels.js';
+import { requireAuth, enforceQuota, getLedger } from '../middleware/quota.js';
+import { createTurnLockMiddleware } from '../middleware/lock.js';
+import { resolveEngine } from '../../engine/sessionManager.js';
 
 const router = express.Router();
 
-router.get('/presets', async (req, res) => {
-    const presets = await engine.getPresets();
+// Default-deny guard chain for every cost-incurring endpoint.
+const turnLock = createTurnLockMiddleware();
+const llmGuards = [requireAuth, enforceQuota, turnLock, resolveEngine];
+
+// Aggregate the active turn's LLM operations into the durable spend ledger.
+// When `emit` is set, push the updated balance over the open SSE stream.
+async function commitTurnSpend(req, res, { emit = false } = {}) {
+    try {
+        const ledger = getLedger(req);
+        const turn = llmTracker.endTurn();
+        const cost = turn.estimated_cost_usd || 0;
+        let spent = await ledger.getSpend(req.user.sub);
+        if (cost > 0) {
+            spent = await ledger.recordSpend(req.user.sub, cost);
+        }
+        if (emit) {
+            const remaining = Math.max(0, ledger.userLimit - spent);
+            res.write(`data: ${JSON.stringify({ type: 'user_quota', spent, remaining, limit: ledger.userLimit })}\n\n`);
+        }
+    } catch (e) {
+        // A ledger hiccup must not corrupt the narration response.
+    }
+}
+
+router.get('/presets', resolveEngine, async (req, res) => {
+    const presets = await req.engine.getPresets();
     res.json(presets);
 });
 
-router.post('/presets', async (req, res) => {
+router.post('/presets', resolveEngine, async (req, res) => {
+    const engine = req.engine;
     try {
         const newPreset = req.body;
         if (!newPreset || !newPreset.name) {
@@ -29,7 +56,8 @@ router.post('/presets', async (req, res) => {
     }
 });
 
-router.put('/presets/:index', async (req, res) => {
+router.put('/presets/:index', resolveEngine, async (req, res) => {
+    const engine = req.engine;
     try {
         const index = parseInt(req.params.index, 10);
         const updatedPreset = req.body;
@@ -48,7 +76,8 @@ router.put('/presets/:index', async (req, res) => {
     }
 });
 
-router.delete('/presets/:index', async (req, res) => {
+router.delete('/presets/:index', resolveEngine, async (req, res) => {
+    const engine = req.engine;
     try {
         const index = parseInt(req.params.index, 10);
         const presets = await engine.getPresets();
@@ -237,8 +266,8 @@ router.get('/ping', async (req, res) => {
     });
 });
 
-router.get('/state', async (req, res) => {
-    const activeEngine = engine;
+router.get('/state', resolveEngine, async (req, res) => {
+    const activeEngine = req.engine;
 
     // Score is engine-computed at extraction-flush time. Flush with engine
     // state before reading so `state.score` reflects the same freshness the
@@ -264,7 +293,8 @@ router.get('/state', async (req, res) => {
 // GET /api/map (spatial-map-region-graph, 6.3): the spatial room graph behind
 // the dungeon_inspect_map MCP tool. Same read-through freshness as the MCP
 // surface (force flush before reading).
-router.get('/map', async (req, res) => {
+router.get('/map', resolveEngine, async (req, res) => {
+    const engine = req.engine;
     try {
         if (!engine.adventureId) {
             return res.status(400).json({ error: 'No active adventure.' });
@@ -281,7 +311,8 @@ router.get('/map', async (req, res) => {
 // deterministic directed walk route behind the dungeon_path_to MCP tool.
 // `from` defaults to the current room; an unknown endpoint is a 404. Same
 // read-through freshness as the other spatial surfaces.
-router.get('/path', async (req, res) => {
+router.get('/path', resolveEngine, async (req, res) => {
+    const engine = req.engine;
     try {
         if (!engine.adventureId) {
             return res.status(400).json({ error: 'No active adventure.' });
@@ -302,9 +333,9 @@ router.get('/path', async (req, res) => {
     }
 });
 
-router.post('/state', async (req, res) => {
+router.post('/state', resolveEngine, async (req, res) => {
     const data = req.body || {};
-    const activeEngine = engine;
+    const activeEngine = req.engine;
 
     if (data.history !== undefined) activeEngine.history = data.history;
     if (data.system_prompt !== undefined) activeEngine.systemPrompt = data.system_prompt;
@@ -320,7 +351,7 @@ router.post('/state', async (req, res) => {
     res.json({ status: "success" });
 });
 
-router.post('/init', async (req, res) => {
+router.post('/init', llmGuards, async (req, res) => {
     const data = req.body || {};
     const presetIdx = data.preset_idx;
     const customTitle = data.title;
@@ -328,14 +359,14 @@ router.post('/init', async (req, res) => {
     const customSystemPrompt = data.system_prompt;
     const charData = data.character || {};
 
-    // Reset engine global instance
-    const activeEngine = resetEngine();
+    // Fresh per-user engine for the new adventure.
+    const activeEngine = await req.app.locals.sessionManager.resetEngine(req.user.sub);
 
     let title = "Custom Adventure";
     let summary = "You stand at the beginning of a mysterious custom quest.";
     let systemPrompt = DEFAULT_SYSTEM_PROMPT;
 
-    const allPresets = await engine.getPresets();
+    const allPresets = await activeEngine.getPresets();
     if (presetIdx !== undefined && presetIdx !== null && presetIdx >= 0 && presetIdx < allPresets.length) {
         const preset = allPresets[presetIdx];
         title = preset.title;
@@ -370,6 +401,7 @@ router.post('/init', async (req, res) => {
         { role: "system", content: activeEngine.systemPrompt },
         { role: "user", content: prompt }
     ];
+    llmTracker.beginTurn(req.user.sub);
     try {
         const response = await llmCall(activeEngine.client, 'opening_scene', {
             messages,
@@ -405,15 +437,16 @@ router.post('/init', async (req, res) => {
     activeEngine.score = 0;
     activeEngine.moves = 1;
 
+    await commitTurnSpend(req, res);
     res.json({ status: "success", adventure_id: activeEngine.adventureId });
 });
 
-router.post('/action', async (req, res) => {
+router.post('/action', llmGuards, async (req, res) => {
     const data = req.body || {};
     const actionType = data.action_type || "do";
     const text = data.text || "";
 
-    const activeEngine = engine;
+    const activeEngine = req.engine;
 
     if (actionType === "undo") {
         try {
@@ -425,6 +458,7 @@ router.post('/action', async (req, res) => {
     }
 
     if (req.query.format === "json") {
+        llmTracker.beginTurn(req.user.sub);
         try {
             const stream = actionType === "retry"
                 ? activeEngine.regenerateLastResponse()
@@ -435,6 +469,7 @@ router.post('/action', async (req, res) => {
                 if (event.type === "chunk") chunks += event.content || "";
                 if (event.type === "done") doneContent = event.content || "";
             }
+            await commitTurnSpend(req, res);
             return res.json({
                 narration: doneContent || chunks,
                 location: activeEngine.location,
@@ -442,15 +477,19 @@ router.post('/action', async (req, res) => {
                 moves: activeEngine.moves
             });
         } catch (err) {
+            llmTracker.resetTurn();
             return res.status(500).json({ status: "error", message: err.message });
         }
     }
 
-    // Set SSE headers
+    // Set SSE headers and flush immediately so narration chunks stream as they
+    // are generated (serverless functions have a fixed execution window).
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
 
+    llmTracker.beginTurn(req.user.sub);
     try {
         let stream;
         if (actionType === "retry") {
@@ -465,14 +504,15 @@ router.post('/action', async (req, res) => {
     } catch (err) {
         res.write(`data: ${JSON.stringify({ type: 'error', content: err.message })}\n\n`);
     } finally {
+        await commitTurnSpend(req, res, { emit: true });
         res.end();
     }
 });
 
-router.post('/system', async (req, res) => {
+router.post('/system', resolveEngine, async (req, res) => {
     const data = req.body || {};
     const newPrompt = data.system_prompt;
-    const activeEngine = engine;
+    const activeEngine = req.engine;
     if (newPrompt) {
         activeEngine.systemPrompt = newPrompt;
         await activeEngine.save();
@@ -481,10 +521,10 @@ router.post('/system', async (req, res) => {
     res.status(400).json({ status: "error", message: "Prompt cannot be blank." });
 });
 
-router.post('/summary', async (req, res) => {
+router.post('/summary', llmGuards, async (req, res) => {
     const data = req.body || {};
     const newSummary = data.summary;
-    const activeEngine = engine;
+    const activeEngine = req.engine;
     if (newSummary) {
         activeEngine.summary = newSummary;
         await activeEngine.save();
@@ -493,10 +533,10 @@ router.post('/summary', async (req, res) => {
     res.status(400).json({ status: "error", message: "Summary cannot be blank." });
 });
 
-router.post('/settings', async (req, res) => {
+router.post('/settings', resolveEngine, async (req, res) => {
     const data = req.body || {};
     const changed = [];
-    const activeEngine = engine;
+    const activeEngine = req.engine;
     const tokenRange = getTokenRange();
 
     if (data.max_tokens !== undefined) {
@@ -526,7 +566,8 @@ router.get('/cost', (req, res) => {
 
 // ─── Barter & Quest Goal Endpoints ─────────────────────────────────────────
 
-router.post('/trade/offer', (req, res) => {
+router.post('/trade/offer', resolveEngine, (req, res) => {
+    const engine = req.engine;
     try {
         if (!engine.adventureId) {
             return res.status(400).json({ error: 'No active adventure.' });
@@ -542,7 +583,8 @@ router.post('/trade/offer', (req, res) => {
     }
 });
 
-router.get('/trade/offers', (req, res) => {
+router.get('/trade/offers', resolveEngine, (req, res) => {
+    const engine = req.engine;
     try {
         if (!engine.adventureId) {
             return res.status(400).json({ error: 'No active adventure.' });
@@ -555,7 +597,8 @@ router.get('/trade/offers', (req, res) => {
     }
 });
 
-router.post('/trade', async (req, res) => {
+router.post('/trade', llmGuards, async (req, res) => {
+    const engine = req.engine;
     try {
         if (!engine.adventureId) {
             return res.status(400).json({ error: 'No active adventure.' });
@@ -572,28 +615,33 @@ router.post('/trade', async (req, res) => {
         res.setHeader('Content-Type', 'text/event-stream');
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Connection', 'keep-alive');
+        res.flushHeaders();
 
         // Send system event for successful barter
         const systemEvent = `[SYSTEM EVENT: Barter successful! Traded '${offer.required_item}' for '${offer.offered_item}'.]`;
         res.write(`data: ${JSON.stringify({ type: 'system', content: systemEvent })}\n\n`);
 
         // Stream LLM narration about the trade
+        llmTracker.beginTurn(req.user.sub);
         const stream = engine.generateResponseStream('do', `trade ${offer.required_item} to ${offer.trader_name}`);
         for await (const event of stream) {
             res.write(`data: ${JSON.stringify(event)}\n\n`);
         }
     } catch (err) {
+        llmTracker.resetTurn();
         if (res.headersSent) {
             res.write(`data: ${JSON.stringify({ type: 'error', content: err.message })}\n\n`);
         } else {
             return res.status(400).json({ error: err.message });
         }
     } finally {
+        await commitTurnSpend(req, res, { emit: true });
         res.end();
     }
 });
 
-router.post('/goals', (req, res) => {
+router.post('/goals', resolveEngine, (req, res) => {
+    const engine = req.engine;
     try {
         if (!engine.adventureId) {
             return res.status(400).json({ error: 'No active adventure.' });
@@ -609,7 +657,8 @@ router.post('/goals', (req, res) => {
     }
 });
 
-router.get('/goals', (req, res) => {
+router.get('/goals', resolveEngine, (req, res) => {
+    const engine = req.engine;
     try {
         if (!engine.adventureId) {
             return res.status(400).json({ error: 'No active adventure.' });
@@ -621,7 +670,8 @@ router.get('/goals', (req, res) => {
     }
 });
 
-router.post('/goals/accept', (req, res) => {
+router.post('/goals/accept', resolveEngine, (req, res) => {
+    const engine = req.engine;
     try {
         if (!engine.adventureId) {
             return res.status(400).json({ error: 'No active adventure.' });
@@ -637,7 +687,8 @@ router.post('/goals/accept', (req, res) => {
     }
 });
 
-router.post('/goals/fail', (req, res) => {
+router.post('/goals/fail', resolveEngine, (req, res) => {
+    const engine = req.engine;
     try {
         if (!engine.adventureId) {
             return res.status(400).json({ error: 'No active adventure.' });
@@ -653,7 +704,8 @@ router.post('/goals/fail', (req, res) => {
     }
 });
 
-router.post('/goals/complete', async (req, res) => {
+router.post('/goals/complete', llmGuards, async (req, res) => {
+    const engine = req.engine;
     try {
         if (!engine.adventureId) {
             return res.status(400).json({ error: 'No active adventure.' });
@@ -669,23 +721,27 @@ router.post('/goals/complete', async (req, res) => {
         res.setHeader('Content-Type', 'text/event-stream');
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Connection', 'keep-alive');
+        res.flushHeaders();
 
         // Send system event for goal completion
         const systemEvent = `[SYSTEM EVENT: Goal '${goal.goal_title}' completed! Reward: ${goal.reward_item} granted.]`;
         res.write(`data: ${JSON.stringify({ type: 'system', content: systemEvent })}\n\n`);
 
         // Stream LLM narration about the goal completion
+        llmTracker.beginTurn(req.user.sub);
         const stream = engine.generateResponseStream('do', `complete quest: ${goal.goal_title}`);
         for await (const event of stream) {
             res.write(`data: ${JSON.stringify(event)}\n\n`);
         }
     } catch (err) {
+        llmTracker.resetTurn();
         if (res.headersSent) {
             res.write(`data: ${JSON.stringify({ type: 'error', content: err.message })}\n\n`);
         } else {
             return res.status(400).json({ error: err.message });
         }
     } finally {
+        await commitTurnSpend(req, res, { emit: true });
         res.end();
     }
 });

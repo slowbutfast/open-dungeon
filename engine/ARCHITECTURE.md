@@ -428,3 +428,56 @@ mcp/
 | `tests/test_injection_defense.py` | Injection reproduction harness, delimiter framing, forged-status guard, lore delete |
 
 Run with: `pytest tests/test_mcp_*.py -v`
+
+---
+
+## ☁️ Serverless Lifecycle & Per-Request State (`vercel-deployment-and-auth`)
+
+OpenDungeon can run on Vercel as a serverless function. Vercel containers are
+ephemeral and horizontally scaled, so two things that the local-first design
+took for granted had to change: **no import-time side effects** and **no
+container-local state assumption**.
+
+### No import-time engine construction
+
+`web/engineInstance.js` (a module-level `new AdventureEngine()` singleton) is
+**deleted**. `AdventureEngine` construction performs `mkdirSync` + `new
+Database()`, which crashes with `EROFS` on Vercel's read-only `/var/task`
+before any handler runs. Engines are now created lazily, per request, by
+`engine/sessionManager.js`.
+
+### Per-request KV rehydration and persistence
+
+`SessionManager` (`engine/sessionManager.js`) owns the lifecycle:
+
+1. **Hydrate**: read `user:state:<sub>` (the `AdventureState` JSON) and
+   `user:db:<sub>` (a base64 `StructuredStore.db.serialize()` buffer) from KV.
+   The SQLite buffer is written to `/tmp/open-dungeon/<sub>/data/memory.db`
+   before the engine is constructed, so the engine opens the restored database.
+2. **Serve**: the engine is attached as `req.engine` via `resolveEngine`.
+3. **Commit**: on response `finish`/`close`, `state.toJSON()` and a fresh
+   `db.serialize()` snapshot (after a `wal_checkpoint(TRUNCATE)`) are written
+   back to the same KV keys.
+
+Outside serverless the manager caches one engine per `sub` in-process, keeping
+the single-user local workflow (and its `game/adventures/` saves) unchanged.
+
+`AdventureState.toJSON()`/`fromJSON()` (`engine/state.js`) were extracted from
+`save`/`load` so the same JSON shape is used for both disk saves and KV
+snapshots.
+
+### Path resolution
+
+When `VERCEL === '1'` and no `SAVE_DIR` is configured, the default engine
+storage root resolves under `/tmp/open-dungeon/...` instead of the read-only
+source tree. All directory creation remains asynchronous/lazy — nothing is
+written at module import time.
+
+### Turn cost accounting
+
+`engine/llmTracker.js` carries a model pricing catalog (`MODEL_PRICING`) and
+`computeTurnCost`, which sums the cost of every LLM operation in a turn
+(narration, summarization, extraction, opening scenes, card scans) using
+`prompt_price`/`completion_price` per 1M tokens. `recordUsage` feeds the active
+turn; `endTurn()` returns the aggregate that the routes commit to the spend
+ledger. Unlisted models fall back to the conservative $0.002/1K rate.

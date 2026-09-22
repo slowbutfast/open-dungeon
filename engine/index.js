@@ -40,6 +40,10 @@ export class AdventureEngine {
         if (!saveDir) {
             if (process.env.SAVE_DIR) {
                 this.saveDir = path.resolve(process.env.SAVE_DIR);
+            } else if (process.env.VERCEL === '1') {
+                // Serverless containers mount the source tree read-only; the
+                // default storage root must resolve under the writable /tmp.
+                this.saveDir = path.join('/tmp', 'open-dungeon', 'default', 'adventures');
             } else {
                 this.saveDir = path.join(__dirname, '..', 'game', 'adventures');
             }
@@ -47,6 +51,7 @@ export class AdventureEngine {
             this.saveDir = saveDir;
         }
         
+        // Async, not import-time: no synchronous writes occur at module load.
         fs.mkdir(this.saveDir, { recursive: true }).catch(() => {});
 
         this.state = new AdventureState();

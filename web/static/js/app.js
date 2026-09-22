@@ -11,6 +11,7 @@ import * as MemoryAPI from './api/memory.js';
 import * as StreamingAPI from './api/streaming.js';
 import * as DebugAPI from './api/debug.js';
 import * as BarterAPI from './api/barter.js';
+import * as AuthAPI from './api/auth.js';
 import { openBarterModal, closeBarterModal } from './components/barterModal.js';
 import { setCurrentNarration, triggerChipsForNarration } from './components/actionChips.js';
 import { _confirmResolve } from './ui/toast.js';
@@ -18,7 +19,7 @@ import { _confirmResolve } from './ui/toast.js';
 Object.assign(window, {
   ...Toast, ...Screens, ...Renderers, ...SavesAPI,
   ...SettingsAPI, ...PresetsAPI, ...LoreAPI, ...MemoryAPI,
-  ...StreamingAPI, ...DebugAPI, ...BarterAPI,
+  ...StreamingAPI, ...DebugAPI, ...BarterAPI, ...AuthAPI,
   getState, updateState, subscribe, resetState,
   cleanMarkdownText, scrollToBottom, escapeHtml,
   openBarterModal, closeBarterModal,
@@ -452,6 +453,7 @@ At the very end of EVERY response, on a new line, you MUST append the current st
 
   SettingsAPI.pingLlm();
   DebugAPI.startDebugPolling();
+  AuthAPI.initAuthBanner();
 });
 
 function handleArrowNavigation(e, buttons) {
