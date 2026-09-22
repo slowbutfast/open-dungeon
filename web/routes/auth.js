@@ -26,7 +26,9 @@ export function createAuthRouter(cfg = config) {
     const router = express.Router();
 
     router.get('/auth/login', (req, res) => {
-        if (!cfg.vercelClientId || !cfg.isVercel) {
+        // Gated only on a configured client id so local development (without
+        // VERCEL=1) can exercise the full OAuth flow against a test app.
+        if (!cfg.vercelClientId) {
             return res.redirect('/?auth_error=oauth_not_configured');
         }
         const state = generateState();

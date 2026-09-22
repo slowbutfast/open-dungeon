@@ -10,7 +10,11 @@ The system SHALL provide an authentication initiation endpoint at `/api/auth/log
 
 #### Scenario: User initiates login
 - **WHEN** a user navigates to `/api/auth/login`
-- **THEN** a 32-byte cryptographic random state is generated and set in an `od_oauth_state` HttpOnly cookie (`Secure; SameSite=Lax; Path=/; Max-Age=600`), and the user is redirected to `https://vercel.com/oauth/authorize` with query parameters `client_id`, `redirect_uri`, `scope=openid email profile offline_access`, and `state`
+- **THEN** a 32-byte cryptographic random state is generated and set in an `od_oauth_state` HttpOnly cookie (`Secure; SameSite=Lax; Path=/; Max-Age=600`), and the user is redirected to `https://vercel.com/oauth/authorize` with query parameters `client_id`, `redirect_uri`, `scope=openid email profile offline_access`, and `state`. The authorization redirect SHALL be issued whenever `VERCEL_APP_CLIENT_ID` is configured, including non-`VERCEL=1` local development environments, so the flow can be exercised against a test app without the production flag.
+
+#### Scenario: Login attempted without a configured client id
+- **WHEN** a user navigates to `/api/auth/login` and `VERCEL_APP_CLIENT_ID` is unset
+- **THEN** the user is redirected to `/?auth_error=oauth_not_configured` without contacting Vercel
 
 ### Requirement: OAuth Callback and Code Exchange
 The system SHALL provide an authorization callback handler at `/api/auth/callback` that validates the returning state parameter against the stored state cookie, exchanges the authorization code for access tokens via `https://api.vercel.com/login/oauth/token`, and retrieves user identity profile from `https://api.vercel.com/login/oauth/userinfo`.

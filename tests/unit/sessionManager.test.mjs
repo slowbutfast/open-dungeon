@@ -9,8 +9,9 @@ import assert from 'node:assert/strict';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { EventEmitter } from 'node:events';
 
-import { SessionManager } from '../../engine/sessionManager.js';
+import { SessionManager, createSessionEngineMiddleware, dbKey } from '../../engine/sessionManager.js';
 import { KvStore } from '../../web/kvStore.js';
 import { AdventureState } from '../../engine/state.js';
 import { StructuredStore } from '../../engine/memory/structuredStore.js';
@@ -116,4 +117,58 @@ test('distinct subs get isolated state and databases', async () => {
 
     // Different on-disk roots too.
     assert.notEqual(manager.userDir('u_alice'), manager.userDir('u_bob'));
+});
+
+test('serverless middleware commits persistence exactly once per request', async () => {
+    // Node emits both `finish` and `close` on a completed response; the
+    // session commit must run once, not twice.
+    let persistCalls = 0;
+    const manager = new SessionManager({
+        serverless: true,
+        kv: new KvStore(),
+        tmpRoot: tempRoot(),
+        engineFactory: makeEngineShim
+    });
+    manager.persist = async () => { persistCalls++; };
+
+    const middleware = createSessionEngineMiddleware(manager);
+    const req = { user: { sub: 'u_once' } };
+    const res = new EventEmitter();
+    await new Promise((resolve, reject) => {
+        middleware(req, res, (err) => (err ? reject(err) : resolve()));
+    });
+
+    await req.getEngine();          // registers the finish/close listeners
+    res.emit('finish');
+    res.emit('close');
+    await new Promise(r => setTimeout(r, 10));
+
+    assert.equal(persistCalls, 1, 'a single response must persist once');
+});
+
+test('_rehydrate purges stale -wal/-shm companions before mounting the snapshot', async () => {
+    const kv = new KvStore();
+    const tmp = tempRoot();
+    // No real database is opened here; the point is the companion-file purge.
+    const manager = new SessionManager({
+        serverless: true,
+        kv,
+        tmpRoot: tmp,
+        engineFactory: () => ({ state: new AdventureState(), memory: { structuredStore: null }, save: async () => {} })
+    });
+
+    await kv.set(dbKey('u_wal'), Buffer.from('snapshot-bytes').toString('base64'));
+
+    const dataDir = manager.dataDir('u_wal');
+    fs.mkdirSync(dataDir, { recursive: true });
+    const wal = path.join(dataDir, 'memory.db-wal');
+    const shm = path.join(dataDir, 'memory.db-shm');
+    fs.writeFileSync(wal, 'stale-wal');
+    fs.writeFileSync(shm, 'stale-shm');
+
+    await manager.getEngine('u_wal');
+
+    assert.equal(fs.existsSync(wal), false, 'stale -wal must be purged');
+    assert.equal(fs.existsSync(shm), false, 'stale -shm must be purged');
+    assert.equal(fs.existsSync(path.join(dataDir, 'memory.db')), true, 'snapshot must be mounted');
 });

@@ -83,6 +83,18 @@ export class SessionManager {
         if (dbBase64) {
             const dataDir = this.dataDir(sub);
             fs.mkdirSync(dataDir, { recursive: true });
+            // A warm container may still hold -wal/-shm companions left by a
+            // previous request's SQLite connection. The snapshot we mount is
+            // already fully checkpointed, so replaying a stale WAL against it
+            // is at best redundant and at worst corrupting. Purge them before
+            // the engine opens the database.
+            for (const companion of ['memory.db-wal', 'memory.db-shm']) {
+                try {
+                    fs.rmSync(path.join(dataDir, companion), { force: true });
+                } catch {
+                    // Best-effort cleanup: a failed unlink must not fail the request.
+                }
+            }
             fs.writeFileSync(path.join(dataDir, 'memory.db'), Buffer.from(dbBase64, 'base64'));
         }
 
@@ -139,7 +151,14 @@ export function createSessionEngineMiddleware(manager) {
             req._enginePromise = (async () => {
                 const engine = await manager.getEngine(req.user.sub);
                 if (manager.serverless) {
-                    const commit = () => { manager.persist(req.user.sub, engine).catch(() => {}); };
+                    // `finish` and `close` both fire on a completed response;
+                    // commit once so a turn is not persisted to KV twice.
+                    let committed = false;
+                    const commit = () => {
+                        if (committed) return;
+                        committed = true;
+                        manager.persist(req.user.sub, engine).catch(() => {});
+                    };
                     res.on('finish', commit);
                     res.on('close', commit);
                 }

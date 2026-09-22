@@ -181,3 +181,18 @@ When executing in the Vercel serverless environment (`process.env.VERCEL === '1'
 - **WHEN** turn $N$ executes on Container A and turn $N+1$ executes on a newly cold-started Container B
 - **THEN** Container B rehydrates the exact adventure state, inventory, and room graph from KV, preserving full adventure continuity without state loss
 
+#### Scenario: Single persistence commit per request
+- **WHEN** an HTTP request completes and both `finish` and `close` events are emitted by the response
+- **THEN** `sessionManager.persist()` is invoked exactly once for that request
+
+#### Scenario: Clean rehydration on warm container with prior WAL
+- **WHEN** `sessionManager` rehydrates `memory.db` from `user:db:<subId>` onto a filesystem that still contains residual `memory.db-wal` or `memory.db-shm` companion files
+- **THEN** the stale WAL/SHM companions are purged before the engine mounts SQLite, so the mounted snapshot is never overlaid by a prior connection's journal
+
+### Requirement: Idempotent Response Persistence
+The serverless session middleware SHALL ensure that a request's final state is committed to KV at most once. Because Node emits both `finish` and `close` for a completed response, the `finish` and `close` listeners SHALL share a single-invocation guard so duplicate KV writes cannot occur.
+
+#### Scenario: Duplicate terminal events do not double-commit
+- **WHEN** both the response `finish` and `close` events fire for the same request
+- **THEN** the persistence commit executes only on the first event and the second is a no-op
+

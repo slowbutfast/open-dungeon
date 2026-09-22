@@ -5,6 +5,8 @@
 // fetcher is injected.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import http from 'http';
+import express from 'express';
 
 import {
     SESSION_COOKIE,
@@ -24,7 +26,32 @@ import {
     fetchUserProfile
 } from '../../web/auth/oauth.js';
 
+import { createAuthRouter } from '../../web/routes/auth.js';
+
 const SECRET = 'unit-test-secret';
+
+function testConfig(overrides = {}) {
+    return {
+        isVercel: false,
+        isProduction: false,
+        sessionSecret: SECRET,
+        vercelClientId: null,
+        vercelClientSecret: null,
+        appUrl: null,
+        ...overrides
+    };
+}
+
+async function withServer(app, fn) {
+    const server = http.createServer(app);
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    const base = `http://127.0.0.1:${server.address().port}`;
+    try {
+        return await fn(base);
+    } finally {
+        await new Promise(resolve => server.close(resolve));
+    }
+}
 
 // ─── session signing ───────────────────────────────────────────────────────
 
@@ -179,4 +206,32 @@ test('fetchUserProfile reads sub/email/name from the userinfo endpoint', async (
     assert.deepEqual(profile, { sub: 'user_1', email: 'dev@example.com', name: 'Dev' });
     assert.equal(seen.input, 'https://api.vercel.com/login/oauth/userinfo');
     assert.equal(seen.init.headers.Authorization, 'Bearer tok_1');
+});
+
+// ─── login route gating ────────────────────────────────────────────────────
+
+test('GET /api/auth/login redirects to Vercel in local mode when a client id is configured', async () => {
+    const app = express();
+    app.use('/api', createAuthRouter(testConfig({ vercelClientId: 'client_xyz' })));
+
+    await withServer(app, async (base) => {
+        const res = await fetch(base + '/api/auth/login', { redirect: 'manual' });
+        assert.equal(res.status, 302);
+        const location = res.headers.get('location');
+        assert.match(location, /^https:\/\/vercel\.com\/oauth\/authorize\?/);
+        assert.match(location, /client_id=client_xyz/);
+        assert.match(location, /state=[0-9a-f]{64}/);
+        assert.match(res.headers.get('set-cookie') || '', /od_oauth_state=/);
+    });
+});
+
+test('GET /api/auth/login reports oauth_not_configured when no client id is set', async () => {
+    const app = express();
+    app.use('/api', createAuthRouter(testConfig({ vercelClientId: null })));
+
+    await withServer(app, async (base) => {
+        const res = await fetch(base + '/api/auth/login', { redirect: 'manual' });
+        assert.equal(res.status, 302);
+        assert.equal(res.headers.get('location'), '/?auth_error=oauth_not_configured');
+    });
 });

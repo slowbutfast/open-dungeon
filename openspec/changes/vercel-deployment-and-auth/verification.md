@@ -18,7 +18,8 @@ Legend: **PASS** = automated test asserts the scenario; **PASS (audit)** = imple
 
 | Requirement & Scenario | Verification Method / Test File | Status |
 | :--- | :--- | :--- |
-| `### Requirement: Vercel OAuth Authorization Initiation`<br>`#### Scenario: User initiates login` | `tests/unit/sessionAuth.test.mjs` → `buildAuthorizeUrl targets Vercel with client_id, redirect_uri, scope, state`; `createStateCookie is scoped to Max-Age=600 and HttpOnly`; route `web/routes/auth.js:28-40` | **PASS (audit)** |
+| `### Requirement: Vercel OAuth Authorization Initiation`<br>`#### Scenario: User initiates login` | `tests/unit/sessionAuth.test.mjs` → `buildAuthorizeUrl targets Vercel with client_id, redirect_uri, scope, state`; `createStateCookie is scoped to Max-Age=600 and HttpOnly`; `GET /api/auth/login redirects to Vercel in local mode when a client id is configured`; route `web/routes/auth.js:28-40` | **PASS** |
+| `### Requirement: Vercel OAuth Authorization Initiation`<br>`#### Scenario: Login attempted without a configured client id` | `tests/unit/sessionAuth.test.mjs` → `GET /api/auth/login reports oauth_not_configured when no client id is set` | **PASS** |
 | `### Requirement: OAuth Callback and Code Exchange`<br>`#### Scenario: Valid authorization callback` | `tests/unit/sessionAuth.test.mjs` → `exchangeCodeForToken POSTs the code...`, `fetchUserProfile reads sub/email/name...`; route `web/routes/auth.js:42-77` | **PASS (audit)** |
 | `### Requirement: OAuth Callback and Code Exchange`<br>`#### Scenario: CSRF state mismatch` | Route guard `web/routes/auth.js:48-53` (403 before token endpoint) | **PASS (audit)** |
 | `### Requirement: OAuth Callback and Code Exchange`<br>`#### Scenario: Authorization code error or rejection` | `web/routes/auth.js:44-46,74-76` (redirect `/?auth_error=oauth_failed`) | **PASS (audit)** |
@@ -66,6 +67,9 @@ Legend: **PASS** = automated test asserts the scenario; **PASS (audit)** = imple
 | `### Requirement: Game State Persistence`<br>`#### Scenario: Score round-trips through save/load` | `tests/unit/spatialUndo.test.mjs`, `structuredStore.test.mjs` (pre-existing suite) | **PASS** |
 | `### Requirement: Elimination of Module Import-Time Side Effects`<br>`#### Scenario: Safe module import in read-only environment` | `tests/unit/sessionManager.test.mjs` → `constructing a SessionManager instantiates no engine (no import-time work)`; `web/engineInstance.js` deleted | **PASS** |
 | `### Requirement: Per-Request KV State and SQLite Synchronization`<br>`#### Scenario: Seamless cross-container turn execution` | `sessionManager.test.mjs` → `state JSON and SQLite snapshot round-trip across a cold manager`; `distinct subs get isolated state and databases` | **PASS** |
+| `### Requirement: Per-Request KV State and SQLite Synchronization`<br>`#### Scenario: Single persistence commit per request` | `sessionManager.test.mjs` → `serverless middleware commits persistence exactly once per request` (both `finish` and `close` emitted) | **PASS** |
+| `### Requirement: Per-Request KV State and SQLite Synchronization`<br>`#### Scenario: Clean rehydration on warm container with prior WAL` | `sessionManager.test.mjs` → `_rehydrate purges stale -wal/-shm companions before mounting the snapshot` | **PASS** |
+| `### Requirement: Idempotent Response Persistence`<br>`#### Scenario: Duplicate terminal events do not double-commit` | `sessionManager.test.mjs` → `serverless middleware commits persistence exactly once per request`; `engine/sessionManager.js` `let committed` guard | **PASS** |
 
 ### Deferred (interactive browser surface)
 
@@ -85,6 +89,9 @@ Legend: **PASS** = automated test asserts the scenario; **PASS (audit)** = imple
 | Spend keyed by immutable OpenID `sub` | `web/kvStore.js` `userSpendKey(sub)`, `engine/sessionManager.js` `stateKey(sub)`; `sessionManager.test.mjs` isolation test | Distinct `sub`s isolated in KV + on disk | stable |
 | `Buffer.byteLength` guard required before `crypto.timingSafeEqual` | `sessionAuth.test.mjs` → `verifySession does not throw on a signature with mismatched byte length` | Returns `null`, no throw | stable |
 | `res.flushHeaders()` needed so SSE chunks are not edge-buffered | `web/routes/game.js` `/api/action`, `/api/trade`, `/api/goals/complete`; server smoke streamed `data:` frames | Frames observed before `end` | stable |
+| A completed response may commit state twice (`finish` then `close`) | `sessionManager.test.mjs` → `serverless middleware commits persistence exactly once per request`; `createSessionEngineMiddleware` guard | `persist` invoked exactly once | stable |
+| A warm container can carry stale `memory.db-wal`/`-shm` alongside a freshly mounted snapshot | `sessionManager.test.mjs` → `_rehydrate purges stale -wal/-shm companions before mounting the snapshot`; `_rehydrate` `fs.rmSync` | Both companions absent after rehydrate | stable |
+| OAuth login should be testable locally, not only when `VERCEL=1` | `sessionAuth.test.mjs` → `GET /api/auth/login redirects to Vercel in local mode when a client id is configured`; `web/routes/auth.js` gates on `vercelClientId` only | 302 to `vercel.com/oauth/authorize` with `client_id` | stable |
 
 ## Nomenclature & Code Symbol Audit
 
@@ -140,12 +147,19 @@ $ node --test tests/unit/sessionAuth.test.mjs tests/unit/spendLedger.test.mjs \
   ok 5 - GET /api/user/quota rejects unauthenticated requests with 401
   ok 6 - signSession round-trips the user payload through verifySession
   ...
-  ok 37 - concurrent turns from different users do not cross-attribute spend
-  ok 38 - recordUsage feeds the active turn with the call kind and model
-  ok 39 - api/index.js exports an Express app that dispatches requests
+  ok 17 - GET /api/auth/login redirects to Vercel in local mode when a client id is configured
+  ok 18 - GET /api/auth/login reports oauth_not_configured when no client id is set
   ...
-  ok 46 - booting api/index.js under a complete Vercel environment succeeds
-# pass 46
+  ok 23 - serverless middleware commits persistence exactly once per request
+  ok 24 - _rehydrate purges stale -wal/-shm companions before mounting the snapshot
+  ...
+  ok 41 - concurrent turns from different users do not cross-attribute spend
+  ok 42 - recordUsage feeds the active turn with the call kind and model
+  ok 43 - api/index.js exports an Express app that dispatches requests
+  ...
+  ok 50 - booting api/index.js under a complete Vercel environment succeeds
+# tests 50
+# pass 50
 # fail 0
 ```
 
@@ -153,24 +167,23 @@ $ node --test tests/unit/sessionAuth.test.mjs tests/unit/spendLedger.test.mjs \
 
 ```bash
 $ npm run test:unit
-# tests 202
-# pass 199
+# tests 206
+# pass 203
 # fail 3
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 10426.995384
 not ok 28  - guarded migration: status_turn added to legacy inventory table (RED on HEAD)
-not ok 185 - D5: rollbackTurn restores a sold item to held and removes the acquired row (trade-undo limbo, INTENDED TO FAIL TODAY)
-not ok 186 - D5: rollbackTurn removes a row re-acquired on the undone turn despite an older acquired_turn (#22, INTENDED TO FAIL TODAY)
+not ok 189 - D5: rollbackTurn restores a sold item to held and removes the acquired row (trade-undo limbo, INTENDED TO FAIL TODAY)
+not ok 190 - D5: rollbackTurn removes a row re-acquired on the undone turn despite an older acquired_turn (#22, INTENDED TO FAIL TODAY)
 ```
 
 **Before/after metric delta (no data loss):**
 
 | Metric | Baseline (HEAD `87399ef`) | With change |
 | :--- | :--- | :--- |
-| Unit tests total | 156 | 202 (+46) |
-| Passing | 153 | 199 (+46) |
+| Unit tests total | 156 | 206 (+50) |
+| Passing | 153 | 203 (+50) |
 | Failing | 3 | 3 (identical, pre-existing) |
 
 The 3 failures are **pre-existing and unrelated**; confirmed by stashing the engine-side changes and re-running `migration.test.mjs` + `structuredStore.test.mjs` at HEAD, where the same 3 fail. They are explicitly labelled `RED on HEAD` / `INTENDED TO FAIL TODAY` and belong to the `memory-schema-boundary` change, not this one.
@@ -210,7 +223,7 @@ Change 'vercel-deployment-and-auth' is valid
 ## Quick Re-Verification (60-Second Audit)
 
 ```bash
-# 1. New suites only — expect "# pass 46  # fail 0"
+# 1. New suites only — expect "# pass 50  # fail 0"
 node --test tests/unit/sessionAuth.test.mjs tests/unit/spendLedger.test.mjs \
     tests/unit/quotaMiddleware.test.mjs tests/unit/sessionManager.test.mjs \
     tests/unit/vercelEntry.test.mjs

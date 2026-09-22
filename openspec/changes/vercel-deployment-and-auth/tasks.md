@@ -86,3 +86,11 @@
 - [x] 6.4 Configure `.vercelignore` to exclude tests, docs, diagnostics, scratch, and playgrounds
 - [x] 6.5 Update architecture documentation per AGENTS.md (`engine/ARCHITECTURE.md`, `web/FRONTEND_ARCHITECTURE.md`, `tests/ARCHITECTURE.md`)
 - [x] 6.6 Run all unit tests (`npm run test:unit`) to confirm all TDD suites pass
+
+## 7. Code Review Follow-ups (PR #45)
+
+- [x] 7.1 Guard `sessionManager` commit against the double `finish`/`close` terminal events (single-invocation guard) in `engine/sessionManager.js`
+- [x] 7.2 Purge stale `memory.db-wal` / `memory.db-shm` companions before mounting the KV snapshot in `engine/sessionManager._rehydrate`
+- [x] 7.3 Allow the OAuth login flow in local (non-`VERCEL=1`) environments when `VERCEL_APP_CLIENT_ID` is configured, in `web/routes/auth.js`
+- [x] 7.4 Regression tests: single-persist-commit and WAL/SHM purge in `tests/unit/sessionManager.test.mjs`; local-mode login redirect + unconfigured fallback in `tests/unit/sessionAuth.test.mjs`
+- [x] 7.5 Sync delta specs (`game-engine`, `vercel-oauth-auth`) into `openspec/specs/` and update `verification.md`
