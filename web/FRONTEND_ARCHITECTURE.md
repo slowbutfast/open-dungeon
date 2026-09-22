@@ -246,9 +246,10 @@ into the lambda. Without it the function would ENOENT at request time.
 
 `/` is served from the function and its body depends on `od_session`, so the
 handler sets `Cache-Control: private, no-store` and `Vary: Cookie`. Deployed
-source paths are shadowed by a `/web/(.*)` redirect declared ahead of the
-rewrites: without it the CDN serves `web/templates/index.html` directly and the
-gate only covers the bare `/` URL.
+source paths are shadowed by `/web/(.*)`, `/engine/(.*)`, and `/mcp/(.*)`
+redirects declared ahead of the rewrites: without them the CDN serves
+`web/templates/index.html` directly and the gate only covers the bare `/` URL,
+while the server source trees are served as static content.
 
 Static assets stay on the Edge CDN: `/static/(.*)` → `/web/static/$1`, with
 immutable caching for `/static/js/vendor/*` and `no-store` for the unbundled ES

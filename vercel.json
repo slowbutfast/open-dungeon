@@ -7,7 +7,9 @@
     }
   },
   "redirects": [
-    { "source": "/web/(.*)", "destination": "/", "permanent": false }
+    { "source": "/web/(.*)", "destination": "/", "permanent": false },
+    { "source": "/engine/(.*)", "destination": "/", "permanent": false },
+    { "source": "/mcp/(.*)", "destination": "/", "permanent": false }
   ],
   "rewrites": [
     { "source": "/static/(.*)", "destination": "/web/static/$1" },

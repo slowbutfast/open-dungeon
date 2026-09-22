@@ -19,11 +19,15 @@ The system SHALL export the Express application via `api/index.js`, and `vercel.
 - **THEN** Vercel routes the request to `api/index.js` where Express checks authentication and serves the appropriate template
 
 ### Requirement: Deployed Source Paths Are Not Directly Reachable
-Because the project root is served as static content, application templates and server sources SHALL NOT be reachable at their repository paths. `vercel.json` SHALL declare a redirect for `/web/(.*)` that runs ahead of filesystem resolution, so the access gate cannot be bypassed by requesting `/web/templates/index.html` directly.
+Because the project root is served as static content, application templates and server sources SHALL NOT be reachable at their repository paths. `vercel.json` SHALL declare redirects for `/web/(.*)`, `/engine/(.*)`, and `/mcp/(.*)` that run ahead of filesystem resolution, so the access gate cannot be bypassed by requesting `web/templates/index.html` directly and the server source trees are not served as static content.
 
 #### Scenario: Direct template request
 - **WHEN** an unauthenticated client requests `/web/templates/index.html`
 - **THEN** the edge responds with a redirect to `/`, and the simulation document is not served
+
+#### Scenario: Direct source tree request
+- **WHEN** a client requests any file under `/engine/` or `/mcp/`
+- **THEN** the edge responds with a redirect to `/`, and the server source is not served
 
 ### Requirement: Function Execution Duration
 The deployment configuration in `vercel.json` SHALL set `"maxDuration": 60` for `api/index.js` to ensure long-running LLM generation turns and Server-Sent Event streams complete without premature serverless timeout.

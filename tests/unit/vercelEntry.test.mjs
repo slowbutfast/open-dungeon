@@ -270,4 +270,12 @@ test('vercel.json routes / through api/index.js and bundles web/templates', () =
         (vc.redirects || []).some(r => r.source === '/web/(.*)'),
         'deployed template/source paths must not be directly reachable'
     );
+    assert.ok(
+        (vc.redirects || []).some(r => r.source === '/engine/(.*)'),
+        'engine source paths must not be directly reachable'
+    );
+    assert.ok(
+        (vc.redirects || []).some(r => r.source === '/mcp/(.*)'),
+        'mcp source paths must not be directly reachable'
+    );
 });
