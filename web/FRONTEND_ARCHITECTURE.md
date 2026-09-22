@@ -244,17 +244,21 @@ discover the templates; `vercel.json` therefore declares
 `functions["api/index.js"].includeFiles = "web/templates/**"` to bundle them
 into the lambda. Without it the function would ENOENT at request time.
 
+`/` is served from the function and its body depends on `od_session`, so the
+handler sets `Cache-Control: private, no-store` and `Vary: Cookie`. Deployed
+source paths are shadowed by a `/web/(.*)` redirect declared ahead of the
+rewrites: without it the CDN serves `web/templates/index.html` directly and the
+gate only covers the bare `/` URL.
+
 Static assets stay on the Edge CDN: `/static/(.*)` → `/web/static/$1`, with
 immutable caching for `/static/js/vendor/*` and `no-store` for the unbundled ES
 modules. `api/index.js` is not invoked for them. Locally Express serves the
 same files via `express.static`, so the zero-build ESM workflow is unchanged.
 
-> **CSP note**: the site-wide `Content-Security-Policy` in `vercel.json` sets
-> `script-src 'self'`, which blocks the gate's inline `auth_error` script in
-> production. The gate itself and the `[ Sign in with Vercel ]` trigger are pure
-> HTML/CSS and are unaffected; only the `?auth_error=` banner needs either an
-> external `/static/js/gate.js` module or a `'sha256-…'` CSP hash. Tracked as a
-> follow-up.
+The gate's `?auth_error=` banner lives in `/static/js/gate.js`, loaded as a
+module. The site-wide CSP sets `script-src 'self'`, so an inline handler would
+be silently dropped in production — the external module keeps the failure
+notice working without a `'sha256-…'` exemption.
 
 ### Fail-closed Diagnostic Reporting
 
