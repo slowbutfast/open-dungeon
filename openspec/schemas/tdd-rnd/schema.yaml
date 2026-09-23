@@ -284,6 +284,12 @@ artifacts:
       Scaffolding (TDD)". You must outline writing and scaffolding failing tests
       for the target requirements BEFORE any implementation code is modified.
 
+      - **Verification & Audit Requirement**: The final task group MUST be
+      "Verification & Empirical Audit". It must outline running the full regression
+      test suite, verifying pass counts, and generating/populating `verification.md`
+      with the Requirement Adherence Audit Matrix, resolved assumptions, and
+      execution logs.
+
       - Group related tasks under ## numbered headings
 
       - Each task MUST be a checkbox: `- [ ] X.Y Task description`
@@ -359,9 +365,10 @@ artifacts:
         developers can re-verify this feature against HEAD in under a minute.
 
       RULES:
-      1. Every requirement scenario in `specs/` MUST be accounted for in the Requirement Adherence Audit Matrix.
-      2. Include exact test commands and runner outputs, not general assertions.
-      3. Report before/after metric deltas (e.g. record counts) to prove no data loss.
+      1. GUARD: You MUST NOT generate verification.md until implementation is complete. All checkboxes in `tasks.md` MUST be checked (`- [x]`). If any tasks are pending (`- [ ]`), refuse generation and prompt the user to complete implementation first.
+      2. Every requirement scenario in `specs/` MUST be accounted for in the Requirement Adherence Audit Matrix.
+      3. Include exact test commands and runner outputs, not general assertions.
+      4. Report before/after metric deltas (e.g. record counts) to prove no data loss.
     requires:
       - tasks
       - specs

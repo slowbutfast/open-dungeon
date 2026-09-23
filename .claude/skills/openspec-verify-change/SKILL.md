@@ -114,7 +114,12 @@ Verify that an implementation matches the change artifacts (specs, tasks, design
      - Add SUGGESTION: "Code pattern deviation: <details>"
      - Recommendation: "Consider following project pattern: <example>"
 
-8. **Generate Verification Report**
+8. **Generate & Persist Verification Report**
+
+   **Persist `verification.md`**:
+   - If the change schema is `tdd-rnd` or defines a `verification` artifact:
+     - Follow the template and sections specified by `openspec instructions verification --change <name>`.
+     - Guard: Ensure all tasks in `tasks.md` are completed (`- [x]`) before generating `verification.md`.
 
    **Summary Scorecard**:
    ```markdown
