@@ -164,7 +164,18 @@ test('buildAuthorizeUrl targets Vercel with client_id, redirect_uri, scope, stat
     assert.equal(url.searchParams.get('client_id'), 'client_123');
     assert.equal(url.searchParams.get('redirect_uri'), 'https://example.com/api/auth/callback');
     assert.equal(url.searchParams.get('state'), 'state_abc');
-    assert.equal(url.searchParams.get('scope'), 'openid email profile offline_access');
+    assert.equal(url.searchParams.get('scope'), 'openid email profile');
+});
+
+test('GET /api/auth/callback forwards provider error code in redirect', async () => {
+    const app = express();
+    app.use('/api', createAuthRouter(testConfig()));
+
+    await withServer(app, async (base) => {
+        const res = await fetch(base + '/api/auth/callback?error=invalid_scope&error_description=bad_scope', { redirect: 'manual' });
+        assert.equal(res.status, 302);
+        assert.equal(res.headers.get('location'), '/?auth_error=invalid_scope');
+    });
 });
 
 test('exchangeCodeForToken POSTs the code to the Vercel token endpoint', async () => {

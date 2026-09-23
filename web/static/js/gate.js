@@ -5,7 +5,9 @@
 
 const MESSAGES = {
   oauth_failed: 'AUTHENTICATION FAILURE // The Vercel authorization was denied, expired, or could not be verified. Retry the sign-in handshake.',
-  oauth_not_configured: 'CONFIGURATION FAULT // Vercel OAuth is not configured for this deployment. Notify the operator before retrying.'
+  oauth_not_configured: 'CONFIGURATION FAULT // Vercel OAuth is not configured for this deployment. Notify the operator before retrying.',
+  access_denied: 'ACCESS DENIED // Vercel authorization request was declined by the user.',
+  invalid_scope: 'CONFIGURATION FAULT // The requested OAuth permission scope is invalid for this Vercel application.'
 };
 
 export function initGateBanner(search = window.location.search) {

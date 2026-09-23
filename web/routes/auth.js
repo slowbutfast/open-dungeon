@@ -46,7 +46,8 @@ export function createAuthRouter(cfg = config) {
         if (error) {
             // Provider-side rejection: log the full pair, surface only the code.
             console.error('OAUTH_CALLBACK_PROVIDER_ERROR', { error, errorDescription });
-            return res.redirect('/?auth_error=oauth_failed');
+            const safeCode = encodeURIComponent(String(error).slice(0, 50));
+            return res.redirect(`/?auth_error=${safeCode}`);
         }
 
         const cookies = parseCookieHeader(req.headers && req.headers.cookie);

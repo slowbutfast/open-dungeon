@@ -5,7 +5,7 @@
 export const VERCEL_AUTHORIZE_URL = 'https://vercel.com/oauth/authorize';
 export const VERCEL_TOKEN_URL = 'https://api.vercel.com/login/oauth/token';
 export const VERCEL_USERINFO_URL = 'https://api.vercel.com/login/oauth/userinfo';
-export const OAUTH_SCOPE = 'openid email profile offline_access';
+export const OAUTH_SCOPE = 'openid email profile';
 
 export function buildAuthorizeUrl({ clientId, redirectUri, state, scope = OAUTH_SCOPE }) {
     const url = new URL(VERCEL_AUTHORIZE_URL);
@@ -20,7 +20,10 @@ export function buildAuthorizeUrl({ clientId, redirectUri, state, scope = OAUTH_
 export async function exchangeCodeForToken({ code, clientId, clientSecret, redirectUri, fetchImpl = fetch }) {
     const res = await fetchImpl(VERCEL_TOKEN_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Accept': 'application/json'
+        },
         body: new URLSearchParams({
             grant_type: 'authorization_code',
             code,
@@ -38,7 +41,10 @@ export async function exchangeCodeForToken({ code, clientId, clientSecret, redir
 
 export async function fetchUserProfile({ accessToken, fetchImpl = fetch }) {
     const res = await fetchImpl(VERCEL_USERINFO_URL, {
-        headers: { Authorization: `Bearer ${accessToken}` }
+        headers: {
+            Authorization: `Bearer ${accessToken}`,
+            Accept: 'application/json'
+        }
     });
     if (!res.ok) {
         const detail = typeof res.text === 'function' ? await res.text().catch(() => '') : '';
