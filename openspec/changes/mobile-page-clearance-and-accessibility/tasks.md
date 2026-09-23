@@ -30,14 +30,23 @@
 
 ## Implementation Notes
 
-- **2.3 deviation**: The wizard-screen rule keeps `min-height: 100vh; min-height: 100dvh;`
-  (rather than `min-height: 100%`) to preserve the existing `Dynamic Viewport Height
-  Sizing` requirement in `openspec/specs/mobile-viewport-ergonomics/spec.md` and its
-  `test_dynamic_viewport_height_declarations` regex guard. Scroll containment on the
-  bounded `.app-container` makes `100dvh` harmless (the panel grows, the container
-  scrolls); the panels additionally declare `overflow-y: visible` so no nested scroll
-  context is created, and the `padding-bottom: calc(var(--safe-bottom) + 1.5rem)`
-  clearance buffer is applied exactly as specified.
+- **2.2 top gutter**: `.app-container` mobile `padding-top` is `max(1.5rem, var(--safe-top))`
+  to preserve the 24px top gutter on non-notched handsets.
+- **2.3 `min-height: 100%`**: Wizard panels declare `min-height: 100%` (of the bounded
+  `.app-container` content box), **not** `100dvh`. A `100dvh` floor inside the padded
+  scroller forces exactly 40px of spurious scroll on every short screen
+  (`scrollHeight 707px` vs `clientHeight 667px` at 375×667) — eliminating it (40px → 0px)
+  removes iOS rubber-banding on `#startup-screen` and short wizard views.
 - **2.4 consolidation**: The two mobile `.panel-footer-nav` blocks were merged into one
   (`gap: 0.75rem`); the old `padding-bottom: env(safe-area-inset-bottom)` footer rule was
   removed because bottom clearance is owned by the wizard panel (single-owner buffer).
+- **`test_dynamic_viewport_height_declarations`**: now asserts the `dvh` cascade where it
+  belongs — `body` (`height: 100vh; 100dvh`), `.sidebar-panel` (`max-height: 40vh; 40dvh`),
+  and `.modal-content` (`max-height: 90vh; 90dvh`) — replacing the brittle source-grep on
+  the wizard-panel selector list.
+- **Regression guards**: `test_restore_screen_clearance` (short content, trivially clear)
+  and `test_gameplay_hud_regression_clearance` (fixed HUD) are guard rails that pass both
+  pre- and post-patch; they are not the primary evidence for the fix.
+- **Suite counts**: `TestMobileScreenBottomClearance` = 16 tests (added
+  `test_short_screen_has_no_spurious_scroll`); full `tests/e2e/test_mobile_viewport.py` =
+  **96 passed**.

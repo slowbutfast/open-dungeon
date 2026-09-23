@@ -632,14 +632,14 @@ class TestMobileViewportErgonomics:
         )
 
         assert re.search(
-            r"#startup-screen,[^}]*min-height:\s*100vh;[^}]*min-height:\s*100dvh;",
-            css, re.DOTALL,
-        ), "wizard screens must declare min-height: 100vh then min-height: 100dvh"
-
-        assert re.search(
             r"\.sidebar-panel\s*\{[^}]*max-height:\s*40vh;[^}]*max-height:\s*40dvh;",
             css, re.DOTALL,
         ), ".sidebar-panel must declare max-height: 40vh then max-height: 40dvh"
+
+        assert re.search(
+            r"\.modal-content\s*\{[^}]*max-height:\s*90vh;[^}]*max-height:\s*90dvh;",
+            css, re.DOTALL,
+        ), ".modal-content must declare max-height: 90vh then max-height: 90dvh"
 
         # Computed behavior check under mobile viewport
         page.set_viewport_size({"width": 375, "height": 667})
@@ -953,4 +953,26 @@ class TestMobileScreenBottomClearance:
         assert max_tab_bottom <= before["innerHeight"] - 34 + 0.5, (
             f"Tab button bottom {max_tab_bottom}px does not clear the 34px inset "
             f"(viewport {before['innerHeight']}px) at {page._viewport_name}"
+        )
+
+    def test_short_screen_has_no_spurious_scroll(self, page):
+        """Short screens must not force phantom scroll inside the mobile scroller.
+
+        A wizard panel pinned to `100dvh` inside the padded `.app-container`
+        (height: 100%, padding-top 24px + padding-bottom 24px) makes
+        scrollHeight == 707px against a 667px client — exactly 40px of spurious
+        scroll. Panels use `min-height: 100%` so short content fits and the
+        scroller reports zero overflow.
+        """
+        page.set_viewport_size({"width": 375, "height": 667})
+        page.goto("http://127.0.0.1:5007")
+        page.wait_for_selector("#llm-status-pill:not(.llm-pill-checking)")
+        delta = page.evaluate("""
+            () => {
+                const a = document.querySelector('.app-container');
+                return a.scrollHeight - a.clientHeight;
+            }
+        """)
+        assert delta <= 1, (
+            f"Startup screen has spurious scroll of {delta}px with content that fits"
         )

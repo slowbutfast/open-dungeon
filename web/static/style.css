@@ -1864,7 +1864,7 @@ body:not(.crt-effect) .screen-flicker {
         align-items: flex-start;
         overflow-y: auto;
         -webkit-overflow-scrolling: touch;
-        padding-top: max(1rem, var(--safe-top));
+        padding-top: max(1.5rem, var(--safe-top));
     }
 
     .game-dashboard {
@@ -1991,12 +1991,12 @@ body:not(.crt-effect) .screen-flicker {
     #preset-manager-screen,
     #restore-screen,
     #preset-editor-screen {
-        min-height: 100vh;
-        min-height: 100dvh;
+        min-height: 100%;
         /* The panel must not establish its own (never-engaging) scroll context:
            `.app-container` is the single scroll owner. The panel only owns the
            bottom clearance buffer that clears floating browser chrome when the
-           scroller reaches its end. */
+           scroller reaches its end. `min-height: 100%` (not 100dvh) keeps short
+           screens from forcing a phantom 40px scroll inside the padded scroller. */
         overflow-y: visible;
         padding-bottom: calc(var(--safe-bottom) + 1.5rem);
     }
