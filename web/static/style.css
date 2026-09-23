@@ -17,11 +17,15 @@
     --transition-smooth: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 
     /* Mobile viewport geometry tokens (mobile-viewport-safari-fidelity).
-       --safe-bottom indirection lets tests inject a literal inset (headless
+       --safe-* indirections let tests inject literal insets (headless
        Chromium reports env(safe-area-inset-*) as 0px).
-       --tab-bar-h is the canonical tab bar height: 44px tab + 1px top border. */
+       --tab-h is the interactive tab touch target (44px).
+       --tab-bar-h is the canonical total height: 44px tab + 1px top border. */
     --safe-bottom: env(safe-area-inset-bottom, 0px);
-    --tab-bar-h: 45px;
+    --safe-left: env(safe-area-inset-left, 0px);
+    --safe-right: env(safe-area-inset-right, 0px);
+    --tab-h: 44px;
+    --tab-bar-h: calc(var(--tab-h) + 1px);
 }
 
 /* Base resets */
@@ -98,6 +102,8 @@ body {
     justify-content: center;
     align-items: center;
     padding: 1.5rem;
+    padding-left: max(1.5rem, var(--safe-left));
+    padding-right: max(1.5rem, var(--safe-right));
     position: relative;
     z-index: 10;
 }
@@ -1878,7 +1884,7 @@ body:not(.crt-effect) .screen-flicker {
         font-size: 1.2rem;
         color: var(--text-muted);
         cursor: pointer;
-        min-height: calc(var(--tab-bar-h) - 1px);
+        min-height: var(--tab-h);
         touch-action: manipulation;
         -webkit-tap-highlight-color: transparent;
         transition: color var(--transition-fast);
@@ -1955,8 +1961,6 @@ body:not(.crt-effect) .screen-flicker {
 
     /* Action chips must meet the 44px touch target on handsets. */
     .action-chip {
-        display: inline-flex;
-        align-items: center;
         min-height: 44px;
     }
 
@@ -1986,11 +1990,6 @@ body:not(.crt-effect) .screen-flicker {
 
     .panel-footer-nav {
         padding-bottom: env(safe-area-inset-bottom, 0px);
-    }
-
-    .app-container {
-        padding-left: max(1.5rem, env(safe-area-inset-left, 1.5rem));
-        padding-right: max(1.5rem, env(safe-area-inset-right, 1.5rem));
     }
 
     /* ─── Responsive Grids ─────────────────────────────────────────────────────────── */

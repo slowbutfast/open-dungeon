@@ -506,7 +506,7 @@ class TestMobileViewportErgonomics:
     def test_tab_bar_token_measurement(self, gameplay_page):
         page = gameplay_page
         # Zero inset: the tab bar must still keep the 8px clearance floor and
-        # its measured height minus padding must equal --tab-bar-h (45px).
+        # its measured height minus padding must equal --tab-bar-h.
         page.evaluate("document.documentElement.style.setProperty('--safe-bottom', '0px')")
         page.wait_for_timeout(150)
 
@@ -514,17 +514,26 @@ class TestMobileViewportErgonomics:
             () => {
                 const bar = document.getElementById('mobile-tab-bar');
                 const cs = getComputedStyle(bar);
+                // Resolve the --tab-bar-h token through a probe element: its
+                // computed value is calc(var(--tab-h) + 1px), which parseFloat
+                // cannot read directly from getPropertyValue().
+                const probe = document.createElement('div');
+                probe.style.height = 'var(--tab-bar-h)';
+                document.body.appendChild(probe);
+                const resolvedToken = parseFloat(getComputedStyle(probe).height);
+                probe.remove();
                 return {
                     height: bar.getBoundingClientRect().height,
                     paddingBottom: parseFloat(cs.paddingBottom),
+                    expectedContentH: resolvedToken || 45,
                 };
             }
         """)
 
         content_height = measured["height"] - measured["paddingBottom"]
-        assert abs(content_height - 45) <= 1.0, (
-            f"Tab bar content height {content_height}px != --tab-bar-h (45px) "
-            f"at {page._viewport_name}"
+        assert abs(content_height - measured["expectedContentH"]) <= 1.0, (
+            f"Tab bar content height {content_height}px != --tab-bar-h "
+            f"({measured['expectedContentH']}px) at {page._viewport_name}"
         )
         assert measured["paddingBottom"] >= 8, (
             f"Tab bar padding-bottom floor {measured['paddingBottom']}px < 8px "
@@ -584,6 +593,32 @@ class TestMobileViewportErgonomics:
             f".app-container padding-right {padding['right']}px < 24px at {page._viewport_name}"
         )
 
+    def test_mobile_side_padding_landscape_inset(self, page):
+        # Landscape orientation (e.g. iPhone 12/13/14 landscape 844x390)
+        page.set_viewport_size({"width": 844, "height": 390})
+        page.goto("http://127.0.0.1:5007")
+        page.wait_for_selector("#startup-screen")
+
+        # Inject simulated landscape notch insets (e.g. 44px)
+        page.evaluate("""
+            () => {
+                document.documentElement.style.setProperty('--safe-left', '44px');
+                document.documentElement.style.setProperty('--safe-right', '44px');
+            }
+        """)
+        padding = page.evaluate("""
+            () => {
+                const cs = getComputedStyle(document.querySelector('.app-container'));
+                return { left: parseFloat(cs.paddingLeft), right: parseFloat(cs.paddingRight) };
+            }
+        """)
+        assert padding["left"] >= 44, (
+            f".app-container padding-left {padding['left']}px < 44px with injected safe-left inset"
+        )
+        assert padding["right"] >= 44, (
+            f".app-container padding-right {padding['right']}px < 44px with injected safe-right inset"
+        )
+
     def test_dynamic_viewport_height_declarations(self, page):
         page.goto(f"http://127.0.0.1:5007")
         page.wait_for_selector("#llm-status-pill:not(.llm-pill-checking)")
@@ -606,6 +641,15 @@ class TestMobileViewportErgonomics:
             css, re.DOTALL,
         ), ".sidebar-panel must declare max-height: 40vh then max-height: 40dvh"
 
+        # Computed behavior check under mobile viewport
+        page.set_viewport_size({"width": 375, "height": 667})
+        page.wait_for_timeout(100)
+        body_h = page.evaluate("parseFloat(getComputedStyle(document.body).height)")
+        inner_h = page.evaluate("window.innerHeight")
+        assert abs(body_h - inner_h) <= 1.0, (
+            f"Body computed height {body_h}px does not match viewport height {inner_h}px"
+        )
+
     def test_access_gate_mobile_viewport(self, page):
         page.set_viewport_size({"width": 375, "height": 667})
         gate_path = os.path.join(REPO_ROOT, "web", "templates", "gate.html")
@@ -623,6 +667,11 @@ class TestMobileViewportErgonomics:
         page.goto("http://127.0.0.1:5007/gate-mobile-test")
         page.wait_for_load_state("load")
         page.wait_for_selector("#gate-signin")
+
+        viewport_meta = page.locator('meta[name="viewport"]').get_attribute('content')
+        assert "interactive-widget=resizes-content" in viewport_meta, (
+            f"Gate viewport meta missing interactive-widget=resizes-content: {viewport_meta}"
+        )
 
         overflow = page.evaluate("""
             () => {

@@ -291,8 +291,11 @@ so mobile clipping is a geometry problem, not a scroll one. It is solved entirel
 
 | Token | Value | Purpose |
 |-------|-------|---------|
-| `--safe-bottom` | `env(safe-area-inset-bottom, 0px)` | Single indirection point for the bottom inset. Headless Chromium reports `env(safe-area-inset-*)` as `0px`, so tests inject a literal value (`34px`) to simulate a notched device / floating Safari toolbar. |
-| `--tab-bar-h` | `45px` | Canonical tab-bar height (44px tab + 1px top border). `.mobile-tab` sizes from `calc(var(--tab-bar-h) - 1px)` and `.game-dashboard` pads by `calc(var(--tab-bar-h) + max(8px, var(--safe-bottom)))`, so the bar and the content clearance can never drift apart. |
+| `--safe-bottom` | `env(safe-area-inset-bottom, 0px)` | Single indirection point for the bottom inset (headless Chromium injects `34px`). |
+| `--safe-left` | `env(safe-area-inset-left, 0px)` | Indirection for landscape notch insets (tests inject `44px`). |
+| `--safe-right` | `env(safe-area-inset-right, 0px)` | Indirection for landscape notch insets (tests inject `44px`). |
+| `--tab-h` | `44px` | Canonical tab touch target min-height. |
+| `--tab-bar-h` | `calc(var(--tab-h) + 1px)` | Total tab-bar height (tab + 1px top border). `.game-dashboard` pads by `calc(var(--tab-bar-h) + max(8px, var(--safe-bottom)))`, so the bar and the content clearance can never drift apart. |
 
 ### Dynamic viewport height strategy
 
@@ -321,14 +324,16 @@ height fix automatically.
 
 ### Side padding and touch targets
 
-- `.app-container { padding-left/right: max(1.5rem, env(safe-area-inset-*, 1.5rem)); }`.
-  `env()` is *defined* as `0px` on modern browsers, so a bare
-  `env(safe-area-inset-left, 1.5rem)` never applies its fallback and collapses to 0px.
-  The `max()` wrapper enforces the 1.5rem floor while still expanding on notched
-  landscape devices.
-- `.action-chip` and `.btn-utility` get `min-height: 44px` on mobile; `.action-chip`
-  keeps `display: inline-flex; align-items: center` so the chip's label stays centered
-  when the box grows. `.mobile-tab` and `.suggestion-chip` already met 44px.
+- `.app-container { padding-left/right: max(1.5rem, var(--safe-left/right)); }` — declared
+  on the base rule, so it applies at every viewport width (landscape phones land in the
+  tablet/desktop layout, where the notch still needs clearing). `env()` is *defined* as
+  `0px` on modern browsers, so a bare `env(safe-area-inset-left, 1.5rem)` never applies
+  its fallback and collapses to 0px. The `max()` wrapper enforces the 1.5rem floor while
+  still expanding on notched landscape devices.
+- `.mobile-tab` sizes from `var(--tab-h)`; `.action-chip` and `.btn-utility` get
+  `min-height: 44px` on mobile. `.action-chip` already carries
+  `display: inline-flex; align-items: center` in its base rule, so the mobile override
+  only sets the height. `.suggestion-chip` already met 44px.
 
 ### Viewport metadata
 

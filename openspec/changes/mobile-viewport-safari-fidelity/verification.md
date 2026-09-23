@@ -1,6 +1,6 @@
 ## Executive Summary & Environment
 
-- **Status**: All specs verified passing. `tests/e2e/test_mobile_viewport.py` is **79 passed** (64 pre-existing + 15 new), 0 failed.
+- **Status**: All specs verified passing. `tests/e2e/test_mobile_viewport.py` is **80 passed** (64 pre-existing + 16 new), 0 failed.
 - **Date**: 2026-09-23
 - **Environment**: Linux (container), Python 3.11.2 via project interpreter `./venv/bin/python`, pytest 9.1.1 + pytest-playwright 0.9.0, Node.js v22.23.2 (`node web/server.js`, `MOCK_LLM=1`, port 5007), Chromium bundled in `~/.cache/ms-playwright`.
 - **Scope of verification**: Pure static CSS + template-metadata change (`web/static/style.css`, `web/templates/index.html`, `web/templates/gate.html`). No backend, engine, or data-store changes. Geometry is asserted empirically in headless Chromium; physical iOS Safari remains a manual check (see Deferrals).
@@ -16,7 +16,7 @@
 | `mobile-viewport-ergonomics` | `#### Scenario: Console input and action chips clearance` | `test_gameplay_safe_area_clearance` — `console-input-row` bottom `(628px) <= tab bar top (765px)`; `test_action_chip_and_input_touch_targets` — chip/utility boxes render above the fixed bar | **PASS** |
 | `mobile-viewport-ergonomics` | `### Requirement: Zero Horizontal Overflow and Side Margin Preservation`<br>`#### Scenario: Compact mobile viewport (375px)` | `TestNoHorizontalOverflow::test_startup_screen_no_overflow[iphone-se]`, `test_preset_screen_no_overflow[iphone-se]`, `test_character_screen_no_overflow[iphone-se]` | **PASS** |
 | `mobile-viewport-ergonomics` | `#### Scenario: Standard mobile and tablet viewports (390px - 768px)` | `TestNoHorizontalOverflow::*_no_overflow[iphone-12 / iphone-16-pro / ipad-mini]` | **PASS** |
-| `mobile-viewport-ergonomics` | `#### Scenario: Mobile side margin preservation` | `test_mobile_side_padding_floor[3]` — computed `.app-container` `padding-left/right == 24px (>= 1.5rem)` with default insets | **PASS** |
+| `mobile-viewport-ergonomics` | `#### Scenario: Mobile side margin preservation` | `test_mobile_side_padding_floor[3]` — computed `.app-container` `padding-left/right == 24px (>= 1.5rem)` with default insets; `test_mobile_side_padding_landscape_inset` — injected `--safe-left/right: 44px` at 844×390 expands padding to `44px` (landscape notch) | **PASS** |
 | `mobile-viewport-ergonomics` | `### Requirement: Minimum Touch Target Accessibility`<br>`#### Scenario: Mobile navigation tabs` | `test_tab_bar_token_measurement` proves 44px tab height via `--tab-bar-h`; width is `flex: 1` across 5 tabs (≈75px at 375px). Audited in CSS (`web/static/style.css` `.mobile-tab`), not directly asserted for width | **PASS (audit)** |
 | `mobile-viewport-ergonomics` | `#### Scenario: Wizard buttons, cards, and inputs` | Pre-existing `TestTouchTargetSizes::test_startup_buttons_touch_targets` / `test_preset_cards_touch_targets` (all 4 viewports) + mobile CSS `.btn`, `.preset-card`, `.char-card`, `input/textarea/select { min-height: 44px }` | **PASS** |
 | `mobile-viewport-ergonomics` | `#### Scenario: Action chips and input controls` | `test_action_chip_and_input_touch_targets[3]` — `.action-chip` and visible `.btn-utility` each `>= 44px` tall | **PASS** |
@@ -54,7 +54,7 @@
 | CSS token indirection (`--safe-bottom`, `--tab-bar-h`) | `web/static/style.css` (`:root`) | `TestMobileViewportErgonomics::test_tab_bar_token_measurement` |
 | Dual-layer bottom clearance with 8px floor | `web/static/style.css` (`.mobile-tab-bar`, `.game-dashboard`) | `test_gameplay_safe_area_clearance` |
 | `vh → dvh` cascade | `web/static/style.css` (`body`, wizard screens, `.sidebar-panel`) | `test_dynamic_viewport_height_declarations` |
-| `max()`-wrapped side insets | `web/static/style.css` (`.app-container`) | `test_mobile_side_padding_floor` |
+| `max()`-wrapped side insets (`--safe-left/right`, base `.app-container`) | `web/static/style.css` (base rule + `:root` tokens) | `test_mobile_side_padding_floor`, `test_mobile_side_padding_landscape_inset` |
 | `interactive-widget=resizes-content` | `web/templates/index.html`, `web/templates/gate.html` | static grep (Empirical Logs) |
 | Playwright `--safe-bottom` injection seam | `tests/e2e/test_mobile_viewport.py` (`gameplay_page`, `TestMobileViewportErgonomics`) | `pytest tests/e2e/test_mobile_viewport.py -v` |
 
@@ -71,6 +71,11 @@
   - **Reason**: No WebKit device or emulator in the CI container; headless Chromium reports `env(safe-area-inset-*)` as `0px`, and the injected `--safe-bottom` proves the CSS algebra but not WebKit's real inset reporting. Listed under Manual Verification in `tests.md`.
 - **Tablet `768–1023px` `.sidebar-panel` still uses `40vh`**:
   - **Reason**: Spec scenario scopes the dynamic-height sidebar constraint to viewports `< 768px`; the tablet block was intentionally left unmodified to stay within the spec. A future change can extend `40dvh` there if tablet browser chrome causes the same crowding.
+
+## Manual Verification Checklist
+
+- [ ] **Android Chrome Virtual Keyboard Audit**: Open on Android Chrome with the virtual keyboard raised; confirm `interactive-widget=resizes-content` maintains input visibility and console scrollability without visual clipping.
+- [ ] **iOS Safari (Tab Bar / Single Tab / landscape)**: Confirm bottom tab-bar and home-indicator clearance plus landscape notch insets on a physical device (see `tests.md` Manual Verification).
 
 ## Empirical Execution Logs & Evidence
 
@@ -108,14 +113,14 @@ Verbatim result (tail):
 tests/e2e/test_mobile_viewport.py::TestScreenshotCapture::test_screenshot_character[chromium-ipad-mini] PASSED [ 98%]
 tests/e2e/test_mobile_viewport.py::TestScreenshotCapture::test_screenshot_character[chromium-ipad-mini] PASSED [100%]
 
-============================= 79 passed in 50.43s ==============================
+============================= 80 passed in 49.71s ==============================
 ```
 
 New suite only:
 ```
 tests/e2e/test_mobile_viewport.py::TestMobileViewportErgonomics::test_gameplay_safe_area_clearance[iphone-se-chromium] PASSED
-... (15 tests) ...
-============================= 15 passed in 11.36s ==============================
+... (16 tests) ...
+============================= 16 passed in 11.17s ==============================
 ```
 
 ### Post-fix geometry probe (Chromium, 390×844, `--safe-bottom: 34px`)
@@ -156,7 +161,7 @@ web/templates/gate.html:5:    <meta name="viewport" content="width=device-width,
 ```
 Expected output:
 ```
-============================= 15 passed in ~11s ==============================
+============================= 16 passed in ~11s ==============================
 ```
 
 Full-suite audit:
@@ -165,5 +170,5 @@ Full-suite audit:
 ```
 Expected output:
 ```
-============================= 79 passed in ~50s ==============================
+============================= 80 passed in ~50s ==============================
 ```
