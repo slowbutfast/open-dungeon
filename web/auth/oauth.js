@@ -5,14 +5,16 @@
 export const VERCEL_AUTHORIZE_URL = 'https://vercel.com/oauth/authorize';
 export const VERCEL_TOKEN_URL = 'https://api.vercel.com/login/oauth/token';
 export const VERCEL_USERINFO_URL = 'https://api.vercel.com/login/oauth/userinfo';
-export const OAUTH_SCOPE = 'openid email profile';
+export const OAUTH_SCOPE = null;
 
 export function buildAuthorizeUrl({ clientId, redirectUri, state, scope = OAUTH_SCOPE }) {
     const url = new URL(VERCEL_AUTHORIZE_URL);
     url.searchParams.set('client_id', clientId);
     url.searchParams.set('redirect_uri', redirectUri);
     url.searchParams.set('response_type', 'code');
-    url.searchParams.set('scope', scope);
+    if (scope) {
+        url.searchParams.set('scope', scope);
+    }
     url.searchParams.set('state', state);
     return url.toString();
 }

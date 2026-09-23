@@ -154,7 +154,7 @@ test('parseCookieHeader splits and decodes cookie pairs', () => {
 
 // ─── oauth wire helpers ────────────────────────────────────────────────────
 
-test('buildAuthorizeUrl targets Vercel with client_id, redirect_uri, scope, state', () => {
+test('buildAuthorizeUrl targets Vercel with client_id, redirect_uri, state (scope omitted by default)', () => {
     const url = new URL(buildAuthorizeUrl({
         clientId: 'client_123',
         redirectUri: 'https://example.com/api/auth/callback',
@@ -164,7 +164,17 @@ test('buildAuthorizeUrl targets Vercel with client_id, redirect_uri, scope, stat
     assert.equal(url.searchParams.get('client_id'), 'client_123');
     assert.equal(url.searchParams.get('redirect_uri'), 'https://example.com/api/auth/callback');
     assert.equal(url.searchParams.get('state'), 'state_abc');
-    assert.equal(url.searchParams.get('scope'), 'openid email profile');
+    assert.equal(url.searchParams.has('scope'), false);
+});
+
+test('buildAuthorizeUrl includes scope when explicitly configured', () => {
+    const url = new URL(buildAuthorizeUrl({
+        clientId: 'client_123',
+        redirectUri: 'https://example.com/api/auth/callback',
+        state: 'state_abc',
+        scope: 'openid'
+    }));
+    assert.equal(url.searchParams.get('scope'), 'openid');
 });
 
 test('GET /api/auth/callback forwards provider error code in redirect', async () => {
@@ -236,7 +246,7 @@ test('fetchUserProfile surfaces the raw claim keys when sub is absent', async ()
 
 // ─── login route gating ────────────────────────────────────────────────────
 
-test('GET /api/auth/login redirects to Vercel in local mode when a client id is configured', async () => {
+test('GET /api/auth/login redirects to Vercel in local mode when a client id is configured (scope omitted by default)', async () => {
     const app = express();
     app.use('/api', createAuthRouter(testConfig({ vercelClientId: 'client_xyz' })));
 
@@ -247,7 +257,20 @@ test('GET /api/auth/login redirects to Vercel in local mode when a client id is 
         assert.match(location, /^https:\/\/vercel\.com\/oauth\/authorize\?/);
         assert.match(location, /client_id=client_xyz/);
         assert.match(location, /state=[0-9a-f]{64}/);
+        assert.equal(/scope=/.test(location), false);
         assert.match(res.headers.get('set-cookie') || '', /od_oauth_state=/);
+    });
+});
+
+test('GET /api/auth/login passes scope when vercelOAuthScope is configured', async () => {
+    const app = express();
+    app.use('/api', createAuthRouter(testConfig({ vercelClientId: 'client_xyz', vercelOAuthScope: 'openid' })));
+
+    await withServer(app, async (base) => {
+        const res = await fetch(base + '/api/auth/login', { redirect: 'manual' });
+        assert.equal(res.status, 302);
+        const location = res.headers.get('location');
+        assert.match(location, /scope=openid/);
     });
 });
 
