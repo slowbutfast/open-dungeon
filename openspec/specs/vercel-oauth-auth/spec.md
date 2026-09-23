@@ -6,22 +6,26 @@ Defines the OAuth 2.0 / OIDC authentication flow using "Sign in with Vercel", ta
 ## Requirements
 
 ### Requirement: Vercel OAuth Authorization Initiation
-The system SHALL provide an authentication initiation endpoint at `/api/auth/login` that constructs a standard OAuth 2.0 authorization URL directed to Vercel (`https://vercel.com/oauth/authorize`), generates a cryptographically secure random state parameter, stores that state in a signed or HttpOnly cookie, and redirects the user.
+The system SHALL provide an authentication initiation endpoint at `/api/auth/login` that constructs a standard OAuth 2.0 authorization URL directed to Vercel (`https://vercel.com/oauth/authorize`), generates a cryptographically secure random state parameter, stores that state in an HttpOnly cookie, generates a PKCE code verifier and challenge (RFC 7636, S256), stores the verifier in an `od_pkce` HttpOnly cookie, and redirects the user.
 
 #### Scenario: User initiates login
 - **WHEN** a user navigates to `/api/auth/login`
-- **THEN** a 32-byte cryptographic random state is generated and set in an `od_oauth_state` HttpOnly cookie (`Secure; SameSite=Lax; Path=/; Max-Age=600`), and the user is redirected to `https://vercel.com/oauth/authorize` with query parameters `client_id`, `redirect_uri`, and `state` (and optional `scope` if `VERCEL_OAUTH_SCOPE` is configured; scope is omitted by default so Vercel applies the application's registered dashboard scopes). The authorization redirect SHALL be issued whenever `VERCEL_APP_CLIENT_ID` is configured, including non-`VERCEL=1` local development environments, so the flow can be exercised against a test app without the production flag.
+- **THEN** a 32-byte cryptographic random state is generated and set in an `od_oauth_state` HttpOnly cookie (`Secure; SameSite=Lax; Path=/; Max-Age=600`), a 32-byte base64url PKCE verifier is generated and set in an `od_pkce` HttpOnly cookie (`Secure; SameSite=Lax; Path=/; Max-Age=600`), and the user is redirected to `https://vercel.com/oauth/authorize` with query parameters `client_id`, `redirect_uri`, `state`, `code_challenge`, and `code_challenge_method=S256`. The authorization redirect SHALL be issued whenever `VERCEL_APP_CLIENT_ID` is configured, including non-`VERCEL=1` local development environments, so the flow can be exercised against a test app without the production flag.
 
 #### Scenario: Login attempted without a configured client id
 - **WHEN** a user navigates to `/api/auth/login` and `VERCEL_APP_CLIENT_ID` is unset
 - **THEN** the user is redirected to `/?auth_error=oauth_not_configured` without contacting Vercel
 
 ### Requirement: OAuth Callback and Code Exchange
-The system SHALL provide an authorization callback handler at `/api/auth/callback` that validates the returning state parameter against the stored state cookie, exchanges the authorization code for access tokens via `https://api.vercel.com/login/oauth/token`, and retrieves user identity profile from `https://api.vercel.com/login/oauth/userinfo`.
+The system SHALL provide an authorization callback handler at `/api/auth/callback` that validates the returning state parameter against the stored state cookie, validates the presence of the PKCE verifier cookie, exchanges the authorization code for access tokens via `https://api.vercel.com/login/oauth/token` supplying `code_verifier`, and retrieves user identity profile from `https://api.vercel.com/login/oauth/userinfo`.
 
 #### Scenario: Valid authorization callback
-- **WHEN** Vercel redirects back to `/api/auth/callback` with matching `state` and a valid `code`
-- **THEN** the server exchanges the code for tokens, extracts the user's Vercel profile (`sub`, `email`, `name`), clears the `od_oauth_state` cookie, sets an authenticated `od_session` cookie, and redirects the user to `/`
+- **WHEN** Vercel redirects back to `/api/auth/callback` with matching `state`, valid `code`, and an existing `od_pkce` cookie
+- **THEN** the server exchanges the code for tokens including `code_verifier`, extracts the user's Vercel profile (`sub`, `email`, `name`), clears the `od_oauth_state` and `od_pkce` cookies, sets an authenticated `od_session` cookie, and redirects the user to `/`
+
+#### Scenario: Missing PKCE verifier cookie on callback
+- **WHEN** `/api/auth/callback` is invoked with valid `state` but without an `od_pkce` cookie
+- **THEN** the server logs `OAUTH_CALLBACK_NO_VERIFIER` and redirects to `/?auth_error=oauth_failed` without contacting the token endpoint
 
 #### Scenario: CSRF state mismatch
 - **WHEN** `/api/auth/callback` is invoked with a `state` query parameter that does not match the `od_oauth_state` cookie

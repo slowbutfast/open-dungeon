@@ -32,12 +32,21 @@ jobs:
               const url = new URL(m.buildAuthorizeUrl({
                 clientId: 'cl_f5Ahn5fc52lCp6oHJ6Kv2uZEVipOizHL',
                 redirectUri: 'https://open-dungeon-three.vercel.app/api/auth/callback',
-                state: 'test_state'
+                state: 'test_state',
+                codeChallenge: 'test_challenge'
               }));
               if (url.searchParams.has('scope')) {
                 console.error('ERROR: scope parameter was included by default: ' + url.searchParams.get('scope'));
                 process.exit(1);
               }
-              console.log('OAuth Authorize URL verified (scope omitted): ' + url.toString());
+              if (url.searchParams.get('code_challenge') !== 'test_challenge') {
+                console.error('ERROR: code_challenge parameter was missing or mismatched');
+                process.exit(1);
+              }
+              if (url.searchParams.get('code_challenge_method') !== 'S256') {
+                console.error('ERROR: code_challenge_method parameter was not S256');
+                process.exit(1);
+              }
+              console.log('OAuth Authorize URL verified (scope omitted, PKCE challenge set): ' + url.toString());
             });
           "

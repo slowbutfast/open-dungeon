@@ -213,9 +213,14 @@ default-deny auth + quota middleware. The frontend surfaces that state through
   sees *"Signed in as &lt;name|email|sub&gt;"* plus a **Sign out** link to
   `/api/auth/logout`; otherwise a **Sign in with Vercel** link to
   `/api/auth/login` is shown. Login redirects to Vercel's authorization endpoint
-  with `scope` omitted by default (configured via optional `VERCEL_OAUTH_SCOPE`),
-  allowing the application's Vercel dashboard scope configuration to govern
-  without triggering `invalid_scope` errors.
+  with `scope` omitted (allowing Vercel dashboard application scopes to govern),
+  and implements Proof Key for Code Exchange (PKCE, RFC 7636). A 32-byte base64url
+  verifier is stored in an `od_pkce` HttpOnly cookie and its SHA-256 `code_challenge`
+  is sent with `code_challenge_method=S256`. At callback, the verifier is read from
+  the cookie and passed to the token exchange POST body; if the verifier cookie is
+  absent, the callback fast-fails with `OAUTH_CALLBACK_NO_VERIFIER` without contacting
+  the token endpoint. Both `od_oauth_state` and `od_pkce` are cleared upon establishing
+  the authenticated `od_session` cookie.
 - **Remaining-quota indicator** (`#val-quota` in the status bar):
   `initAuthBanner()` calls `GET /api/user/quota` and `renderQuota()` prints
   `$remaining / $limit`, flagging the element when the balance hits zero.
