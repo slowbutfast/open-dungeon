@@ -11,11 +11,15 @@ import express from 'express';
 import {
     SESSION_COOKIE,
     STATE_COOKIE,
+    PKCE_COOKIE,
     signSession,
     verifySession,
     generateState,
+    generateVerifier,
+    challengeFromVerifier,
     createSessionCookie,
     createStateCookie,
+    createPkceCookie,
     clearCookie,
     parseCookieHeader
 } from '../../web/auth/session.js';
@@ -132,6 +136,30 @@ test('createStateCookie is scoped to Max-Age=600 and HttpOnly', () => {
     assert.match(cookie, /Max-Age=600/);
 });
 
+test('createPkceCookie is scoped to Max-Age=600 and HttpOnly with Secure attributes', () => {
+    const cookie = createPkceCookie('xyz_verifier');
+    assert.ok(cookie.startsWith(`${PKCE_COOKIE}=xyz_verifier`));
+    assert.match(cookie, /HttpOnly/);
+    assert.match(cookie, /Secure/);
+    assert.match(cookie, /SameSite=Lax/);
+    assert.match(cookie, /Path=\//);
+    assert.match(cookie, /Max-Age=600/);
+});
+
+test('generateVerifier returns a 43-character base64url random string', () => {
+    const v1 = generateVerifier();
+    const v2 = generateVerifier();
+    assert.equal(v1.length, 43);
+    assert.match(v1, /^[A-Za-z0-9_-]{43}$/);
+    assert.notEqual(v1, v2);
+});
+
+test('challengeFromVerifier matches RFC 7636 Appendix B vector', () => {
+    const verifier = 'dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk';
+    const expected = 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM';
+    assert.equal(challengeFromVerifier(verifier), expected);
+});
+
 test('clearCookie expires the cookie in the past', () => {
     const cookie = clearCookie(SESSION_COOKIE);
     assert.match(cookie, /Max-Age=0/);
@@ -154,27 +182,31 @@ test('parseCookieHeader splits and decodes cookie pairs', () => {
 
 // ─── oauth wire helpers ────────────────────────────────────────────────────
 
-test('buildAuthorizeUrl targets Vercel with client_id, redirect_uri, state (scope omitted by default)', () => {
+test('buildAuthorizeUrl targets Vercel with client_id, redirect_uri, state, code_challenge (scope omitted by default)', () => {
     const url = new URL(buildAuthorizeUrl({
         clientId: 'client_123',
         redirectUri: 'https://example.com/api/auth/callback',
-        state: 'state_abc'
+        state: 'state_abc',
+        codeChallenge: 'chall_123',
+        codeChallengeMethod: 'S256'
     }));
     assert.equal(url.origin + url.pathname, 'https://vercel.com/oauth/authorize');
     assert.equal(url.searchParams.get('client_id'), 'client_123');
     assert.equal(url.searchParams.get('redirect_uri'), 'https://example.com/api/auth/callback');
     assert.equal(url.searchParams.get('state'), 'state_abc');
+    assert.equal(url.searchParams.get('code_challenge'), 'chall_123');
+    assert.equal(url.searchParams.get('code_challenge_method'), 'S256');
     assert.equal(url.searchParams.has('scope'), false);
 });
 
-test('buildAuthorizeUrl includes scope when explicitly configured', () => {
+test('buildAuthorizeUrl omits code_challenge when not provided', () => {
     const url = new URL(buildAuthorizeUrl({
         clientId: 'client_123',
         redirectUri: 'https://example.com/api/auth/callback',
-        state: 'state_abc',
-        scope: 'openid'
+        state: 'state_abc'
     }));
-    assert.equal(url.searchParams.get('scope'), 'openid');
+    assert.equal(url.searchParams.has('code_challenge'), false);
+    assert.equal(url.searchParams.has('code_challenge_method'), false);
 });
 
 test('GET /api/auth/callback forwards provider error code in redirect', async () => {
@@ -188,7 +220,33 @@ test('GET /api/auth/callback forwards provider error code in redirect', async ()
     });
 });
 
-test('exchangeCodeForToken POSTs the code to the Vercel token endpoint', async () => {
+test('GET /api/auth/callback fast-fails without contacting token endpoint when PKCE cookie is absent', async () => {
+    const app = express();
+    app.use('/api', createAuthRouter(testConfig()));
+
+    const seenErrors = [];
+    const origError = console.error;
+    console.error = (...args) => seenErrors.push(args);
+
+    try {
+        await withServer(app, async (base) => {
+            const res = await fetch(base + '/api/auth/callback?state=state_abc&code=code_123', {
+                headers: {
+                    cookie: 'od_oauth_state=state_abc' // state valid, od_pkce absent
+                },
+                redirect: 'manual'
+            });
+            assert.equal(res.status, 302);
+            assert.equal(res.headers.get('location'), '/?auth_error=oauth_failed');
+        });
+    } finally {
+        console.error = origError;
+    }
+
+    assert.equal(seenErrors.some(e => e[0] === 'OAUTH_CALLBACK_NO_VERIFIER'), true);
+});
+
+test('exchangeCodeForToken POSTs the code and code_verifier with Accept: application/json', async () => {
     let seen = null;
     const fetchImpl = async (input, init) => {
         seen = { input, init };
@@ -196,15 +254,19 @@ test('exchangeCodeForToken POSTs the code to the Vercel token endpoint', async (
     };
     const token = await exchangeCodeForToken({
         code: 'code_1', clientId: 'cid', clientSecret: 'csecret',
-        redirectUri: 'https://example.com/api/auth/callback', fetchImpl
+        redirectUri: 'https://example.com/api/auth/callback',
+        codeVerifier: 'verifier_xyz',
+        fetchImpl
     });
     assert.equal(token.access_token, 'tok_1');
     assert.equal(seen.input, 'https://api.vercel.com/login/oauth/token');
     assert.equal(seen.init.method, 'POST');
+    assert.equal(seen.init.headers['Accept'], 'application/json');
     assert.match(seen.init.body, /grant_type=authorization_code/);
     assert.match(seen.init.body, /code=code_1/);
     assert.match(seen.init.body, /client_id=cid/);
     assert.match(seen.init.body, /client_secret=csecret/);
+    assert.match(seen.init.body, /code_verifier=verifier_xyz/);
 });
 
 test('exchangeCodeForToken throws on a non-ok token response', async () => {
@@ -246,7 +308,7 @@ test('fetchUserProfile surfaces the raw claim keys when sub is absent', async ()
 
 // ─── login route gating ────────────────────────────────────────────────────
 
-test('GET /api/auth/login redirects to Vercel in local mode when a client id is configured (scope omitted by default)', async () => {
+test('GET /api/auth/login redirects to Vercel with state and PKCE cookies and challenge params', async () => {
     const app = express();
     app.use('/api', createAuthRouter(testConfig({ vercelClientId: 'client_xyz' })));
 
@@ -257,20 +319,14 @@ test('GET /api/auth/login redirects to Vercel in local mode when a client id is 
         assert.match(location, /^https:\/\/vercel\.com\/oauth\/authorize\?/);
         assert.match(location, /client_id=client_xyz/);
         assert.match(location, /state=[0-9a-f]{64}/);
+        assert.match(location, /code_challenge=[A-Za-z0-9_-]{43}/);
+        assert.match(location, /code_challenge_method=S256/);
         assert.equal(/scope=/.test(location), false);
-        assert.match(res.headers.get('set-cookie') || '', /od_oauth_state=/);
-    });
-});
 
-test('GET /api/auth/login passes scope when vercelOAuthScope is configured', async () => {
-    const app = express();
-    app.use('/api', createAuthRouter(testConfig({ vercelClientId: 'client_xyz', vercelOAuthScope: 'openid' })));
-
-    await withServer(app, async (base) => {
-        const res = await fetch(base + '/api/auth/login', { redirect: 'manual' });
-        assert.equal(res.status, 302);
-        const location = res.headers.get('location');
-        assert.match(location, /scope=openid/);
+        const cookies = res.headers.getSetCookie ? res.headers.getSetCookie() : [res.headers.get('set-cookie')];
+        const cookieStr = cookies.join('; ');
+        assert.match(cookieStr, /od_oauth_state=/);
+        assert.match(cookieStr, /od_pkce=/);
     });
 });
 

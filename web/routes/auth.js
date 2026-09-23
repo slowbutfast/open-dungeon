@@ -4,10 +4,14 @@ import { config } from '../config.js';
 import {
     SESSION_COOKIE,
     STATE_COOKIE,
+    PKCE_COOKIE,
     generateState,
+    generateVerifier,
+    challengeFromVerifier,
     signSession,
     createSessionCookie,
     createStateCookie,
+    createPkceCookie,
     clearCookie,
     parseCookieHeader
 } from '../auth/session.js';
@@ -32,13 +36,16 @@ export function createAuthRouter(cfg = config) {
             return res.redirect('/?auth_error=oauth_not_configured');
         }
         const state = generateState();
+        const verifier = generateVerifier();
+        const codeChallenge = challengeFromVerifier(verifier);
         const redirectUri = resolveRedirectUri(req, cfg);
-        res.setHeader('Set-Cookie', createStateCookie(state));
+        res.setHeader('Set-Cookie', [createStateCookie(state), createPkceCookie(verifier)]);
         res.redirect(buildAuthorizeUrl({
             clientId: cfg.vercelClientId,
             redirectUri,
             state,
-            scope: cfg.vercelOAuthScope
+            codeChallenge,
+            codeChallengeMethod: 'S256'
         }));
     });
 
@@ -53,9 +60,14 @@ export function createAuthRouter(cfg = config) {
 
         const cookies = parseCookieHeader(req.headers && req.headers.cookie);
         const storedState = cookies[STATE_COOKIE];
+        const codeVerifier = cookies[PKCE_COOKIE];
         if (!state || !storedState || state !== storedState) {
             // CSRF: never contact the token endpoint on a state mismatch.
             return res.status(403).send('Forbidden');
+        }
+        if (!codeVerifier) {
+            console.error('OAUTH_CALLBACK_NO_VERIFIER', { hasState: Boolean(storedState) });
+            return res.redirect('/?auth_error=oauth_failed');
         }
 
         try {
@@ -64,7 +76,8 @@ export function createAuthRouter(cfg = config) {
                 code,
                 clientId: cfg.vercelClientId,
                 clientSecret: cfg.vercelClientSecret,
-                redirectUri
+                redirectUri,
+                codeVerifier
             });
             const profile = await fetchUserProfile({ accessToken: token.access_token });
             if (!profile.sub) {
@@ -76,7 +89,11 @@ export function createAuthRouter(cfg = config) {
                 { sub: profile.sub, email: profile.email, name: profile.name },
                 cfg.sessionSecret
             );
-            res.setHeader('Set-Cookie', [createSessionCookie(session), clearCookie(STATE_COOKIE)]);
+            res.setHeader('Set-Cookie', [
+                createSessionCookie(session),
+                clearCookie(STATE_COOKIE),
+                clearCookie(PKCE_COOKIE)
+            ]);
             res.redirect('/');
         } catch (err) {
             console.error('OAUTH_CALLBACK_EXCHANGE_FAILED', {
@@ -88,7 +105,11 @@ export function createAuthRouter(cfg = config) {
     });
 
     const logout = (req, res) => {
-        res.setHeader('Set-Cookie', [clearCookie(SESSION_COOKIE), clearCookie(STATE_COOKIE)]);
+        res.setHeader('Set-Cookie', [
+            clearCookie(SESSION_COOKIE),
+            clearCookie(STATE_COOKIE),
+            clearCookie(PKCE_COOKIE)
+        ]);
         res.redirect('/');
     };
     router.get('/auth/logout', logout);

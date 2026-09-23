@@ -7,7 +7,7 @@ export const VERCEL_TOKEN_URL = 'https://api.vercel.com/login/oauth/token';
 export const VERCEL_USERINFO_URL = 'https://api.vercel.com/login/oauth/userinfo';
 export const OAUTH_SCOPE = null;
 
-export function buildAuthorizeUrl({ clientId, redirectUri, state, scope = OAUTH_SCOPE }) {
+export function buildAuthorizeUrl({ clientId, redirectUri, state, scope = OAUTH_SCOPE, codeChallenge, codeChallengeMethod = 'S256' }) {
     const url = new URL(VERCEL_AUTHORIZE_URL);
     url.searchParams.set('client_id', clientId);
     url.searchParams.set('redirect_uri', redirectUri);
@@ -15,24 +15,32 @@ export function buildAuthorizeUrl({ clientId, redirectUri, state, scope = OAUTH_
     if (scope) {
         url.searchParams.set('scope', scope);
     }
+    if (codeChallenge) {
+        url.searchParams.set('code_challenge', codeChallenge);
+        url.searchParams.set('code_challenge_method', codeChallengeMethod);
+    }
     url.searchParams.set('state', state);
     return url.toString();
 }
 
-export async function exchangeCodeForToken({ code, clientId, clientSecret, redirectUri, fetchImpl = fetch }) {
+export async function exchangeCodeForToken({ code, clientId, clientSecret, redirectUri, codeVerifier, fetchImpl = fetch }) {
+    const params = {
+        grant_type: 'authorization_code',
+        code,
+        client_id: clientId,
+        client_secret: clientSecret,
+        redirect_uri: redirectUri
+    };
+    if (codeVerifier) {
+        params.code_verifier = codeVerifier;
+    }
     const res = await fetchImpl(VERCEL_TOKEN_URL, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
             'Accept': 'application/json'
         },
-        body: new URLSearchParams({
-            grant_type: 'authorization_code',
-            code,
-            client_id: clientId,
-            client_secret: clientSecret,
-            redirect_uri: redirectUri
-        }).toString()
+        body: new URLSearchParams(params).toString()
     });
     if (!res.ok) {
         const detail = typeof res.text === 'function' ? await res.text().catch(() => '') : '';

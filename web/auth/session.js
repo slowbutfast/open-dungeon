@@ -7,9 +7,11 @@ import crypto from 'crypto';
 
 export const SESSION_COOKIE = 'od_session';
 export const STATE_COOKIE = 'od_oauth_state';
+export const PKCE_COOKIE = 'od_pkce';
 
 export const SESSION_TTL_SECONDS = 604800; // 7 days
 export const STATE_TTL_SECONDS = 600;      // 10 minutes
+export const PKCE_TTL_SECONDS = 600;       // 10 minutes
 
 function base64url(buf) {
     return Buffer.from(buf).toString('base64url');
@@ -78,12 +80,26 @@ export function generateState() {
     return crypto.randomBytes(32).toString('hex');
 }
 
+/** High-entropy cryptographic random PKCE code verifier (32 bytes, base64url, 43 chars per RFC 7636). */
+export function generateVerifier() {
+    return crypto.randomBytes(32).toString('base64url');
+}
+
+/** Compute SHA-256 S256 code challenge from a code verifier per RFC 7636. */
+export function challengeFromVerifier(verifier) {
+    return crypto.createHash('sha256').update(verifier).digest('base64url');
+}
+
 export function createSessionCookie(token, { maxAge = SESSION_TTL_SECONDS } = {}) {
     return `${SESSION_COOKIE}=${token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${maxAge}`;
 }
 
 export function createStateCookie(state, { maxAge = STATE_TTL_SECONDS } = {}) {
     return `${STATE_COOKIE}=${state}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${maxAge}`;
+}
+
+export function createPkceCookie(verifier, { maxAge = PKCE_TTL_SECONDS } = {}) {
+    return `${PKCE_COOKIE}=${verifier}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${maxAge}`;
 }
 
 export function clearCookie(name) {
