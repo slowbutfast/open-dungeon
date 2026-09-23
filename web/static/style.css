@@ -15,6 +15,17 @@
     --panel-blur: blur(10px);
     --transition-fast: 0.15s ease-out;
     --transition-smooth: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+    /* Mobile viewport geometry tokens (mobile-viewport-safari-fidelity).
+       --safe-* indirections let tests inject literal insets (headless
+       Chromium reports env(safe-area-inset-*) as 0px).
+       --tab-h is the interactive tab touch target (44px).
+       --tab-bar-h is the canonical total height: 44px tab + 1px top border. */
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-left: env(safe-area-inset-left, 0px);
+    --safe-right: env(safe-area-inset-right, 0px);
+    --tab-h: 44px;
+    --tab-bar-h: calc(var(--tab-h) + 1px);
 }
 
 /* Base resets */
@@ -29,7 +40,8 @@ body {
     color: var(--text-user);
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
     height: 100vh;
-    width: 100vw;
+    height: 100dvh;
+    width: 100%;
     overflow: hidden;
     position: relative;
 }
@@ -90,6 +102,8 @@ body {
     justify-content: center;
     align-items: center;
     padding: 1.5rem;
+    padding-left: max(1.5rem, var(--safe-left));
+    padding-right: max(1.5rem, var(--safe-right));
     position: relative;
     z-index: 10;
 }
@@ -1840,7 +1854,7 @@ body:not(.crt-effect) .screen-flicker {
 
 @media (max-width: 767px) {
     .game-dashboard {
-        padding-bottom: 56px;
+        padding-bottom: calc(var(--tab-bar-h) + max(8px, var(--safe-bottom)));
     }
 
     .dashboard-body {
@@ -1856,6 +1870,7 @@ body:not(.crt-effect) .screen-flicker {
         z-index: 100;
         background: rgba(7, 9, 13, 0.98);
         border-top: 1px solid var(--border-light);
+        padding-bottom: max(8px, var(--safe-bottom));
         -webkit-transform: translate3d(0, 0, 0);
         transform: translate3d(0, 0, 0);
     }
@@ -1869,7 +1884,7 @@ body:not(.crt-effect) .screen-flicker {
         font-size: 1.2rem;
         color: var(--text-muted);
         cursor: pointer;
-        min-height: 44px;
+        min-height: var(--tab-h);
         touch-action: manipulation;
         -webkit-tap-highlight-color: transparent;
         transition: color var(--transition-fast);
@@ -1886,6 +1901,7 @@ body:not(.crt-effect) .screen-flicker {
     .sidebar-panel {
         display: none;
         max-height: 40vh;
+        max-height: 40dvh;
     }
 
     .sidebar-panel.active {
@@ -1943,6 +1959,11 @@ body:not(.crt-effect) .screen-flicker {
         padding: 0.5rem 0.75rem;
     }
 
+    /* Action chips must meet the 44px touch target on handsets. */
+    .action-chip {
+        min-height: 44px;
+    }
+
     .tab-btn {
         min-height: 44px;
         font-size: 1.1rem;
@@ -1954,6 +1975,7 @@ body:not(.crt-effect) .screen-flicker {
     #custom-preset-screen,
     #character-screen {
         min-height: 100vh;
+        min-height: 100dvh;
         overflow-y: auto;
     }
 
@@ -1968,11 +1990,6 @@ body:not(.crt-effect) .screen-flicker {
 
     .panel-footer-nav {
         padding-bottom: env(safe-area-inset-bottom, 0px);
-    }
-
-    .app-container {
-        padding-left: env(safe-area-inset-left, 1.5rem);
-        padding-right: env(safe-area-inset-right, 1.5rem);
     }
 
     /* ─── Responsive Grids ─────────────────────────────────────────────────────────── */

@@ -35,7 +35,7 @@
 | `test_shared_status_parser.py` | Unit (unittest + node probe) | — | The shared `parseStatusLine` (exported from `engine/llm.js`, imported by `mcp/tools/gameplay.js`): uppercase `[STATUS: ...]` with trailing content, the three-field line, the mock's two-field line (Moves optional), and a source guard that `gameplay.js` imports the shared parser rather than reimplementing it. |
 | `e2e/test_menu_navigation.py` | E2E (pytest + Playwright) | `e2e` | Browser-based UI — keyboard nav, hotkeys, preset/character flows, launch states, save/restore, lore scan, system prompt editing. Spawns a Node.js server on port 5001. |
 | `e2e/test_barter_ui.py` | E2E (pytest + Playwright) | `e2e` | Browser-based barter UI — trade offers, execution, inventory. Spawns a Node.js server. |
-| `e2e/test_mobile_viewport.py` | E2E (pytest + Playwright) | `e2e` | Browser-based mobile viewport — responsive layout, touch interactions. Spawns a Node.js server. |
+| `e2e/test_mobile_viewport.py` | E2E (pytest + Playwright) | `e2e` | Browser-based mobile viewport — responsive layout, touch interactions, safe-area clearance, dynamic viewport heights, desktop regression. Spawns a Node.js server. |
 
 ## Save Isolation
 
@@ -222,3 +222,28 @@ Five `node:test` suites were added to the unit seam (run via `npm run test:unit`
 | `quotaMiddleware.test.mjs` | Boots the real app via `web/server.js#createApp` on an ephemeral port and drives it with `fetch`: all six cost-incurring routes (`/api/init`, `/api/action`, `/api/summary`, `/api/lore`, `/api/scan`, `/api/goals/complete`) reject unauthenticated requests with 401 and over-cap users with 402 (`{error:"Quota exceeded", limit:2.50}`); the global cap returns 503; `GET /api/user/quota` returns `{authenticated, spent, remaining, limit}` and 401s unauthenticated. Ledger/session manager are injected via `createApp` overrides. |
 | `sessionManager.test.mjs` | `engine/sessionManager.js`: constructing a manager creates no engine; `getEngine` instantiates lazily (cached outside serverless); `AdventureState` JSON + `StructuredStore.db.serialize()` buffer round-trip through KV across a cold manager; distinct `sub`s get isolated state, databases, and on-disk roots. |
 | `vercelEntry.test.mjs` | `api/index.js` exports a dispatching Express app (`/api/ping` → 200); `validateProductionConfig` fails closed when secrets are missing, `MOCK_LLM=1`, or `LLM_BACKEND !== 'openrouter'`, and accepts a complete env; child-process boot checks confirm `api/index.js` boots cleanly and returns HTTP 500 with diagnostic breakdown on a bad Vercel env and zero on a complete one. |
+
+## Mobile Viewport Ergonomics (`mobile-viewport-safari-fidelity`)
+
+`tests/e2e/test_mobile_viewport.py::TestMobileViewportErgonomics` adds a
+`gameplay_page` fixture that walks the wizard (`1` → `.preset-card` → `ArrowRight` →
+`Enter` → `#btn-submit-custom-preset` → `.char-card` → `#btn-submit-character` →
+`#gameplay-screen:not(.hidden)`) on handsets (375/390/430px). Because headless
+Chromium reports `env(safe-area-inset-bottom)` as `0px`, the tests inject the CSS
+custom property `--safe-bottom` on `documentElement` to simulate real hardware.
+
+| Test | What it locks down |
+|------|--------------------|
+| `test_gameplay_safe_area_clearance` | With `--safe-bottom: 34px`, every `.mobile-tab` bottom `<= innerHeight - 34` and `.console-input-row` bottom `<= #mobile-tab-bar` top. |
+| `test_tab_bar_token_measurement` | At `--safe-bottom: 0px`, `barHeight - paddingBottom == 45` (`--tab-bar-h`) and computed `padding-bottom >= 8px`. |
+| `test_action_chip_and_input_touch_targets` | `.action-chip` (injected into the otherwise-hidden `#action-chips-list`) and every visible `.btn-utility` measure `>= 44px` tall. |
+| `test_mobile_side_padding_floor` | `.app-container` computed `padding-left/right >= 24px` (1.5rem) with default insets. |
+| `test_dynamic_viewport_height_declarations` | Fetches `/static/style.css` and asserts the `100vh`→`100dvh` `body`/wizard cascade and `.sidebar-panel` `40vh`→`40dvh`. |
+| `test_access_gate_mobile_viewport` | Serves the real `web/templates/gate.html` through `page.route` at 375px: zero horizontal overflow and `#gate-signin >= 44x44px` fully inside the viewport. |
+| `test_desktop_regression_layout` | At 1920×1080 `#mobile-tab-bar` is `display: none` and `body`/document have no horizontal overflow. |
+
+Note: `test_access_gate_mobile_viewport` uses `page.route("**/gate-mobile-test", …)` to
+serve `gate.html` because the running test server only emits that template under
+`VERCEL=1`; routing the real file keeps the gate's `/static/style.css` link resolvable.
+The chip test unhides `#action-chips` before injecting a chip, since the mock narrator
+does not guarantee action-chip rendering.

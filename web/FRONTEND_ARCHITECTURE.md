@@ -280,3 +280,77 @@ page (or structured JSON if requested via API) detailing the missing variables,
 configuration issues, and remediation steps. In addition, if redirected with
 `?auth_error=`, `initAuthBanner()` in `js/api/auth.js` renders an informative notice
 on the home screen.
+
+## 8. Mobile Viewport & Safe-Area Ergonomics (`mobile-viewport-safari-fidelity`)
+
+The layout is a fixed `body` (`overflow: hidden`) with internally scrolling panels,
+so mobile clipping is a geometry problem, not a scroll one. It is solved entirely in
+`web/static/style.css` with no JS layout observers.
+
+### CSS tokens (`:root`)
+
+| Token | Value | Purpose |
+|-------|-------|---------|
+| `--safe-bottom` | `env(safe-area-inset-bottom, 0px)` | Single indirection point for the bottom inset (headless Chromium injects `34px`). |
+| `--safe-left` | `env(safe-area-inset-left, 0px)` | Indirection for landscape notch insets (tests inject `44px`). |
+| `--safe-right` | `env(safe-area-inset-right, 0px)` | Indirection for landscape notch insets (tests inject `44px`). |
+| `--tab-h` | `44px` | Canonical tab touch target min-height. |
+| `--tab-bar-h` | `calc(var(--tab-h) + 1px)` | Total tab-bar height (tab + 1px top border). `.game-dashboard` pads by `calc(var(--tab-bar-h) + max(8px, var(--safe-bottom)))`, so the bar and the content clearance can never drift apart. |
+
+### Dynamic viewport height strategy
+
+Every full-height container declares the static fallback first, then the dynamic unit —
+old engines keep `vh`, modern engines use `dvh`:
+
+```css
+body { height: 100vh; height: 100dvh; width: 100%; }
+#startup-screen, #preset-screen, #custom-preset-screen, #character-screen {
+    min-height: 100vh; min-height: 100dvh;
+}
+.sidebar-panel { max-height: 40vh; max-height: 40dvh; } /* < 768px */
+```
+
+`body` uses `width: 100%` (not `100vw`) so a desktop scrollbar gutter is never counted
+into the layout width. `gate.html` loads the same `style.css`, so it inherits the `body`
+height fix automatically.
+
+### Bottom clearance (mobile `< 768px`)
+
+- `.mobile-tab-bar { padding-bottom: max(8px, var(--safe-bottom)); }` keeps the tabs
+  above the home indicator / Safari search bar, with a strict 8px floor when the inset
+  reports `0px`.
+- `.game-dashboard { padding-bottom: calc(var(--tab-bar-h) + max(8px, var(--safe-bottom))); }`
+  lifts the console input row and action chips above the fixed bar.
+
+### Side padding and touch targets
+
+- `.app-container { padding-left/right: max(1.5rem, var(--safe-left/right)); }` — declared
+  on the base rule, so it applies at every viewport width (landscape phones land in the
+  tablet/desktop layout, where the notch still needs clearing). `env()` is *defined* as
+  `0px` on modern browsers, so a bare `env(safe-area-inset-left, 1.5rem)` never applies
+  its fallback and collapses to 0px. The `max()` wrapper enforces the 1.5rem floor while
+  still expanding on notched landscape devices.
+- `.mobile-tab` sizes from `var(--tab-h)`; `.action-chip` and `.btn-utility` get
+  `min-height: 44px` on mobile. `.action-chip` already carries
+  `display: inline-flex; align-items: center` in its base rule, so the mobile override
+  only sets the height. `.suggestion-chip` already met 44px.
+
+### Viewport metadata
+
+Both `web/templates/index.html` and `web/templates/gate.html` set:
+
+```html
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
+```
+
+`viewport-fit=cover` enables `env(safe-area-inset-*)`; `interactive-widget=resizes-content`
+makes Chromium/Firefox-Android resize the layout viewport when the virtual keyboard opens.
+WebKit/iOS Safari ignores the latter and relies on native scroll-into-view — the attribute
+is harmless there. No `ResizeObserver` / `visualViewport` listeners are used.
+
+### Test seam
+
+`tests/e2e/test_mobile_viewport.py::TestMobileViewportErgonomics` drives a
+`gameplay_page` fixture through the wizard to the live HUD, then injects
+`--safe-bottom: 34px` on `documentElement` to assert `tab_bottom <= innerHeight - 34`
+and console-input clearance above the bar. See `tests/ARCHITECTURE.md` for the case list.
