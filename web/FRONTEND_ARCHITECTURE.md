@@ -212,7 +212,10 @@ default-deny auth + quota middleware. The frontend surfaces that state through
   header): `initAuthBanner()` calls `GET /api/user/me`. An authenticated user
   sees *"Signed in as &lt;name|email|sub&gt;"* plus a **Sign out** link to
   `/api/auth/logout`; otherwise a **Sign in with Vercel** link to
-  `/api/auth/login` is shown.
+  `/api/auth/login` is shown. Login redirects to Vercel's authorization endpoint
+  with `scope` omitted by default (configured via optional `VERCEL_OAUTH_SCOPE`),
+  allowing the application's Vercel dashboard scope configuration to govern
+  without triggering `invalid_scope` errors.
 - **Remaining-quota indicator** (`#val-quota` in the status bar):
   `initAuthBanner()` calls `GET /api/user/quota` and `renderQuota()` prints
   `$remaining / $limit`, flagging the element when the balance hits zero.

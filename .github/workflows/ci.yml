@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Session & OAuth Unit Tests
+        run: node --test tests/unit/sessionAuth.test.mjs tests/unit/vercelEntry.test.mjs
+
+      - name: Verify OAuth Authorize URL Generation
+        run: |
+          node -e "
+            import('./web/auth/oauth.js').then(m => {
+              const url = new URL(m.buildAuthorizeUrl({
+                clientId: 'cl_f5Ahn5fc52lCp6oHJ6Kv2uZEVipOizHL',
+                redirectUri: 'https://open-dungeon-three.vercel.app/api/auth/callback',
+                state: 'test_state'
+              }));
+              if (url.searchParams.has('scope')) {
+                console.error('ERROR: scope parameter was included by default: ' + url.searchParams.get('scope'));
+                process.exit(1);
+              }
+              console.log('OAuth Authorize URL verified (scope omitted): ' + url.toString());
+            });
+          "

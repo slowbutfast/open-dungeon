@@ -37,7 +37,8 @@ export function createAuthRouter(cfg = config) {
         res.redirect(buildAuthorizeUrl({
             clientId: cfg.vercelClientId,
             redirectUri,
-            state
+            state,
+            scope: cfg.vercelOAuthScope
         }));
     });
 

@@ -81,6 +81,7 @@ export function loadConfig(env = process.env) {
         sessionSecret: env.SESSION_SECRET || (isVercel ? null : DEV_SESSION_SECRET),
         vercelClientId: env.VERCEL_APP_CLIENT_ID || null,
         vercelClientSecret: env.VERCEL_APP_CLIENT_SECRET || null,
+        vercelOAuthScope: env.VERCEL_OAUTH_SCOPE || null,
         openrouterApiKey: env.OPENROUTER_API_KEY || null,
         llmBackend: env.LLM_BACKEND || null,
         mockLlm: env.MOCK_LLM === '1',
