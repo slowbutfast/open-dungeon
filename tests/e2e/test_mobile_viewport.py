@@ -632,14 +632,14 @@ class TestMobileViewportErgonomics:
         )
 
         assert re.search(
-            r"#startup-screen,[^}]*min-height:\s*100vh;[^}]*min-height:\s*100dvh;",
-            css, re.DOTALL,
-        ), "wizard screens must declare min-height: 100vh then min-height: 100dvh"
-
-        assert re.search(
             r"\.sidebar-panel\s*\{[^}]*max-height:\s*40vh;[^}]*max-height:\s*40dvh;",
             css, re.DOTALL,
         ), ".sidebar-panel must declare max-height: 40vh then max-height: 40dvh"
+
+        assert re.search(
+            r"\.modal-content\s*\{[^}]*max-height:\s*90vh;[^}]*max-height:\s*90dvh;",
+            css, re.DOTALL,
+        ), ".modal-content must declare max-height: 90vh then max-height: 90dvh"
 
         # Computed behavior check under mobile viewport
         page.set_viewport_size({"width": 375, "height": 667})
@@ -714,3 +714,265 @@ class TestMobileViewportErgonomics:
             }
         """)
         assert no_overflow, "Desktop layout overflows horizontally at 1920px"
+
+
+# Handset viewports that exercise wizard scroll containment + bottom clearance.
+CLEARANCE_VIEWPORTS = {
+    "iphone-se": {"width": 375, "height": 667},
+    "iphone-12": {"width": 390, "height": 844},
+    "iphone-16-pro": {"width": 430, "height": 932},
+}
+
+
+def _open_mobile_page(page, viewport_name):
+    """Size the page to a handset viewport and load the startup screen."""
+    page.set_viewport_size(CLEARANCE_VIEWPORTS[viewport_name])
+    page.goto("http://127.0.0.1:5007")
+    page.wait_for_selector("#llm-status-pill:not(.llm-pill-checking)")
+
+
+def _inject_safe_bottom(page, px=34):
+    """Simulate a notched device; headless Chromium reports env() as 0px."""
+    page.evaluate(
+        "(px) => document.documentElement.style.setProperty('--safe-bottom', px + 'px')",
+        px,
+    )
+    page.wait_for_timeout(100)
+
+
+def _scroll_app_to_bottom(page):
+    """Drive the single mobile scroll owner (`.app-container`) to its end."""
+    page.evaluate("""
+        () => {
+            const app = document.getElementById('app');
+            app.scrollTop = app.scrollHeight;
+        }
+    """)
+    page.wait_for_timeout(150)
+
+
+def _measure_button(page, selector, safe_bottom=34):
+    """Return clearance + hit-test geometry for a button after scrolling.
+
+    `document.elementFromPoint` is used instead of `locator.click()` because
+    Playwright auto-scrolls an element into view before clicking, which would
+    mask the very clipping this suite exists to catch.
+    """
+    return page.evaluate("""
+        ([selector, safeBottom]) => {
+            const el = document.querySelector(selector);
+            if (!el) return null;
+            const app = document.getElementById('app');
+            const rect = el.getBoundingClientRect();
+            const cx = rect.left + rect.width / 2;
+            const cy = rect.top + rect.height / 2;
+            const hit = document.elementFromPoint(cx, cy);
+            return {
+                bottom: rect.bottom,
+                top: rect.top,
+                centerX: cx,
+                centerY: cy,
+                innerHeight: window.innerHeight,
+                hitIsSelf: !!hit && (hit === el || el.contains(hit)),
+                hitTag: hit ? hit.tagName : null,
+                hitId: hit ? hit.id : null,
+                scrollTop: app.scrollTop,
+                scrollHeight: app.scrollHeight,
+                clientHeight: app.clientHeight,
+                appOverflowY: getComputedStyle(app).overflowY,
+            };
+        }
+    """, [selector, safe_bottom])
+
+
+def _assert_clear_and_hittable(info, selector, viewport_name, safe_bottom=34):
+    assert info is not None, f"{selector} not found at {viewport_name}"
+    limit = info["innerHeight"] - safe_bottom + 0.5
+    assert info["bottom"] <= limit, (
+        f"{selector} bottom {info['bottom']:.1f}px exceeds clearance limit "
+        f"{limit:.1f}px (innerHeight {info['innerHeight']}px, safe-bottom "
+        f"{safe_bottom}px) at {viewport_name}"
+    )
+    assert info["hitIsSelf"], (
+        f"{selector} is not the topmost hit target at its center "
+        f"({info['centerX']:.1f}, {info['centerY']:.1f}); hit "
+        f"<{info['hitTag']} id='{info['hitId']}'> at {viewport_name}"
+    )
+
+
+class TestMobileScreenBottomClearance:
+    """Wizard screens must scroll (not clip) and clear the bottom inset.
+
+    Root cause under test: `.app-container` is a centered flex box with
+    `overflow: visible`; wizard panels with `min-height: 100dvh` and auto
+    height grow past the viewport and are clipped by `body { overflow: hidden }`
+    rather than scrolled. These tests require `.app-container` to be the single
+    scroll owner and the wizard panel to own the end-of-scroll clearance buffer.
+    """
+
+    @pytest.mark.parametrize("viewport_name", list(CLEARANCE_VIEWPORTS.keys()))
+    def test_preset_screen_scroll_and_bottom_clearance(self, page, viewport_name):
+        _open_mobile_page(page, viewport_name)
+        _inject_safe_bottom(page)
+
+        page.locator("#btn-new-game").click()
+        page.wait_for_selector("#preset-screen:not(.hidden)")
+        page.wait_for_selector(".preset-card")
+
+        _scroll_app_to_bottom(page)
+
+        back = _measure_button(page, "#preset-screen .btn-back")
+        manage = _measure_button(page, "#btn-manage-presets")
+
+        # The single scroll owner must actually consume the overflow.
+        assert back["scrollHeight"] > back["clientHeight"], (
+            f"#app did not overflow at {viewport_name} "
+            f"(scrollHeight {back['scrollHeight']} <= clientHeight {back['clientHeight']}); "
+            f"scroll containment is not engaging"
+        )
+        assert back["appOverflowY"] in ("auto", "scroll"), (
+            f".app-container overflow-y is '{back['appOverflowY']}' at {viewport_name}"
+        )
+
+        _assert_clear_and_hittable(back, "#preset-screen .btn-back", viewport_name)
+        _assert_clear_and_hittable(manage, "#btn-manage-presets", viewport_name)
+
+        # A real tap at the visible coordinates must navigate back.
+        page.mouse.click(back["centerX"], back["centerY"])
+        expect(page.locator("#startup-screen")).to_have_class(re.compile(r"active"))
+
+    @pytest.mark.parametrize("viewport_name", list(CLEARANCE_VIEWPORTS.keys()))
+    def test_custom_preset_screen_clearance(self, page, viewport_name):
+        _open_mobile_page(page, viewport_name)
+        _inject_safe_bottom(page)
+
+        page.keyboard.press("1")
+        page.wait_for_selector(".preset-card")
+        page.keyboard.press("ArrowRight")
+        page.keyboard.press("Enter")
+        page.wait_for_selector("#custom-preset-screen:not(.hidden)")
+
+        _scroll_app_to_bottom(page)
+        info = _measure_button(page, "#btn-submit-custom-preset")
+        _assert_clear_and_hittable(
+            info, "#btn-submit-custom-preset", viewport_name
+        )
+
+    @pytest.mark.parametrize("viewport_name", list(CLEARANCE_VIEWPORTS.keys()))
+    def test_character_screen_clearance(self, page, viewport_name):
+        _open_mobile_page(page, viewport_name)
+        _inject_safe_bottom(page)
+
+        page.keyboard.press("1")
+        page.wait_for_selector(".preset-card")
+        page.keyboard.press("ArrowRight")
+        page.keyboard.press("Enter")
+        page.wait_for_selector("#custom-preset-screen:not(.hidden)")
+        page.locator("#btn-submit-custom-preset").click()
+        page.wait_for_selector("#character-screen:not(.hidden)")
+        page.wait_for_selector(".char-card")
+
+        _scroll_app_to_bottom(page)
+        info = _measure_button(page, "#btn-submit-character")
+        _assert_clear_and_hittable(info, "#btn-submit-character", viewport_name)
+
+    @pytest.mark.parametrize("viewport_name", list(CLEARANCE_VIEWPORTS.keys()))
+    def test_restore_screen_clearance(self, page, viewport_name):
+        _open_mobile_page(page, viewport_name)
+        _inject_safe_bottom(page)
+
+        page.locator("#btn-restore-game").click()
+        page.wait_for_selector("#restore-screen:not(.hidden)")
+
+        _scroll_app_to_bottom(page)
+        info = _measure_button(page, "#restore-screen .btn-back")
+        _assert_clear_and_hittable(info, "#restore-screen .btn-back", viewport_name)
+
+    def test_gameplay_hud_regression_clearance(self, gameplay_page):
+        """The fixed gameplay HUD must not regress when `.app-container` scrolls."""
+        page = gameplay_page
+        _inject_safe_bottom(page)
+
+        before = page.evaluate("""
+            () => {
+                const bar = document.getElementById('mobile-tab-bar');
+                const rect = bar.getBoundingClientRect();
+                const cs = getComputedStyle(bar);
+                return {
+                    top: rect.top,
+                    bottom: rect.bottom,
+                    position: cs.position,
+                    display: cs.display,
+                    innerHeight: window.innerHeight,
+                };
+            }
+        """)
+
+        assert before["display"] == "flex", (
+            f"#mobile-tab-bar display is '{before['display']}' at {page._viewport_name}"
+        )
+        assert before["position"] == "fixed", (
+            f"#mobile-tab-bar position is '{before['position']}' at {page._viewport_name}"
+        )
+        assert abs(before["bottom"] - before["innerHeight"]) <= 1.0, (
+            f"#mobile-tab-bar bottom {before['bottom']}px is not pinned to viewport "
+            f"bottom {before['innerHeight']}px at {page._viewport_name}"
+        )
+        assert before["top"] >= 0, (
+            f"#mobile-tab-bar top {before['top']}px is above the viewport at "
+            f"{page._viewport_name}"
+        )
+
+        # Scrolling the app container must not displace the fixed tab bar.
+        page.evaluate("""
+            () => {
+                const app = document.getElementById('app');
+                app.scrollTop = app.scrollHeight;
+            }
+        """)
+        page.wait_for_timeout(150)
+        after = page.evaluate("""
+            () => {
+                const rect = document.getElementById('mobile-tab-bar').getBoundingClientRect();
+                return { top: rect.top, bottom: rect.bottom };
+            }
+        """)
+        assert abs(after["bottom"] - before["bottom"]) <= 0.5, (
+            f"#mobile-tab-bar moved {abs(after['bottom'] - before['bottom'])}px "
+            f"after app scroll at {page._viewport_name}"
+        )
+        assert abs(after["top"] - before["top"]) <= 0.5, (
+            f"#mobile-tab-bar moved {abs(after['top'] - before['top'])}px "
+            f"after app scroll at {page._viewport_name}"
+        )
+
+        max_tab_bottom = page.evaluate("""
+            () => Array.from(document.querySelectorAll('#mobile-tab-bar .mobile-tab'))
+                .reduce((max, b) => Math.max(max, b.getBoundingClientRect().bottom), 0)
+        """)
+        assert max_tab_bottom <= before["innerHeight"] - 34 + 0.5, (
+            f"Tab button bottom {max_tab_bottom}px does not clear the 34px inset "
+            f"(viewport {before['innerHeight']}px) at {page._viewport_name}"
+        )
+
+    def test_short_screen_has_no_spurious_scroll(self, page):
+        """Short screens must not force phantom scroll inside the mobile scroller.
+
+        A wizard panel pinned to `100dvh` inside the padded `.app-container`
+        (height: 100%, padding-top 24px + padding-bottom 24px) makes
+        scrollHeight == 707px against a 667px client — exactly 40px of spurious
+        scroll. Panels use `min-height: 100%` so short content fits and the
+        scroller reports zero overflow.
+        """
+        page.set_viewport_size({"width": 375, "height": 667})
+        page.goto("http://127.0.0.1:5007")
+        page.wait_for_selector("#llm-status-pill:not(.llm-pill-checking)")
+        delta = page.evaluate("""
+            () => {
+                const a = document.querySelector('.app-container');
+                return a.scrollHeight - a.clientHeight;
+            }
+        """)
+        assert delta <= 1, (
+            f"Startup screen has spurious scroll of {delta}px with content that fits"
+        )

@@ -22,6 +22,7 @@
        --tab-h is the interactive tab touch target (44px).
        --tab-bar-h is the canonical total height: 44px tab + 1px top border. */
     --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-top: env(safe-area-inset-top, 0px);
     --safe-left: env(safe-area-inset-left, 0px);
     --safe-right: env(safe-area-inset-right, 0px);
     --tab-h: 44px;
@@ -1853,6 +1854,19 @@ body:not(.crt-effect) .screen-flicker {
 }
 
 @media (max-width: 767px) {
+    /* Single mobile scroll owner: `.app-container` (bounded by body's 100dvh)
+       consumes all wizard-screen overflow. `align-items: flex-start` anchors
+       the scroll origin at the top, avoiding the flex-origin centering trap
+       where tall content is clipped off both edges by body { overflow: hidden }.
+       Wizard panels own the end-of-scroll bottom clearance buffer instead. */
+    .app-container {
+        height: 100%;
+        align-items: flex-start;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        padding-top: max(1.5rem, var(--safe-top));
+    }
+
     .game-dashboard {
         padding-bottom: calc(var(--tab-bar-h) + max(8px, var(--safe-bottom)));
     }
@@ -1973,23 +1987,31 @@ body:not(.crt-effect) .screen-flicker {
     #startup-screen,
     #preset-screen,
     #custom-preset-screen,
-    #character-screen {
-        min-height: 100vh;
-        min-height: 100dvh;
-        overflow-y: auto;
+    #character-screen,
+    #preset-manager-screen,
+    #restore-screen,
+    #preset-editor-screen {
+        min-height: 100%;
+        /* The panel must not establish its own (never-engaging) scroll context:
+           `.app-container` is the single scroll owner. The panel only owns the
+           bottom clearance buffer that clears floating browser chrome when the
+           scroller reaches its end. `min-height: 100%` (not 100dvh) keeps short
+           screens from forcing a phantom 40px scroll inside the padded scroller. */
+        overflow-y: visible;
+        padding-bottom: calc(var(--safe-bottom) + 1.5rem);
     }
 
     /* ─── Safe-Area Inset Support ──────────────────────────────────────────────────── */
     .startup-header {
-        padding-top: env(safe-area-inset-top, 0px);
+        padding-top: var(--safe-top);
     }
 
     .panel-header {
-        padding-top: env(safe-area-inset-top, 0px);
+        padding-top: var(--safe-top);
     }
 
     .panel-footer-nav {
-        padding-bottom: env(safe-area-inset-bottom, 0px);
+        gap: 0.75rem;
     }
 
     /* ─── Responsive Grids ─────────────────────────────────────────────────────────── */
@@ -2001,16 +2023,14 @@ body:not(.crt-effect) .screen-flicker {
         grid-template-columns: 1fr;
     }
 
-    /* ─── Footer Navigation ────────────────────────────────────────────────────────── */
-    .panel-footer-nav {
-        gap: 0.75rem;
-    }
-
     /* ─── Modal Responsiveness ─────────────────────────────────────────────────────── */
     .modal-content {
         max-width: 90vw;
         max-height: 90vh;
+        max-height: 90dvh;
+        overflow-y: auto;
         padding: 1rem;
+        padding-bottom: calc(var(--safe-bottom) + 1rem);
     }
 
     .barter-layout {

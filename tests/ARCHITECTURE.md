@@ -35,7 +35,7 @@
 | `test_shared_status_parser.py` | Unit (unittest + node probe) | — | The shared `parseStatusLine` (exported from `engine/llm.js`, imported by `mcp/tools/gameplay.js`): uppercase `[STATUS: ...]` with trailing content, the three-field line, the mock's two-field line (Moves optional), and a source guard that `gameplay.js` imports the shared parser rather than reimplementing it. |
 | `e2e/test_menu_navigation.py` | E2E (pytest + Playwright) | `e2e` | Browser-based UI — keyboard nav, hotkeys, preset/character flows, launch states, save/restore, lore scan, system prompt editing. Spawns a Node.js server on port 5001. |
 | `e2e/test_barter_ui.py` | E2E (pytest + Playwright) | `e2e` | Browser-based barter UI — trade offers, execution, inventory. Spawns a Node.js server. |
-| `e2e/test_mobile_viewport.py` | E2E (pytest + Playwright) | `e2e` | Browser-based mobile viewport — responsive layout, touch interactions, safe-area clearance, dynamic viewport heights, desktop regression. Spawns a Node.js server. |
+| `e2e/test_mobile_viewport.py` | E2E (pytest + Playwright) | `e2e` | Browser-based mobile viewport — responsive layout, touch interactions, safe-area clearance, dynamic viewport heights, wizard scroll containment + bottom clearance, desktop regression. Spawns a Node.js server. |
 
 ## Save Isolation
 
@@ -247,3 +247,29 @@ serve `gate.html` because the running test server only emits that template under
 `VERCEL=1`; routing the real file keeps the gate's `/static/style.css` link resolvable.
 The chip test unhides `#action-chips` before injecting a chip, since the mock narrator
 does not guarantee action-chip rendering.
+
+## Mobile Wizard Scroll Containment & Clearance (`mobile-page-clearance-and-accessibility`)
+
+`tests/e2e/test_mobile_viewport.py::TestMobileScreenBottomClearance` locks down the
+single-scroll-owner architecture. Root cause under test: `.app-container` is a centered
+flex box (`overflow: visible`) and wizard panels use `min-height: 100dvh` with auto height,
+so tall content grows past the viewport and is clipped by `body { overflow: hidden }`
+instead of scrolling. Each test injects `--safe-bottom: 34px`, scrolls `.app-container`
+to the bottom (`scrollTop = scrollHeight`), and asserts the target button bottom is
+`<= innerHeight - 34 + 0.5` **and** that `document.elementFromPoint()` at the button
+center resolves to the button — Playwright's `locator.click()` auto-scrolls into view and
+would mask the clipping, so geometry + hit-testing are asserted directly.
+
+| Test | Viewports | What it locks down |
+|------|-----------|--------------------|
+| `test_preset_screen_scroll_and_bottom_clearance` | 375/390/430px | `.app-container` is the actual scroll owner (`overflow-y` auto, `scrollHeight > clientHeight`); `#preset-screen .btn-back` and `#btn-manage-presets` clear the 34px inset and are hit-testable; a real `page.mouse.click` at the button center navigates back to `#startup-screen`. |
+| `test_custom_preset_screen_clearance` | 375/390/430px | `#btn-submit-custom-preset` clears the inset and is hit-testable at the end of scroll. |
+| `test_character_screen_clearance` | 375/390/430px | `#btn-submit-character` clears the inset and is hit-testable at the end of scroll. |
+| `test_restore_screen_clearance` | 375/390/430px | `#restore-screen .btn-back` clears the inset and is hit-testable (short content — trivially passes, kept as a regression guard). |
+| `test_gameplay_hud_regression_clearance` | 375/390/430px | The fixed `#mobile-tab-bar` stays `position: fixed`, `display: flex`, pinned to the viewport bottom, and does not shift when `.app-container` is scrolled; tabs clear the 34px inset. |
+
+Test helpers: `_inject_safe_bottom` (token indirection seam), `_scroll_app_to_bottom`
+(drives `#app`), `_measure_button` (returns bounding-box geometry + `elementFromPoint`
+hit-test result), `_assert_clear_and_hittable` (applies the `<= innerHeight - inset + 0.5`
+bound with diagnostics). The suite is scoped to handset viewports
+(`CLEARANCE_VIEWPORTS`), matching the `@media (max-width: 767px)` CSS block.

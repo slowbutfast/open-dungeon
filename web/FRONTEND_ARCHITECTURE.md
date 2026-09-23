@@ -281,17 +281,22 @@ configuration issues, and remediation steps. In addition, if redirected with
 `?auth_error=`, `initAuthBanner()` in `js/api/auth.js` renders an informative notice
 on the home screen.
 
-## 8. Mobile Viewport & Safe-Area Ergonomics (`mobile-viewport-safari-fidelity`)
+## 8. Mobile Viewport & Safe-Area Ergonomics (`mobile-viewport-safari-fidelity`, `mobile-page-clearance-and-accessibility`)
 
 The layout is a fixed `body` (`overflow: hidden`) with internally scrolling panels,
-so mobile clipping is a geometry problem, not a scroll one. It is solved entirely in
-`web/static/style.css` with no JS layout observers.
+so mobile clipping is a geometry problem, not a document-scroll one. It is solved
+entirely in `web/static/style.css` with no JS layout observers. Since
+`mobile-page-clearance-and-accessibility`, **scroll containment** (which element
+consumes overflow) and **clearance ownership** (which element reserves the bottom
+safe-area buffer) are separated: `.app-container` owns wizard scrolling; the wizard
+panels own the end-of-scroll bottom buffer.
 
 ### CSS tokens (`:root`)
 
 | Token | Value | Purpose |
 |-------|-------|---------|
 | `--safe-bottom` | `env(safe-area-inset-bottom, 0px)` | Single indirection point for the bottom inset (headless Chromium injects `34px`). |
+| `--safe-top` | `env(safe-area-inset-top, 0px)` | Indirection for the top inset; consumed by `.startup-header` / `.panel-header` (`padding-top: var(--safe-top)`) and `.app-container` (`padding-top: max(1rem, var(--safe-top))`). |
 | `--safe-left` | `env(safe-area-inset-left, 0px)` | Indirection for landscape notch insets (tests inject `44px`). |
 | `--safe-right` | `env(safe-area-inset-right, 0px)` | Indirection for landscape notch insets (tests inject `44px`). |
 | `--tab-h` | `44px` | Canonical tab touch target min-height. |
@@ -304,15 +309,24 @@ old engines keep `vh`, modern engines use `dvh`:
 
 ```css
 body { height: 100vh; height: 100dvh; width: 100%; }
-#startup-screen, #preset-screen, #custom-preset-screen, #character-screen {
-    min-height: 100vh; min-height: 100dvh;
+#startup-screen, #preset-screen, #custom-preset-screen, #character-screen,
+#preset-manager-screen, #restore-screen, #preset-editor-screen {
+    min-height: 100%;                              /* interior of the .app-container scroller */
+    overflow-y: visible;                          /* scroller lives on .app-container */
+    padding-bottom: calc(var(--safe-bottom) + 1.5rem); /* single clearance owner */
 }
 .sidebar-panel { max-height: 40vh; max-height: 40dvh; } /* < 768px */
+.modal-content { max-height: 90vh; max-height: 90dvh; } /* < 768px */
 ```
 
 `body` uses `width: 100%` (not `100vw`) so a desktop scrollbar gutter is never counted
 into the layout width. `gate.html` loads the same `style.css`, so it inherits the `body`
-height fix automatically.
+height fix automatically. The `dvh` cascade applies where the element is a viewport-sized
+container (`body`) or an independent overlay (.sidebar-panel, .modal-content); wizard
+panels are **not** viewport-sized — they sit inside the padded `.app-container` scroller,
+so `min-height: 100%` (of the container's content box) is correct. A `100dvh` floor there
+would force a phantom 40px scroll on short screens (`scrollHeight 707px` vs `667px` client
+at 375×667).
 
 ### Bottom clearance (mobile `< 768px`)
 
@@ -321,6 +335,35 @@ height fix automatically.
   reports `0px`.
 - `.game-dashboard { padding-bottom: calc(var(--tab-bar-h) + max(8px, var(--safe-bottom))); }`
   lifts the console input row and action chips above the fixed bar.
+
+### Wizard scroll containment (mobile `< 768px`)
+
+Pre-game wizard panels grow past the viewport when they contain long content (four preset
+cards, progress bar, footer). Under the previous layout `#preset-screen` stretched to its
+content height (≈996px) while `.app-container` (`height: 100%`, `align-items: center`,
+`overflow: visible`) centered it inside a 667px window, so `body { overflow: hidden }`
+clipped both the top and the footer buttons. The fix:
+
+- `.app-container` becomes the **single scroll owner**: `height: 100%; align-items: flex-start;
+  overflow-y: auto; -webkit-overflow-scrolling: touch; padding-top: max(1.5rem, var(--safe-top));`
+  (all scoped to `@media (max-width: 767px)`). `align-items: flex-start` anchors the scroll
+  origin at the top, defeating the flex-origin centering trap. `max(1.5rem, …)` preserves
+  the 24px top gutter on non-notched handsets.
+- Wizard panels are **no longer scroll containers**: `overflow-y: visible` so the overflow
+  propagates to `.app-container` instead of creating a never-engaging nested scroller.
+- Wizard panels use `min-height: 100%` (of the bounded scroller's content box) — **not**
+  `100dvh`, which would pin them to the full viewport and create exactly 40px of spurious
+  scroll (`scrollHeight == clientHeight + 40px`) on every short screen inside the padded
+  scroller.
+- The panels own the **single clearance buffer**: `padding-bottom: calc(var(--safe-bottom) + 1.5rem)`
+  reserves the browser-chrome clearance at the end of the scroll. `.panel-footer-nav` stays
+  layout-only (`gap: 0.75rem`) — no stacked footer padding ("triple buffering" anti-pattern).
+- `.modal-content` constrains to `max-height: 90vh; max-height: 90dvh; overflow-y: auto` with
+  `padding-bottom: calc(var(--safe-bottom) + 1rem)` for modal footers.
+
+The gameplay HUD is explicitly **not** part of this scroll contract: `.game-dashboard`
+and `#mobile-tab-bar` keep their fixed coordinates and own their own clearance calculus
+(see the regression test `test_gameplay_hud_regression_clearance`).
 
 ### Side padding and touch targets
 
@@ -353,4 +396,13 @@ is harmless there. No `ResizeObserver` / `visualViewport` listeners are used.
 `tests/e2e/test_mobile_viewport.py::TestMobileViewportErgonomics` drives a
 `gameplay_page` fixture through the wizard to the live HUD, then injects
 `--safe-bottom: 34px` on `documentElement` to assert `tab_bottom <= innerHeight - 34`
-and console-input clearance above the bar. See `tests/ARCHITECTURE.md` for the case list.
+and console-input clearance above the bar.
+`tests/e2e/test_mobile_viewport.py::TestMobileScreenBottomClearance` (the
+`mobile-page-clearance-and-accessibility` suite) scrolls `.app-container` to the bottom on
+`#preset-screen`, `#custom-preset-screen`, `#character-screen`, and `#restore-screen`,
+then asserts footer buttons sit `<= innerHeight - safe_bottom` **and** are the topmost hit
+target at their center via `document.elementFromPoint` (Playwright's `locator.click()`
+auto-scrolls into view, which would mask the clipping). `test_short_screen_has_no_spurious_scroll`
+guards that the scroller reports zero overflow on short screens (`scrollHeight == clientHeight`),
+and `test_dynamic_viewport_height_declarations` pins the `dvh` cascade to `body`,
+`.sidebar-panel`, and `.modal-content`. See `tests/ARCHITECTURE.md` for the case list.
