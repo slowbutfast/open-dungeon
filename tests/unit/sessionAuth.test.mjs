@@ -208,6 +208,21 @@ test('fetchUserProfile reads sub/email/name from the userinfo endpoint', async (
     assert.equal(seen.init.headers.Authorization, 'Bearer tok_1');
 });
 
+test('fetchUserProfile surfaces the raw claim keys when sub is absent', async () => {
+    const seen = [];
+    const original = console.error;
+    console.error = (...args) => seen.push(args);
+    try {
+        await fetchUserProfile({
+            accessToken: 't',
+            fetchImpl: async () => ({ ok: true, json: async () => ({ id: 'u_1', email: 'a@b.c' }) })
+        });
+    } finally {
+        console.error = original;
+    }
+    assert.deepEqual(seen[0][1].claimKeys, ['id', 'email']);
+});
+
 // ─── login route gating ────────────────────────────────────────────────────
 
 test('GET /api/auth/login redirects to Vercel in local mode when a client id is configured', async () => {

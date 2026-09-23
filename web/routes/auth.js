@@ -42,8 +42,10 @@ export function createAuthRouter(cfg = config) {
     });
 
     router.get('/auth/callback', async (req, res) => {
-        const { code, state, error } = req.query;
+        const { code, state, error, error_description: errorDescription } = req.query;
         if (error) {
+            // Provider-side rejection: log the full pair, surface only the code.
+            console.error('OAUTH_CALLBACK_PROVIDER_ERROR', { error, errorDescription });
             return res.redirect('/?auth_error=oauth_failed');
         }
 
@@ -64,6 +66,7 @@ export function createAuthRouter(cfg = config) {
             });
             const profile = await fetchUserProfile({ accessToken: token.access_token });
             if (!profile.sub) {
+                console.error('OAUTH_CALLBACK_NO_SUB', { profileKeys: Object.keys(profile || {}) });
                 return res.redirect('/?auth_error=oauth_failed');
             }
 
@@ -73,7 +76,11 @@ export function createAuthRouter(cfg = config) {
             );
             res.setHeader('Set-Cookie', [createSessionCookie(session), clearCookie(STATE_COOKIE)]);
             res.redirect('/');
-        } catch {
+        } catch (err) {
+            console.error('OAUTH_CALLBACK_EXCHANGE_FAILED', {
+                message: err && err.message,
+                redirectUri: resolveRedirectUri(req, cfg)
+            });
             res.redirect('/?auth_error=oauth_failed');
         }
     });
