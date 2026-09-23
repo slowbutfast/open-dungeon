@@ -45,6 +45,10 @@ export async function fetchUserProfile({ accessToken, fetchImpl = fetch }) {
         throw new Error(`Vercel userinfo request failed (${res.status}) ${detail}`.trim());
     }
     const profile = await res.json();
+    if (!profile.sub) {
+        // Claim KEYS only — never values; the payload carries PII.
+        console.error('OAUTH_USERINFO_NO_SUB', { claimKeys: Object.keys(profile || {}) });
+    }
     return {
         sub: profile.sub,
         email: profile.email ?? null,
