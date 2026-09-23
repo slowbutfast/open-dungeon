@@ -72,9 +72,17 @@ export function createApp(overrides = {}) {
     // Serve playgrounds
     app.use('/playgrounds', express.static(path.join(__dirname, '..', 'playgrounds')));
 
-    // Serve main page
+    // Serve main page. On Vercel an unauthenticated visitor is terminated at
+    // the access gate, so index.html (presets, startup menu, simulation DOM)
+    // is never sent over the wire. Locally `createAttachUserMiddleware`
+    // attaches LOCAL_DEV_USER, so `req.user` is always set and this is inert.
     app.get('/', (req, res) => {
-        res.sendFile(path.join(__dirname, 'templates', 'index.html'));
+        // The body varies by session, so this response must never be shared
+        // by any cache between an authenticated and an anonymous visitor.
+        res.set('Cache-Control', 'private, no-store');
+        res.set('Vary', 'Cookie');
+        const template = cfg.isVercel && !req.user ? 'gate.html' : 'index.html';
+        res.sendFile(path.join(__dirname, 'templates', template));
     });
 
     // Mount modular API routers

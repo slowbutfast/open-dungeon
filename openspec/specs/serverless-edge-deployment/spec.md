@@ -2,19 +2,32 @@
 
 ## Purpose
 Defines the edge deployment, HTTP routing, Content Security Policy, caching controls, and serverless execution configuration for running OpenDungeon on Vercel.
-
 ## Requirements
-
 ### Requirement: Serverless Function Entrypoint and Rewrites
-The system SHALL export the Express application via `api/index.js`, and `vercel.json` SHALL configure URL rewrites routing `/api/(.*)` to `api/index.js`, while routing static assets (`/static/(.*)`) and the root document (`/`) directly to static files without invoking serverless functions.
+The system SHALL export the Express application via `api/index.js`, and `vercel.json` SHALL configure URL rewrites routing `/api/(.*)` and the root document (`/`) to `api/index.js`, while routing static assets (`/static/(.*)`) directly to static files via Vercel Edge CDN. The function configuration in `vercel.json` SHALL specify `"includeFiles": "web/templates/**"` so that dynamic templates can be served from the serverless function.
 
 #### Scenario: Serverless API execution
 - **WHEN** an incoming HTTP request matches `/api/(.*)` on Vercel
 - **THEN** the request is forwarded to `api/index.js`, processed by the Express app, and returned with appropriate headers and status
 
 #### Scenario: Direct CDN static file serving
-- **WHEN** an incoming HTTP request asks for `/` or `/static/(.*)`
-- **THEN** Vercel Edge CDN serves the file directly from `web/templates/index.html` or `web/static/` without invoking `api/index.js`
+- **WHEN** an incoming HTTP request asks for `/static/(.*)`
+- **THEN** Vercel Edge CDN serves the file directly from `web/static/` without invoking `api/index.js`
+
+#### Scenario: Root document serverless routing
+- **WHEN** an incoming HTTP request asks for `/`
+- **THEN** Vercel routes the request to `api/index.js` where Express checks authentication and serves the appropriate template
+
+### Requirement: Deployed Source Paths Are Not Directly Reachable
+Because the project root is served as static content, application templates and server sources SHALL NOT be reachable at their repository paths. `vercel.json` SHALL declare redirects for `/web/(.*)`, `/engine/(.*)`, and `/mcp/(.*)` that run ahead of filesystem resolution, so the access gate cannot be bypassed by requesting `web/templates/index.html` directly and the server source trees are not served as static content.
+
+#### Scenario: Direct template request
+- **WHEN** an unauthenticated client requests `/web/templates/index.html`
+- **THEN** the edge responds with a redirect to `/`, and the simulation document is not served
+
+#### Scenario: Direct source tree request
+- **WHEN** a client requests any file under `/engine/` or `/mcp/`
+- **THEN** the edge responds with a redirect to `/`, and the server source is not served
 
 ### Requirement: Function Execution Duration
 The deployment configuration in `vercel.json` SHALL set `"maxDuration": 60` for `api/index.js` to ensure long-running LLM generation turns and Server-Sent Event streams complete without premature serverless timeout.
@@ -51,3 +64,4 @@ The repository `.vercelignore` SHALL exclude test files, documentation, Python v
 #### Scenario: Deployment bundle hygiene
 - **WHEN** the project is built and packaged on Vercel
 - **THEN** directories `tests/`, `docs/`, `venv/`, `diagnostics/`, `scratch/`, and `playgrounds/` are omitted from the deployed bundle
+
