@@ -36,10 +36,11 @@ pytestmark = pytest.mark.e2e
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from tests.test_helpers import assert_save_dir_is_safe
 
-TEST_SAVE_DIR = os.path.join(
+TEST_TMP_ROOT = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "adventures_map_e2e_test",
+    ".tmp_od_root_map",
 )
+TEST_SAVE_DIR = os.path.join(TEST_TMP_ROOT, "local-dev", "adventures")
 
 
 def is_port_open(port):
@@ -58,7 +59,8 @@ def start_server():
 
     env = os.environ.copy()
     env["MOCK_LLM"] = "1"
-    env["SAVE_DIR"] = TEST_SAVE_DIR
+    env.pop("SAVE_DIR", None)
+    env["OD_TMP_ROOT"] = TEST_TMP_ROOT  # web/server.js honours this
     env["PORT"] = str(port)
     proc = subprocess.Popen(
         ["node", "web/server.js"],
@@ -82,12 +84,8 @@ def start_server():
         except subprocess.TimeoutExpired:
             proc.kill()
 
-    assert_save_dir_is_safe(TEST_SAVE_DIR)
-    if os.path.isdir(TEST_SAVE_DIR):
-        shutil.rmtree(TEST_SAVE_DIR, ignore_errors=True)
-    presets_file = os.path.join(os.path.dirname(TEST_SAVE_DIR), "presets.json")
-    if os.path.isfile(presets_file):
-        os.remove(presets_file)
+    assert_save_dir_is_safe(TEST_TMP_ROOT)
+    shutil.rmtree(TEST_TMP_ROOT, ignore_errors=True)
 
 
 @pytest.fixture(scope="function")
@@ -1119,3 +1117,77 @@ def test_map_colliding_room_names_render_distinct_labels(game_page):
     labels = page.eval_on_selector_all(".map-room-name", "els => els.map(el => el.textContent)")
     assert len(set(labels)) == 4, labels
     assert all(len(label) <= 16 for label in labels), labels
+
+
+# ─── PATCH-04 scopes A1/A2 ────────────────────────────────────────────────
+
+def test_map_meta_never_outranks_culled_names(game_page):
+    """VISITED captions must not survive when their own room name is culled."""
+    page = game_page
+    _mock_map(page, _dense_fixture(40))
+    _commit_move(page, "look around")
+    _open_map_tab(page)
+    expect(page.locator(".map-room")).to_have_count(40)
+    page.wait_for_timeout(350)
+
+    assert page.locator(".map-room-name.is-label-culled").count() > 0, \
+        "dense graph must cull some names"
+
+    violations = page.evaluate(
+        """() => {
+            const bad = [];
+            for (const room of document.querySelectorAll('.map-room')) {
+                const id = room.getAttribute('data-room-id');
+                if (id === 'hub') continue;
+                const name = room.querySelector('.map-room-name');
+                const meta = room.querySelector('.map-room-meta');
+                if (name?.classList.contains('is-label-culled')
+                    && !meta?.classList.contains('is-label-culled')) {
+                    bad.push(id);
+                }
+            }
+            return bad;
+        }"""
+    )
+    assert violations == [], violations
+
+    current = page.locator('.map-room[data-room-id="hub"] .map-room-meta')
+    expect(current).to_contain_text("CURRENT")
+    assert not current.evaluate("el => el.classList.contains('is-label-culled')"), \
+        "◉ CURRENT must never be culled"
+
+
+def test_map_hidden_render_refits_and_preserves_manual_pan(game_page):
+    """A hidden-tab render must not leave a stale FIT camera."""
+    page = game_page
+    _open_fixture_map(page)
+    page.wait_for_timeout(200)
+
+    # Commit a turn while the map tab is hidden; the renderer measures the
+    # hidden canvas (fallback size) during the post-turn refresh.
+    page.locator("#tab-btn-lore").click()
+    _commit_move(page, "look around")
+    _open_map_tab(page)
+    page.wait_for_timeout(250)
+    zoom_after = float(page.locator("#map-canvas").get_attribute("data-zoom"))
+    # Ground truth: the same graph's direct FIT zoom. We only click FIT after
+    # measuring, so the assertion still proves the show path refit correctly.
+    page.locator("#map-fit").click()
+    page.wait_for_timeout(100)
+    fit_zoom = float(page.locator("#map-canvas").get_attribute("data-zoom"))
+    assert abs(zoom_after - fit_zoom) / fit_zoom <= 0.02, (zoom_after, fit_zoom)
+
+    # A manual pan survives the same hidden-render/show cycle.
+    canvas = _canvas_rect(page)
+    page.mouse.move(canvas["left"] + 30, canvas["top"] + canvas["height"] - 30)
+    page.mouse.down()
+    page.mouse.move(canvas["left"] + 75, canvas["top"] + canvas["height"] - 60, steps=8)
+    page.mouse.up()
+    panned = page.locator("#map-canvas-content").get_attribute("style")
+
+    page.locator("#tab-btn-lore").click()
+    _commit_move(page, "look around")
+    _open_map_tab(page)
+    page.wait_for_timeout(250)
+    assert page.locator("#map-canvas-content").get_attribute("style") == panned, \
+        "showing the tab overrode a manual camera"

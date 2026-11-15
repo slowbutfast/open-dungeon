@@ -167,9 +167,26 @@
                 <h2>[RESTORE SIMULATION SAVE]</h2>
                 <p>Load preserved neural connections</p>
             </header>
+            <div class="saves-toolbar">
+                <div class="saves-sort-group">
+                    <label for="save-sort">SORT</label>
+                    <select id="save-sort" aria-label="Sort saved games">
+                        <option value="recent">Recent</option>
+                        <option value="alpha">A–Z</option>
+                        <option value="moves">Moves</option>
+                    </select>
+                </div>
+                <div class="saves-prune-group">
+                    <label for="save-prune-moves">PRUNE &lt;</label>
+                    <input id="save-prune-moves" type="number" min="1" step="1" value="3" aria-label="Prune saves below this move count">
+                    <button id="btn-prune-saves" type="button" class="btn btn-secondary btn-sm">PRUNE</button>
+                    <span id="save-prune-preview" class="save-prune-preview" aria-live="polite"></span>
+                </div>
+            </div>
             <div id="save-list" class="saves-container">
                 <!-- Saved adventure items dynamically rendered here -->
             </div>
+            <button id="btn-saves-more" type="button" class="btn btn-secondary btn-sm hidden">SHOW MORE</button>
             <footer class="panel-footer-nav">
                 <button class="btn btn-back" onclick="showScreen('startup-screen')">Back</button>
             </footer>

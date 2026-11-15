@@ -213,6 +213,52 @@ export class AdventureEngine {
         return this.state.delete(this.saveDir, adventureId);
     }
 
+    /**
+     * Bulk-prune saved adventures below a move threshold (PATCH-04).
+     * Excludes the active adventure, supports a dry-run preview, and isolates
+     * per-id failures so one bad save cannot abort the batch.
+     */
+    async pruneAdventures(maxMoves, { dryRun = false } = {}) {
+        const threshold = Number(maxMoves);
+        if (!Number.isInteger(threshold) || threshold < 1) {
+            throw new Error('maxMoves must be an integer >= 1');
+        }
+
+        const saves = await this.listAdventures();
+        const active = this.adventureId ?? null;
+        const prunable = saves.filter(save => (
+            save.id !== active && (save.moves ?? 0) < threshold
+        ));
+
+        if (dryRun) {
+            return {
+                count: prunable.length,
+                ids: prunable.map(save => save.id),
+                titles: prunable.map(save => save.title),
+                excludedActive: active
+            };
+        }
+
+        const deletedIds = [];
+        const failedIds = [];
+        for (const save of prunable) {
+            try {
+                const deleted = await this.deleteAdventure(save.id);
+                if (deleted) deletedIds.push(save.id);
+                else failedIds.push(save.id);
+            } catch (e) {
+                console.error(`Failed to prune save ${save.id}:`, e);
+                failedIds.push(save.id);
+            }
+        }
+
+        return {
+            deletedIds,
+            failedIds,
+            keptCount: saves.length - deletedIds.length
+        };
+    }
+
     async undo() {
         const preUndoMoves = this.state.moves;
         // D5 (spatial-map-region-graph): capture the pre-turn room BEFORE the

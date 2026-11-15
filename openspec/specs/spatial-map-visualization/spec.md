@@ -129,3 +129,20 @@ Tapping or clicking a room node (`< 6px` pointer movement) or activating a focus
 #### Scenario: Unreachable room or 404 route handling
 - **WHEN** the player clicks `ROUTE HERE` and `GET /api/path` returns `found: false` (`different_region` or `no_route`) or HTTP `404`
 - **THEN** `#map-inspector` displays a clear inline reason without painting any stale route edges
+
+### Requirement: Restore Save Manager
+The restore screen (`#restore-screen`) SHALL list saved adventures with client-side sorting by Recent (`updated_at` from the save file mtime, default), numeric-aware A–Z, and Moves descending, persisting the chosen sort across reloads. Each row SHALL display `Moves` rather than history-turn count, and `title`, `location` and `summary` SHALL be rendered as text (never via `innerHTML`). The list SHALL render in pages of 50 with a "Show more" control.
+
+The screen SHALL offer bulk pruning via `POST /api/saves/prune` (`{ max_moves, dry_run }`) with a debounced dry-run preview, confirmation before deletion, exclusion of the active adventure, and per-id failure isolation. Pruning SHALL delete the save JSON together with its vector index and structured SQLite rows.
+
+#### Scenario: Sort order and persistence
+- **WHEN** the player selects Recent, A–Z or Moves in `#save-sort`
+- **THEN** the list reorders accordingly (numeric-aware A–Z; moves descending) and the choice survives a reload
+
+#### Scenario: Prune preview and confirmation
+- **WHEN** the player sets a move threshold and chooses PRUNE
+- **THEN** the dry-run preview reports the matching count, confirmation is required, only saves strictly below the threshold (excluding the active adventure) are deleted, and the list reloads
+
+#### Scenario: Bounded rendering and safe text
+- **WHEN** more than 50 saves exist or a save title contains HTML
+- **THEN** only the first 50 rows render until "Show more", and the title/location/summary appear as literal text with no script execution

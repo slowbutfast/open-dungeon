@@ -22,9 +22,10 @@ web/static/
       forceLayout.js    (Pure force simulation — seeded PRNG, degree radii, springs, collision pass, idle|hover|drag|coasting)
       mapGeometry.js    (Pure camera math, compact names, antiparallel curves, border trim, edge keys)
       popoverPlacement.js (Pure 8-candidate obstacle-aware popover scorer)
+      saveListModel.js  (Pure restore-save sort/prune/page helpers)
       mapPanel.js       (MAP panel — single-mode gravitational renderer, pan/zoom, hover/inspect overlays, route overlay)
     api/
-      saves.js          (loadSavesList, loadSaveGame, deleteSaveGame)
+      saves.js          (loadSavesList, loadSaveGame, deleteSaveGame, sort/prune/paged rendering)
       settings.js       (pingLlm, saveSystemPrompt, saveSummaryMemory)
       presets.js        (loadPresets, loadCharactersList, launchSimulation)
       lore.js           (toggleLoreCard, editLoreCard, saveLoreCard, triggerLoreScan)
@@ -51,8 +52,9 @@ app.js
   ├── components/barterModal.js  ── ui/toast.js, ui/screens.js, api/memory.js, api/barter.js
   ├── components/actionChips.js  ── components/barterModal.js, ui/toast.js, state.js, api/barter.js
   ├── components/mapPanel.js     ── api/map.js, components/forceLayout.js, components/mapGeometry.js, components/popoverPlacement.js
+  ├── components/saveListModel.js (leaf — pure restore-save helpers)
   ├── api/settings.js   ── ui/toast.js, ui/screens.js
-  ├── api/saves.js      ── ui/toast.js, ui/screens.js
+  ├── api/saves.js      ── ui/toast.js, ui/screens.js, components/saveListModel.js
   ├── api/presets.js    ── ui/screens.js
   ├── api/lore.js       ── ui/toast.js, ui/screens.js, utils.js
   ├── api/memory.js     ── ui/renderers.js
@@ -116,7 +118,9 @@ The application switches between 6 main screens by toggling the `.hidden` and `.
   - Displays preset character avatars (`#character-grid`) or a custom creation form (`#custom-character-form`).
   - Navigation: "Back", "Customize Character / Select Preset Hero" (`#btn-char-custom-toggle`), and "Launch Simulation" (`#btn-submit-character`).
 - **Restore Saved Simulation Screen (`#restore-screen`)**:
-  - Lists saved sessions (`#save-list` loaded from `/api/saves` via `loadSavesList()` in `js/api/saves.js`).
+  - Lists saved sessions (`#save-list` loaded from `/api/saves` via `loadSavesList()` in `js/api/saves.js`), sorted client-side by Recent (`updated_at`), numeric-aware A–Z, or Moves; the choice persists in `localStorage`.
+  - Renders 50 rows at a time with `#btn-saves-more` ("Show more"); each row shows `Moves: N`, with title/location/summary assigned via `textContent`.
+  - Toolbar: `#save-sort`, a move-threshold `#save-prune-moves`, `#btn-prune-saves`, and a debounced `#save-prune-preview`. Prune uses `POST /api/saves/prune` dry-run first, confirms via `showConfirm()`, and excludes the active adventure.
   - Item Options: "Restore" (loads save via API and opens gameplay) and "Delete" (prompts confirmation then deletes).
 - **Gameplay Dashboard Screen (`#gameplay-screen` / class `.game-dashboard`)**:
   - **Status Bar**: Live feedback of `#val-location`, `#val-score`, `#val-moves`, and `#val-title`.
@@ -167,7 +171,8 @@ Consumed by modules in `js/api/`:
 | POST | `/api/action` | streaming.js | Sends action command; streams SSE response |
 | POST | `/api/system` | settings.js | Saves system prompts |
 | POST | `/api/summary` | settings.js | Saves memory summary |
-| GET | `/api/saves` | saves.js | Lists saved slots |
+| GET | `/api/saves` | saves.js | Lists saved slots with `updated_at`/`moves` |
+| POST | `/api/saves/prune` | saves.js | Dry-run preview or bulk move-threshold prune |
 | POST | `/api/saves/<id>` | saves.js | Loads save game |
 | DELETE | `/api/saves/<id>` | saves.js | Wipes save slot |
 | POST | `/api/lore` | lore.js | Creates, deletes, or toggles lore cards |

@@ -30,7 +30,8 @@ from tests.test_helpers import assert_save_dir_is_safe
 # actual tap/click events.
 # ────────────────────────────────────────────────────────────────────────────
 
-TEST_SAVE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "adventures_mobile_e2e_test")
+TEST_TMP_ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".tmp_od_root_mobile")
+TEST_SAVE_DIR = os.path.join(TEST_TMP_ROOT, "local-dev", "adventures")
 
 MOBILE_VIEWPORTS = {
     "iphone-se": {"width": 375, "height": 667},
@@ -54,7 +55,8 @@ def start_server():
 
     env = os.environ.copy()
     env["MOCK_LLM"] = "1"
-    env["SAVE_DIR"] = TEST_SAVE_DIR
+    env.pop("SAVE_DIR", None)
+    env["OD_TMP_ROOT"] = TEST_TMP_ROOT  # web/server.js honours this
     env["PORT"] = str(port)
     proc = subprocess.Popen(
         ["node", "web/server.js"],
@@ -78,12 +80,8 @@ def start_server():
         except subprocess.TimeoutExpired:
             proc.kill()
     
-    assert_save_dir_is_safe(TEST_SAVE_DIR)
-    if os.path.isdir(TEST_SAVE_DIR):
-        shutil.rmtree(TEST_SAVE_DIR, ignore_errors=True)
-    presets_file = os.path.join(os.path.dirname(TEST_SAVE_DIR), 'presets.json')
-    if os.path.isfile(presets_file):
-        os.remove(presets_file)
+    assert_save_dir_is_safe(TEST_TMP_ROOT)
+    shutil.rmtree(TEST_TMP_ROOT, ignore_errors=True)
 
 @pytest.fixture(scope="function")
 def mobile_page(page, request):

@@ -1,7 +1,7 @@
 ## Executive Summary & Environment
 
-- **Status**: PATCH-01/PATCH-02/PATCH-03 code fixes complete; **29/30 tasks complete** (P03.4 live-API playtest BLOCKED — no LLM credentials). 125 Node unit tests and 30 Playwright E2E tests pass. `openspec validate --strict` passes.
-- **Date**: 2026-11-15 (PATCH-03 applied after culling/name/inspector audit)
+- **Status**: PATCH-01..PATCH-04 code fixes complete; **34/37 tasks checked, 2 partial, 1 open** — P03.4 live-API playtest BLOCKED (no credentials); P04.1 RED-capture partial (see honesty note); P04.7 user-approved cleanup pending. 133 Node unit tests and 150 Playwright E2E tests pass. `openspec validate --strict` passes.
+- **Date**: 2026-11-15 (PATCH-04 applied after save-manager/isolation investigation)
 - **Change**: `gravitational-node-map` (schema `tdd-rnd`)
 - **Environment**
   - OS: Linux (arm64)
@@ -171,7 +171,9 @@ The single warning is pytest's pre-existing `PytestRemovedIn10Warning` about ses
 | :--- | :--- | :--- | :--- |
 | Existing spatial unit tests | 77 | 77 | 0 lost; all pass |
 | New map unit tests | 0 | 48 | +48 (determinism, degree, collision, springs, state machine, geometry, placement, PATCH-01/02/03 naming + topMargin + dedupe) |
-| Playwright map E2E tests | 6 (two-mode grid suite) | 30 | +24 net; mode toggle removed, PATCH-01/02/03 reproductions + culling benchmark added |
+| PATCH-04 save unit tests | 0 | 8 | `savesPrune.test.mjs`: sort/prune/page, `updated_at`, JSON+SQLite+index deletion, isolation, mtime |
+| Playwright map E2E tests | 6 (two-mode grid suite) | 32 | +26 net; PATCH-04 meta/FIT tests added |
+| Playwright E2E (all files) | — | 150 | Full `tests/e2e/` suite, including 4 new restore-window tests |
 | PATCH-01 reproduction tests | 0 | 7 (3 unit + 4 E2E) | All fail before the patch, all pass after |
 | PATCH-02 reproduction tests | 0 | 5 (2 unit + 2 E2E RED) | Mobile containment + digit-gated naming failed before, all pass after |
 | PATCH-03 reproduction tests | 0 | 6 (2 unit groups + 4 E2E) | Naming/dedupe, culling cost, mobile sheet pan, sidebar clamp failed before, all pass after |
@@ -432,32 +434,114 @@ Save retained at `game/playtest/adventures` (`adventure_id=9ad9dc13`). Because t
 
 The five PATCH-02 code-review items remain DEFERRED in `patch.md`: `settle()` cutoff, `startPinch` stale pan state, cancel-drag pinned restore, drag-wipes-route, and pinned-node repulsion.
 
+## PATCH-04 — Meta Priority, Stale-FIT Guard, Restore Save Manager & Save Isolation
+
+**Status: RESOLVED** (P03.4 live playtest still `[~]`; P04.7 user-approved cleanup untouched).
+
+### Scope A — map
+
+| Fix | Implementation | Verification |
+| :--- | :--- | :--- |
+| Meta captions outranked room names | Current/hovered/inspected meta stays `base + 0.5`; every other meta is `10 + base`; a culled name forces its meta to cull | `test_map_meta_never_outranks_culled_names` (40 rooms): no surviving meta without its name; `◉ CURRENT` never culled |
+| Stale FIT after hidden-tab render | `fitCamera()` records `fittedForSize` (incl. fallback flag); `renderMapPanel()` re-fits only when `cameraMode === 'fit'` and size differs/used fallback; manual/center cameras untouched; no layout re-seed | `test_map_hidden_render_refits_and_preserves_manual_pan`: hidden render → show zoom within 2% of direct FIT without clicking FIT first; manual pan byte-identical after show |
+
+The A2 harness initially measured `0.904` after show vs `0.843` direct and then exposed `ensureCurrentInView()` overriding a manual camera on hidden render; both were corrected (manual cameras now skip the recenter).
+
+### Scope B — Restore Save Manager
+
+| Fix | Implementation | Verification |
+| :--- | :--- | :--- |
+| Sorting / timestamps | `saveListModel.sortSaves` (Recent `updated_at` desc, numeric-aware A–Z, Moves desc, deterministic ties); `AdventureState.list()` attaches `fs.stat().mtimeMs` | `savesPrune.test.mjs` sort cases + `test_restore_sorts_and_persists_choice` |
+| Move-threshold prune | `AdventureEngine.pruneAdventures` + `POST /api/saves/prune` (dry-run, active exclusion, per-id isolation, route ordered before `/:save_id`) | unit prune tests (JSON + `rooms`/`exits`/`room_visits` + vector index); `test_restore_prune_preview_and_confirm` |
+| Bounded UI / safe text | 50-row pages + Show more; `title`/`location`/`summary` via `textContent`; `Moves: N` | `test_restore_paginates_and_show_more`; `test_restore_renders_save_fields_as_text` |
+| Save mtime stability | List uses `fs.stat`; load only reads | `savesPrune.test.mjs` load-does-not-change-`mtimeMs` |
+
+### Scope C — save isolation
+
+All four E2E server fixtures now use `OD_TMP_ROOT=<tests/.tmp_od_root_*>` and remove that root on teardown. `web/server.js` warns when `SAVE_DIR` is set; `tests/ARCHITECTURE.md` documents the two contracts.
+
+```text
+$ find /tmp/open-dungeon/local-dev/adventures -maxdepth 1 -name '*.json' | wc -l
+762          # before full tests/e2e run
+$ ./venv/bin/python -m pytest tests/e2e/ -v
+150 passed, 1 warning in 236.32s
+$ find /tmp/open-dungeon/local-dev/adventures -maxdepth 1 -name '*.json' | wc -l
+762          # unchanged; no shared files deleted or modified
+```
+
+```text
+$ SAVE_DIR=tests/should_be_ignored OD_TMP_ROOT=tests/.tmp_od_warn_probe MOCK_LLM=1 PORT=5013 timeout 3 node web/server.js
+[STARTUP] SAVE_DIR is ignored by web/server.js (SessionManager supplies its own save dir). Set OD_TMP_ROOT instead; saves land in <OD_TMP_ROOT>/local-dev/adventures.
+```
+
+### Reproduction / verification honesty
+
+- **C** has a real before/after metric: the shared dir already held **762** accumulated saves, and the full isolated E2E run left it at **762**. No unmodified-fixture run was executed solely to inflate that count further.
+- **A2** failed against the first implementation (stale zoom and manual-camera override), which is recorded above.
+- **A1/B** tests were authored alongside the implementation and are green; their pre-fix RED states were not separately captured in this session. The tests now lock the contracts.
+
+### Full regression logs
+
+```bash
+$ node --test tests/unit/savesPrune.test.mjs tests/unit/forceLayout.test.mjs \
+    tests/unit/mapGeometry.test.mjs tests/unit/popoverPlacement.test.mjs \
+    tests/unit/roomMap.test.mjs tests/unit/pathfinding.test.mjs \
+    tests/unit/structuredStore.spatial.test.mjs tests/unit/spatialIntegration.test.mjs \
+    tests/unit/spatialUndo.test.mjs
+1..133
+# tests 133
+# suites 0
+# pass 133
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 3545.995855
+```
+
+```bash
+$ ./venv/bin/python -m pytest tests/e2e/ -v
+...
+tests/e2e/test_restore_saves.py::test_restore_sorts_and_persists_choice[chromium] PASSED
+tests/e2e/test_restore_saves.py::test_restore_paginates_and_show_more[chromium] PASSED
+tests/e2e/test_restore_saves.py::test_restore_prune_preview_and_confirm[chromium] PASSED
+tests/e2e/test_restore_saves.py::test_restore_renders_save_fields_as_text[chromium] PASSED
+================== 150 passed, 1 warning in 236.32s (0:03:56) ===================
+```
+
+```bash
+$ openspec validate gravitational-node-map --strict
+Change 'gravitational-node-map' is valid
+```
+
+### Docs synced
+
+`engine/ARCHITECTURE.md` (prune route, web-server `OD_TMP_ROOT` vs direct-engine `SAVE_DIR`), `web/FRONTEND_ARCHITECTURE.md` (`saveListModel.js`, Restore controls, prune API), `tests/ARCHITECTURE.md` (two env contracts, E2E roots, new test files), and both `spatial-map-visualization` specs (Restore Save Manager requirement).
+
+### P04.7 — NOT DONE (needs explicit user approval)
+
+`/tmp/open-dungeon/local-dev` (762 saves + shared `memory.db` + index folders) was not touched. Cleanup must go through the new prune UI after reviewing the dry-run preview.
+
 ## Quick Re-Verification (60-Second Audit)
 
 ```bash
-# JS unit modules (48 tests, ~0.2 s)
-node --test tests/unit/forceLayout.test.mjs tests/unit/mapGeometry.test.mjs tests/unit/popoverPlacement.test.mjs
+# Full unit suite incl. savesPrune (133 tests, ~4 s)
+node --test tests/unit/savesPrune.test.mjs tests/unit/forceLayout.test.mjs \
+  tests/unit/mapGeometry.test.mjs tests/unit/popoverPlacement.test.mjs \
+  tests/unit/roomMap.test.mjs tests/unit/pathfinding.test.mjs \
+  tests/unit/structuredStore.spatial.test.mjs tests/unit/spatialIntegration.test.mjs \
+  tests/unit/spatialUndo.test.mjs
 
-# Full spatial + frontend unit suite (125 tests, ~4 s)
-node --test tests/unit/forceLayout.test.mjs tests/unit/mapGeometry.test.mjs \
-  tests/unit/popoverPlacement.test.mjs tests/unit/roomMap.test.mjs \
-  tests/unit/pathfinding.test.mjs tests/unit/structuredStore.spatial.test.mjs \
-  tests/unit/spatialIntegration.test.mjs tests/unit/spatialUndo.test.mjs
-
-# Map E2E (30 tests, ~130 s; requires the provisioned venv + Chromium)
-./venv/bin/python -m pytest tests/e2e/test_map_render.py -q
+# Full Playwright E2E suite (150 tests, ~4 min; requires the provisioned venv + Chromium)
+./venv/bin/python -m pytest tests/e2e/ -q
 ```
 
 Expected output:
 
 ```text
-# tests 48
-# pass 48
+# tests 133
+# pass 133
 # fail 0
 
-# tests 125
-# pass 125
-# fail 0
-
-30 passed, 1 warning in ~130s
+150 passed, 1 warning in ~236s
 ```

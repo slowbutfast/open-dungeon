@@ -54,6 +54,9 @@ let camera = { x: 0, y: 0, zoom: 1, initialized: false };
 // 'fit' = frame all rooms, 'center' = focus the current room, 'manual' = the
 // player panned/zoomed and resize must not steal the camera back.
 let cameraMode = 'fit';
+// Size the current FIT camera was computed for, so a hidden-tab fallback fit
+// can be corrected when the real canvas size becomes available.
+let fittedForSize = null;
 
 const nodeEls = new Map();
 const edgePaths = new Map();
@@ -142,6 +145,7 @@ export function renderMapPanel(data) {
         showEmpty(canvas);
         layout = null;
         camera = { x: 0, y: 0, zoom: 1, initialized: false };
+        fittedForSize = null;
         closeInspector();
         return;
     }
@@ -170,9 +174,22 @@ export function renderMapPanel(data) {
 
     if (fresh || !camera.initialized) {
         fitCamera();
+    } else if (cameraMode === 'fit') {
+        const fitted = fittedForSize;
+        const stale = !fitted
+            || fitted.usedFallback
+            || measured.usedFallback
+            || Math.abs(measured.width - fitted.width) > 0.5
+            || Math.abs(measured.height - fitted.height) > 0.5;
+        if (stale) fitCamera();
+        else {
+            applyCamera();
+            ensureCurrentInView();
+        }
     } else {
         applyCamera();
-        ensureCurrentInView();
+        // A manual camera is the player's; never recenter it behind their back.
+        if (cameraMode === 'center') ensureCurrentInView();
     }
 
     if (inspectedId) {
@@ -225,10 +242,11 @@ function hideEmpty() {
 }
 
 function measureCanvas(canvas) {
+    const usedFallback = canvas.clientWidth <= 0 || canvas.clientHeight <= 0;
     const width = canvas.clientWidth > 0 ? canvas.clientWidth : (lastCanvasSize.width || FALLBACK_WIDTH);
     const height = canvas.clientHeight > 0 ? canvas.clientHeight : (lastCanvasSize.height || FALLBACK_HEIGHT);
     lastCanvasSize = { width, height };
-    return lastCanvasSize;
+    return { width, height, usedFallback };
 }
 
 function roomById(id) {
@@ -606,18 +624,31 @@ function cullLabels() {
     for (const [id, el] of nodeEls) {
         const node = layout.getNode(id);
         if (!node) continue;
-        const priority = labelPriority(id, node);
-        for (const [selector, kind, bump] of [
-            ['.map-room-name', 'name', 0],
-            ['.map-room-meta', 'meta', 0.5],
-        ]) {
-            const labelEl = el.querySelector(selector);
-            if (!labelEl) continue;
+        const basePriority = labelPriority(id, node);
+        const nameEl = el.querySelector('.map-room-name');
+        if (nameEl) {
             entries.push({
-                el: labelEl,
-                kind,
+                el: nameEl,
+                kind: 'name',
                 node,
-                priority: priority + bump,
+                priority: basePriority,
+                degree: node.degree || 0,
+                id,
+            });
+        }
+        const metaEl = el.querySelector('.map-room-meta');
+        if (metaEl) {
+            // Current/hovered/inspected meta stays adjacent to its own name;
+            // every other meta ranks below all names and edge labels so
+            // "VISITED ×N" can never outrank a room title.
+            const focal = id === graphData.current_room_id
+                || id === hoveredId
+                || id === inspectedId;
+            entries.push({
+                el: metaEl,
+                kind: 'meta',
+                node,
+                priority: focal ? basePriority + 0.5 : 10 + basePriority,
                 degree: node.degree || 0,
                 id,
             });
@@ -640,7 +671,12 @@ function cullLabels() {
     ));
     const kept = [];
     const culled = new Set();
+    const culledNames = new Set();
     for (const entry of entries) {
+        if (entry.kind === 'meta' && culledNames.has(entry.id)) {
+            culled.add(entry.el);
+            continue;
+        }
         if (entry.kind !== 'edge') entry.metrics = labelMetricsFor(entry.el, false);
         const rect = entry.kind === 'edge'
             ? edgeLabelRect(entry.el, entry.metrics)
@@ -648,6 +684,7 @@ function cullLabels() {
         if (rect.width <= 0 || rect.height <= 0) continue;
         if (kept.some(other => labelsOverlap(other, rect))) {
             culled.add(entry.el);
+            if (entry.kind === 'name') culledNames.add(entry.id);
         } else {
             kept.push(rect);
         }
@@ -695,6 +732,7 @@ function fitCamera() {
     const bounds = computeBounds([...layout.nodes.values()], 46);
     camera = { ...computeFitViewport(bounds, size, { padding: 28 }), initialized: true };
     cameraMode = 'fit';
+    fittedForSize = { width: size.width, height: size.height, usedFallback: size.usedFallback };
     applyCamera();
 }
 

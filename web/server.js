@@ -112,6 +112,13 @@ function startServer() {
     const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 5001;
     const host = process.env.HOST || "::";
 
+    if (process.env.SAVE_DIR && process.env.VERCEL !== '1') {
+        console.warn(
+            '[STARTUP] SAVE_DIR is ignored by web/server.js (SessionManager supplies its own save dir). '
+            + 'Set OD_TMP_ROOT instead; saves land in <OD_TMP_ROOT>/local-dev/adventures.'
+        );
+    }
+
     app.listen(PORT, host, async () => {
         console.log(`Express server running on http://${host}:${PORT}`);
 
