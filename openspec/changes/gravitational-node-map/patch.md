@@ -38,3 +38,25 @@ The following earlier review findings remain open and are explicitly deferred to
 5. Pinned nodes use `continue` in the repulsion loop, so pinned orbs do not repel unpinned neighbours (dense clusters around pins can be biased).
 
 **Status**: DEFERRED (tracked, not resolved by PATCH-01/PATCH-02).
+
+### [PATCH-03] Cached/Debounced Label Culling, Render-Time Name Dedupe, Mobile Sheet Pan & Desktop Sidebar Clamp
+- **Date**: 2026-11-15 22:50:00 UTC
+- **Feedback Source**: Multi-Agent Playwright Audit (`PATCH-02` Review)
+- **Reported Issue**:
+  1. **Blocker**: `cullLabels()` runs on every camera/geometry frame and interleaves `classList` writes with `getBoundingClientRect()` reads (818 reads / 34–67 ms per wheel event at 144 rooms).
+  2. Mobile bottom sheet covers ~7/15 tapped citadel nodes because `openInspector()` does not pan the inspected node above the sheet.
+  3. `tokens.length === 3` special case in `formatCompactRoomName` drops distinguishing middle words (`Crystal Cavern 12` / `Crystal Chamber 12` → `Crystal…12`), and shared prefixes/non-digit suffixes collide without render-time deduplication.
+  4. Desktop `#map-inspector` overlaps the left ~88 px of `.sidebar-panel` (`LOREBOOK` / `SPATIAL MAP`).
+- **Target Files**: `web/static/js/components/mapPanel.js, web/static/js/components/mapGeometry.js, tests/unit/mapGeometry.test.mjs, tests/e2e/test_map_render.py`
+- **Expected Resolution**: Zero per-frame layout thrash in `cullLabels` (cached/batched reads + gesture skip/debounce); mobile `openInspector` pans covered nodes above the bottom sheet; `dedupeCompactLabels` guarantees unique visible room labels; desktop inspector stays left of `.sidebar-panel`; `>= 40` move live-API playtest save generated and verified.
+- **Status**: CODE RESOLVED / P03.4 LIVE PLAYTEST BLOCKED (no credentials)
+- **Resolution (2026-11-15)**:
+  - **Culling**: intrinsic label sizes are cached (invalidated on text/font change), rects are derived from `worldToScreen(node, camera)`, and every read happens before any class write. Culling is debounced 100 ms during gestures. Benchmark at 144 rooms: 30 synchronous wheel events in 9 ms, **0 cull runs during gesture, 0 label-rect reads**, 1 settle cull, 42 visible labels / 0 overlaps.
+  - **Names**: removed the 3-token special case; added pure `dedupeCompactLabels()` (tail expansion + `~N` uniqueness fallback). `Crystal Cavern 12` / `Crystal Chamber 12` are distinct; Chapel/Sector collisions render unique labels.
+  - **Mobile sheet**: `openInspector()` pans the camera so a covered node sits `radius + 16px` above the bottom sheet.
+  - **Desktop**: `inspectorTarget()` clamps the usable viewport to `sidebar.left - 8`.
+  - **Verification**: RED (naming/dedupe unit cases + 4 E2E) → GREEN; 125/125 unit, 30/30 E2E, `openspec validate --strict` passes.
+  - **P03.4 blocked**: no live LLM credentials are available (`OPENROUTER_API_KEY` unset, LM Studio at `127.0.0.1:1234` unreachable). A 40-move MCP playtest was executed in `MOCK_LLM=1` to validate the tool path and saved as `adventure_id=9ad9dc13` (`game/playtest/adventures`), but its mock narrator only produced 2 rooms / 2 edges, so it does **not** satisfy the live-large-map requirement. Re-run P03.4 once credentials are provided.
+
+### DEFERRED — Code-review follow-ups (unchanged)
+The five earlier review findings remain deferred as documented under PATCH-02: `settle()` cutoff, `startPinch` stale `panGesture`, `dragEnd({ cancel: true })` pinned restore, drag-wipes-route, and pinned-node repulsion `continue`.

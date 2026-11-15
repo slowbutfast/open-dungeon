@@ -300,6 +300,29 @@ ROUTE_FIXTURE = copy.deepcopy(P6_FIXTURE)
 ROUTE_FIXTURE["current_room_id"] = "r1"
 
 
+def _dense_fixture(room_count=64):
+    rooms = [{"id": "hub", "name": "Grand Central Nexus",
+              "first_turn": 1, "last_visit_turn": room_count, "visit_count": room_count}]
+    edges = []
+    for index in range(1, room_count):
+        room_id = f"n{index}"
+        rooms.append({
+            "id": room_id,
+            "name": f"Winding Passage {index}",
+            "first_turn": index,
+            "last_visit_turn": index,
+            "visit_count": 1,
+        })
+        edges.append({"from": "hub", "direction": "north", "to": room_id,
+                      "kind": "walk", "inferred": 0})
+    return {
+        "rooms": rooms,
+        "edges": edges,
+        "regions": [{"room_ids": [room["id"] for room in rooms]}],
+        "current_room_id": "hub",
+    }
+
+
 def _open_fixture_map(page, fixture=P6_FIXTURE):
     _mock_map(page, fixture)
     _commit_move(page, "look around")
@@ -985,3 +1008,114 @@ def test_map_dense_graph_culls_colliding_labels(game_page):
         }"""
     )
     assert overlaps == 0, f"{overlaps} visible labels overlap"
+
+
+# ─── PATCH-03 reproductions ───────────────────────────────────────────────
+
+def test_map_culling_is_debounced_and_uses_cached_metrics(game_page):
+    """A 64-room graph must not re-measure/re-cull labels on every wheel frame."""
+    page = game_page
+    _mock_map(page, _dense_fixture(64))
+    _commit_move(page, "look around")
+    _open_map_tab(page)
+    expect(page.locator(".map-room")).to_have_count(64)
+    page.wait_for_timeout(400)  # initial cull settles
+
+    runs_before = int(page.locator("#map-canvas").get_attribute("data-cull-runs") or 0)
+    page.evaluate(
+        """() => {
+            window.__labelRects = 0;
+            const original = Element.prototype.getBoundingClientRect;
+            Element.prototype.getBoundingClientRect = function () {
+                if (this.matches?.('.map-room-name, .map-room-meta, .map-edge-label')) {
+                    window.__labelRects += 1;
+                }
+                return original.call(this);
+            };
+        }"""
+    )
+
+    canvas = _canvas_rect(page)
+    page.evaluate(
+        """({x, y}) => {
+            const canvas = document.getElementById('map-canvas');
+            for (let i = 0; i < 12; i += 1) {
+                canvas.dispatchEvent(new WheelEvent('wheel', {
+                    bubbles: true, cancelable: true, deltaY: -45,
+                    clientX: x, clientY: y,
+                }));
+            }
+        }""",
+        {"x": canvas["left"] + canvas["width"] / 2, "y": canvas["top"] + canvas["height"] / 2},
+    )
+
+    runs_during = int(page.locator("#map-canvas").get_attribute("data-cull-runs") or 0)
+    reads_during = page.evaluate("() => window.__labelRects")
+    assert runs_during == runs_before, "culling must be debounced during a wheel gesture"
+    assert reads_during == 0, f"wheel frames read {reads_during} label rects"
+
+    page.wait_for_timeout(350)
+    runs_after = int(page.locator("#map-canvas").get_attribute("data-cull-runs") or 0)
+    reads_after = page.evaluate("() => window.__labelRects")
+    assert runs_after == runs_before + 1, (runs_before, runs_during, runs_after)
+    assert reads_after == 0, f"settled cull read {reads_after} label rects instead of using cache"
+
+
+def test_map_mobile_inspector_pans_covered_node_above_sheet(mobile_game_page):
+    """Tapping a node hidden behind the bottom sheet pans it into view."""
+    page = mobile_game_page
+    _mock_map(page, _dense_fixture(15))
+    _commit_move(page, "look around")
+    _open_map_tab_mobile(page)
+    expect(page.locator(".map-room")).to_have_count(15)
+
+    # The hub has 14 exits, so its bottom sheet is tall enough to cover the
+    # centre of the canvas — exactly the citadel failure mode.
+    target = {"id": "hub"}
+    page.locator('.map-room[data-room-id="hub"]').click()
+    inspector = page.locator("#map-inspector")
+    expect(inspector).to_be_visible()
+
+    node = _room_rect(page, target["id"])
+    sheet = inspector.bounding_box()
+    assert node["bottom"] <= sheet["y"] - 8, (target, node, sheet)
+
+
+def test_map_inspector_clamps_left_of_desktop_sidebar(game_page):
+    """The desktop inspector never covers sidebar tabs or map controls."""
+    page = game_page
+    _open_fixture_map(page)
+
+    page.locator('.map-room[data-room-id="r2"]').click()
+    expect(page.locator("#map-inspector")).to_be_visible()
+    inspector = page.locator("#map-inspector").bounding_box()
+    sidebar = page.locator(".sidebar-panel").bounding_box()
+    assert inspector["x"] + inspector["width"] <= sidebar["x"] - 8 + 0.5, (inspector, sidebar)
+
+
+def test_map_colliding_room_names_render_distinct_labels(game_page):
+    """Shared prefixes/non-digit suffixes get unique compact labels at render time."""
+    page = game_page
+    fixture = {
+        "rooms": [
+            {"id": "bells", "name": "Chapel of Quiet Bells", "first_turn": 1, "last_visit_turn": 1, "visit_count": 1},
+            {"id": "waters", "name": "Chapel of Quiet Waters", "first_turn": 2, "last_visit_turn": 2, "visit_count": 1},
+            {"id": "tunnel-b", "name": "Sector 7 Maintenance Tunnel B", "first_turn": 3, "last_visit_turn": 3, "visit_count": 1},
+            {"id": "tunnel-c", "name": "Sector 7 Maintenance Tunnel C", "first_turn": 4, "last_visit_turn": 4, "visit_count": 1},
+        ],
+        "edges": [
+            {"from": "bells", "direction": "east", "to": "waters", "kind": "walk", "inferred": 0},
+            {"from": "waters", "direction": "east", "to": "tunnel-b", "kind": "walk", "inferred": 0},
+            {"from": "tunnel-b", "direction": "east", "to": "tunnel-c", "kind": "walk", "inferred": 0},
+        ],
+        "regions": [{"room_ids": ["bells", "waters", "tunnel-b", "tunnel-c"]}],
+        "current_room_id": "bells",
+    }
+    _mock_map(page, fixture)
+    _commit_move(page, "look around")
+    _open_map_tab(page)
+    expect(page.locator(".map-room")).to_have_count(4)
+
+    labels = page.eval_on_selector_all(".map-room-name", "els => els.map(el => el.textContent)")
+    assert len(set(labels)) == 4, labels
+    assert all(len(label) <= 16 for label in labels), labels

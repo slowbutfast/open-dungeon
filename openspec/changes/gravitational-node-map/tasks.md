@@ -46,3 +46,11 @@
 - [x] P02.2 Implement mobile flex containment + sticky inspector padding in `web/static/style.css`, digit-gated naming in `mapGeometry.js`, coarse-pointer tap gating + `topMargin: 108` + `FAR_ZOOM = 0.6` label culling in `mapPanel.js`, and sync `◎` in specs.
 - [x] P02.3 Re-run reproduction tests, full Node unit suite, full Playwright E2E suite, and `openspec validate gravitational-node-map --strict`.
 - [x] P02.4 Update `verification.md` with PATCH-02 audit results and mark `PATCH-02` `RESOLVED` in `patch.md`.
+
+## Patch 03: Culling Performance, Name Dedupe, Mobile Sheet Pan & Live Playtest
+
+- [x] P03.1 Add reproducing unit tests (`Crystal Cavern 12`/`Crystal Chamber 12`, `dedupeCompactLabels`) and E2E tests (mobile sheet pan-into-view, desktop sidebar clamp, culling cost/debounce); confirm RED.
+- [x] P03.2 Implement batched/cached `cullLabels` with gesture skip/debounce, mobile bottom-sheet pan-into-view, and desktop sidebar clamp in `mapPanel.js`, plus `dedupeCompactLabels` in `mapGeometry.js`.
+- [x] P03.3 Re-run unit tests, Playwright E2E suite, and `openspec validate gravitational-node-map --strict`.
+- [~] P03.4 Run a `>= 40` move live-API playtest using `open-dungeon-playtest`, save the resulting large map, and verify it renders cleanly. (Executed 40 MCP moves with `MOCK_LLM=1`; save `adventure_id=9ad9dc13` retained, but live API was impossible — no `OPENROUTER_API_KEY` and LM Studio unreachable. Mock map = 2 rooms / 2 edges, so the live large-map requirement remains blocked, not satisfied.)
+- [x] P03.5 Update `verification.md` with PATCH-03 + playtest findings and mark `PATCH-03` status in `patch.md`.

@@ -1,7 +1,7 @@
 ## Executive Summary & Environment
 
-- **Status**: Implementation complete — all 25 tasks checked (17 original + 4 PATCH-01 + 4 PATCH-02), 123 Node unit tests and 26 Playwright E2E tests passing. PATCH-01 and PATCH-02 RESOLVED. No critical verification issues.
-- **Date**: 2026-11-15 (PATCH-01 applied after visual verification)
+- **Status**: PATCH-01/PATCH-02/PATCH-03 code fixes complete; **29/30 tasks complete** (P03.4 live-API playtest BLOCKED — no LLM credentials). 125 Node unit tests and 30 Playwright E2E tests pass. `openspec validate --strict` passes.
+- **Date**: 2026-11-15 (PATCH-03 applied after culling/name/inspector audit)
 - **Change**: `gravitational-node-map` (schema `tdd-rnd`)
 - **Environment**
   - OS: Linux (arm64)
@@ -170,10 +170,12 @@ The single warning is pytest's pre-existing `PytestRemovedIn10Warning` about ses
 | Metric / Count | Before | After | Delta / Observation |
 | :--- | :--- | :--- | :--- |
 | Existing spatial unit tests | 77 | 77 | 0 lost; all pass |
-| New map unit tests | 0 | 46 | +46 (determinism, degree, collision, springs, state machine, geometry, placement, PATCH-01/02 naming + topMargin) |
-| Playwright map E2E tests | 6 (two-mode grid suite) | 26 | +20 net; mode toggle removed, PATCH-01/02 reproductions + dense-label culling added |
+| New map unit tests | 0 | 48 | +48 (determinism, degree, collision, springs, state machine, geometry, placement, PATCH-01/02/03 naming + topMargin + dedupe) |
+| Playwright map E2E tests | 6 (two-mode grid suite) | 30 | +24 net; mode toggle removed, PATCH-01/02/03 reproductions + culling benchmark added |
 | PATCH-01 reproduction tests | 0 | 7 (3 unit + 4 E2E) | All fail before the patch, all pass after |
 | PATCH-02 reproduction tests | 0 | 5 (2 unit + 2 E2E RED) | Mobile containment + digit-gated naming failed before, all pass after |
+| PATCH-03 reproduction tests | 0 | 6 (2 unit groups + 4 E2E) | Naming/dedupe, culling cost, mobile sheet pan, sidebar clamp failed before, all pass after |
+| Live-API playtest (P03.4) | 0 | **BLOCKED** | No `OPENROUTER_API_KEY`; LM Studio unreachable. Mock MCP run: 40 moves, save `9ad9dc13`, 2 rooms / 2 edges |
 | Backend/API schema changes | 0 | 0 | `GET /api/map` and `GET /api/path` consumed unchanged |
 | SQLite tables / persisted records | 0 | 0 | No model or migration changes; pins intentionally session-only |
 | Production save directories touched | 0 | 0 | E2E writes only to `tests/adventures_map_e2e_test/`, removed by fixture |
@@ -321,32 +323,141 @@ Change 'gravitational-node-map' is valid
 
 Tracked in `patch.md` → **DEFERRED**: `settle()` ~20-tick cutoff, `startPinch` stale `panGesture`, `dragEnd({ cancel: true })` pinned restore, drag-wipes-route, and pinned-node repulsion `continue`. These are out of scope for both visual patches and require a dedicated physics/interaction maintenance pass.
 
+## PATCH-03 — Cached/Debounced Label Culling, Name Dedupe, Mobile Sheet Pan & Desktop Clamp
+
+**Status: code RESOLVED; P03.4 live playtest BLOCKED on credentials.**
+
+| Fix | Final implementation | Reproduction test(s) |
+| :--- | :--- | :--- |
+| Label culling layout thrash (blocker) | Intrinsic sizes cached in a `WeakMap` (invalidated on text/font change); screen rects derive from `worldToScreen(node, camera)`; all reads happen before any class writes; culling debounced 100 ms and skipped during pan/pinch/drag. `data-cull-runs` exposes settled runs. | `test_map_culling_is_debounced_and_uses_cached_metrics` (64 rooms): 0 cull runs + 0 label-rect reads during 12 synchronous wheel events, exactly 1 settle cull, 0 reads after |
+| Mobile bottom sheet covers focused node | `panInspectedNodeAboveSheet()` pans `camera.y` so the node centre sits `sheet.top - radius - 16` | `test_map_mobile_inspector_pans_covered_node_above_sheet` (15-room hub, 14-exit sheet) |
+| 3-token special case / colliding labels | `tokens.length === 3` removed; `dedupeCompactLabels()` tail-expands colliding groups and applies `~N` uniqueness fallback; mapPanel renders deduped labels | `tests/unit/mapGeometry.test.mjs::formatCompactRoomName: keeps distinguishing middle words...`; `::dedupeCompactLabels...`; `test_map_colliding_room_names_render_distinct_labels` |
+| Desktop inspector overlaps sidebar | `inspectorTarget()` clamps the popover viewport to `sidebar.left - 8` | `test_map_inspector_clamps_left_of_desktop_sidebar` |
+
+### Reproduction-first evidence (RED)
+
+```text
+$ node --test tests/unit/mapGeometry.test.mjs
+# import of dedupeCompactLabels failed; 2 naming/dedupe cases RED
+
+$ ./venv/bin/python -m pytest tests/e2e/test_map_render.py -v -k "culling_is_debounced or mobile_inspector_pans or clamps_left or colliding_room_names"
+FAILED test_map_culling_is_debounced_and_uses_cached_metrics[...]
+FAILED test_map_mobile_inspector_pans_covered_node_above_sheet[...]   # hub bottom 434.7 vs sheet top 312.3
+FAILED test_map_inspector_clamps_left_of_desktop_sidebar[...]
+FAILED test_map_colliding_room_names_render_distinct_labels[...]      # 2 unique labels for 4 rooms
+4 failed, 26 deselected
+```
+
+### Culling benchmark (144 rooms, live Chromium, settled graph)
+
+```json
+{
+ "rooms": 144,
+ "initial_render_ms": 1214.3,
+ "cull_runs_before": 2,
+ "gesture_30_wheels_ms": 9.0,
+ "cull_runs_during": 2,
+ "label_rect_reads_during": 0,
+ "cull_runs_after_idle": 3,
+ "label_rect_reads_after": 0,
+ "visible_labels": 42,
+ "visible_overlaps": 0
+}
+```
+
+30 synchronous wheel events completed in **9 ms** with **zero cull runs** and **zero label `getBoundingClientRect` reads**, followed by exactly one debounced settle cull (also zero reads), and zero visible label overlaps. This replaces the PATCH-02 per-frame path measured at 818 reads / 34–67 ms per wheel event for the same graph size.
+
+### Full regression logs
+
+```bash
+$ node --test tests/unit/forceLayout.test.mjs tests/unit/mapGeometry.test.mjs \
+    tests/unit/popoverPlacement.test.mjs tests/unit/roomMap.test.mjs \
+    tests/unit/pathfinding.test.mjs tests/unit/structuredStore.spatial.test.mjs \
+    tests/unit/spatialIntegration.test.mjs tests/unit/spatialUndo.test.mjs
+1..125
+# tests 125
+# suites 0
+# pass 125
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 3836.318412
+```
+
+```bash
+$ ./venv/bin/python -m pytest tests/e2e/test_map_render.py -v
+collecting ... collected 30 items
+...
+tests/e2e/test_map_render.py::test_map_culling_is_debounced_and_uses_cached_metrics[chromium] PASSED
+tests/e2e/test_map_render.py::test_map_mobile_inspector_pans_covered_node_above_sheet[chromium] PASSED
+tests/e2e/test_map_render.py::test_map_inspector_clamps_left_of_desktop_sidebar[chromium] PASSED
+tests/e2e/test_map_render.py::test_map_colliding_room_names_render_distinct_labels[chromium] PASSED
+================== 30 passed, 1 warning in 130.36s (0:02:10) ===================
+```
+
+```bash
+$ openspec validate gravitational-node-map --strict
+Change 'gravitational-node-map' is valid
+```
+
+### P03.4 live-API playtest — BLOCKED (credentials), mock harness run
+
+Credential check (no secrets printed):
+
+```text
+$ env | cut -d= -f1 | grep -E 'OPENROUTER|DEEPSEEK|OPENAI'   # no matches
+$ curl -sS --max-time 3 http://127.0.0.1:1234/v1/models
+curl: (7) Failed to connect to 127.0.0.1 port 1234
+```
+
+A 40-move MCP playtest was executed through `tests/mcp_client.py` with `MOCK_LLM=1` to validate the tool path and preserve a save:
+
+```json
+{
+  "adventure_id": "9ad9dc13",
+  "title": "PATCH-03 Large Map Playtest",
+  "moves": 40,
+  "model": "mock-gemma",
+  "rooms": 2,
+  "edges": 2,
+  "regions": 1,
+  "current_room_id": "mwifobiceogyz7ib"
+}
+```
+
+Save retained at `game/playtest/adventures` (`adventure_id=9ad9dc13`). Because the mock narrator always returns the Cantina status, this produced only 2 rooms and therefore **does not** satisfy the live large-map requirement. Re-run the live `open-dungeon-playtest` 40+ move pass once `OPENROUTER_API_KEY` (or a reachable LM Studio) is available, then record room/edge counts here and tick P03.4.
+
+### Deferred (unchanged)
+
+The five PATCH-02 code-review items remain DEFERRED in `patch.md`: `settle()` cutoff, `startPinch` stale pan state, cancel-drag pinned restore, drag-wipes-route, and pinned-node repulsion.
+
 ## Quick Re-Verification (60-Second Audit)
 
 ```bash
-# JS unit modules (46 tests, ~0.2 s)
+# JS unit modules (48 tests, ~0.2 s)
 node --test tests/unit/forceLayout.test.mjs tests/unit/mapGeometry.test.mjs tests/unit/popoverPlacement.test.mjs
 
-# Full spatial + frontend unit suite (123 tests, ~3.5 s)
+# Full spatial + frontend unit suite (125 tests, ~4 s)
 node --test tests/unit/forceLayout.test.mjs tests/unit/mapGeometry.test.mjs \
   tests/unit/popoverPlacement.test.mjs tests/unit/roomMap.test.mjs \
   tests/unit/pathfinding.test.mjs tests/unit/structuredStore.spatial.test.mjs \
   tests/unit/spatialIntegration.test.mjs tests/unit/spatialUndo.test.mjs
 
-# Map E2E (26 tests, ~117 s; requires the provisioned venv + Chromium)
+# Map E2E (30 tests, ~130 s; requires the provisioned venv + Chromium)
 ./venv/bin/python -m pytest tests/e2e/test_map_render.py -q
 ```
 
 Expected output:
 
 ```text
-# tests 46
-# pass 46
+# tests 48
+# pass 48
 # fail 0
 
-# tests 123
-# pass 123
+# tests 125
+# pass 125
 # fail 0
 
-26 passed, 1 warning in ~117s
+30 passed, 1 warning in ~130s
 ```

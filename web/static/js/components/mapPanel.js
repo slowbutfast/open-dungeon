@@ -13,6 +13,7 @@ import { fetchMap, fetchPath } from '../api/map.js';
 import { createForceLayout } from './forceLayout.js';
 import {
     formatCompactRoomName,
+    dedupeCompactLabels,
     computeBounds,
     worldToScreen,
     screenToWorld,
@@ -57,6 +58,8 @@ let cameraMode = 'fit';
 const nodeEls = new Map();
 const edgePaths = new Map();
 const edgeLabels = new Map();
+let labelMetrics = new WeakMap();
+let compactLabels = new Map();
 
 let hoveredId = null;
 let hoverDwellTimer = null;
@@ -178,6 +181,7 @@ export function renderMapPanel(data) {
     }
 
     if (inspectorFrame) startInspectorTracking();
+    scheduleLabelCulling({ immediate: true });
 }
 
 // ─── DOM scaffolding ──────────────────────────────────────────────────────
@@ -238,6 +242,7 @@ function nodeById(id) {
 // ─── keyed node/edge diffing ──────────────────────────────────────────────
 
 function renderNodes(content) {
+    compactLabels = dedupeCompactLabels(graphData.rooms);
     const seen = new Set();
     for (const room of graphData.rooms) {
         if (!room || !room.id) continue;
@@ -297,8 +302,18 @@ function updateRoomNode(el, room) {
     el.setAttribute('data-pinned', pinned ? 'true' : 'false');
     el.setAttribute('aria-label', fullName);
 
-    el.querySelector('.map-room-name').textContent = formatCompactRoomName(fullName);
-    el.querySelector('.map-room-meta').textContent = stateLabel(isCurrent, visited, visitCount);
+    const nameEl = el.querySelector('.map-room-name');
+    const label = compactLabels.get(room.id) || formatCompactRoomName(fullName);
+    if (nameEl.textContent !== label) {
+        nameEl.textContent = label;
+        labelMetrics.delete(nameEl);
+    }
+    const metaEl = el.querySelector('.map-room-meta');
+    const metaText = stateLabel(isCurrent, visited, visitCount);
+    if (metaEl.textContent !== metaText) {
+        metaEl.textContent = metaText;
+        labelMetrics.delete(metaEl);
+    }
 }
 
 function renderEdges(content) {
@@ -333,7 +348,11 @@ function renderEdges(content) {
             edgeLabels.set(key, label);
             svg.appendChild(label);
         }
-        label.textContent = `${edge.direction || 'onward'}${edge.kind && edge.kind !== 'walk' ? ` · ${edge.kind}` : ''}`;
+        const labelText = `${edge.direction || 'onward'}${edge.kind && edge.kind !== 'walk' ? ` · ${edge.kind}` : ''}`;
+        if (label.textContent !== labelText) {
+            label.textContent = labelText;
+            labelMetrics.delete(label);
+        }
 
         // Antiparallel pairs bow to opposite sides of the straight line;
         // self-loops use a small arc above the orb.
@@ -467,14 +486,47 @@ function updateAllGeometry() {
 // Screen-space label collision culling. Dense inner rings can stack titles at
 // FIT zoom; priority keeps the labels that carry the most context:
 // current > hovered > hovered neighbour > hub > other, with edge labels last.
+// Intrinsic label sizes are measured once and cached; camera frames then use
+// zero per-label DOM reads, and culling is debounced during gestures.
+const LABEL_CULL_DEBOUNCE_MS = 100;
+const META_TOP_PX = 20.8;
 let labelCullFrame = null;
+let labelCullTimer = null;
 
-function scheduleLabelCulling() {
-    if (labelCullFrame !== null) return;
-    labelCullFrame = requestAnimationFrame(() => {
-        labelCullFrame = null;
+function isCameraGestureActive() {
+    return Boolean(
+        panGesture
+        || pinchGesture
+        || (pointerPress && pointerPress.dragging)
+        || layout?.state === 'drag'
+    );
+}
+
+function scheduleLabelCulling({ immediate = false } = {}) {
+    if (labelCullTimer !== null) {
+        clearTimeout(labelCullTimer);
+        labelCullTimer = null;
+    }
+    if (immediate && !isCameraGestureActive()) {
+        if (labelCullFrame !== null) {
+            cancelAnimationFrame(labelCullFrame);
+            labelCullFrame = null;
+        }
         cullLabels();
-    });
+        return;
+    }
+    labelCullTimer = setTimeout(() => {
+        labelCullTimer = null;
+        if (labelCullFrame !== null) return;
+        labelCullFrame = requestAnimationFrame(() => {
+            labelCullFrame = null;
+            if (isCameraGestureActive()) {
+                scheduleLabelCulling();
+                return;
+            }
+            cullLabels();
+        });
+    }, LABEL_CULL_DEBOUNCE_MS);
 }
 
 function labelsOverlap(a, b, padding = 2) {
@@ -492,38 +544,127 @@ function labelPriority(id, node) {
     return 4;
 }
 
+function labelMetricsFor(el, isSvg = false) {
+    let metrics = labelMetrics.get(el);
+    if (metrics) return metrics;
+    if (isSvg && typeof el.getBBox === 'function') {
+        const box = el.getBBox();
+        metrics = { width: box.width || 8, height: box.height || 10 };
+        // Hidden tabs report a zero box; measure again once visible.
+        if (box.width > 0 && box.height > 0) labelMetrics.set(el, metrics);
+        return metrics;
+    }
+    const width = el.offsetWidth;
+    const height = el.offsetHeight;
+    metrics = { width: width || 8, height: height || 10 };
+    if (width > 0 && height > 0) labelMetrics.set(el, metrics);
+    return metrics;
+}
+
+function roomLabelRect(node, kind, metrics) {
+    const zoom = camera.zoom;
+    const width = metrics.width * zoom;
+    const height = metrics.height * zoom;
+    const topWorld = node.y + node.radius + (kind === 'meta' ? META_TOP_PX : 3);
+    const centre = worldToScreen({ x: node.x, y: topWorld + metrics.height / 2 }, camera);
+    return {
+        left: centre.x - width / 2,
+        right: centre.x + width / 2,
+        top: centre.y - height / 2,
+        bottom: centre.y + height / 2,
+        width,
+        height,
+    };
+}
+
+function edgeLabelRect(labelEl, metrics) {
+    const zoom = camera.zoom;
+    const width = metrics.width * zoom;
+    const height = metrics.height * zoom;
+    const x = Number(labelEl.getAttribute('x')) || 0;
+    const y = Number(labelEl.getAttribute('y')) || 0;
+    const baseline = worldToScreen({ x, y }, camera);
+    return {
+        left: baseline.x - width / 2,
+        right: baseline.x + width / 2,
+        top: baseline.y - height,
+        bottom: baseline.y,
+        width,
+        height,
+    };
+}
+
 function cullLabels() {
     if (!layout) return;
+    const canvas = document.getElementById('map-canvas');
+    // Hidden tabs have no layout box; measuring now would cache garbage sizes.
+    if (!canvas || canvas.clientWidth === 0) return;
+
+    // Read phase: intrinsic metrics are cached after the first cull, so camera
+    // frames perform no per-label getBoundingClientRect/offsetWidth reads.
     const entries = [];
     for (const [id, el] of nodeEls) {
         const node = layout.getNode(id);
+        if (!node) continue;
         const priority = labelPriority(id, node);
-        for (const [selector, bump] of [['.map-room-name', 0], ['.map-room-meta', 0.5]]) {
+        for (const [selector, kind, bump] of [
+            ['.map-room-name', 'name', 0],
+            ['.map-room-meta', 'meta', 0.5],
+        ]) {
             const labelEl = el.querySelector(selector);
             if (!labelEl) continue;
-            labelEl.classList.remove('is-label-culled');
-            entries.push({ el: labelEl, priority: priority + bump, degree: node?.degree || 0, id });
+            entries.push({
+                el: labelEl,
+                kind,
+                node,
+                priority: priority + bump,
+                degree: node.degree || 0,
+                id,
+            });
         }
     }
     for (const labelEl of edgeLabels.values()) {
-        labelEl.classList.remove('is-label-culled');
-        entries.push({ el: labelEl, priority: 5, degree: 0, id: '' });
+        entries.push({
+            el: labelEl,
+            kind: 'edge',
+            metrics: labelMetricsFor(labelEl, true),
+            priority: 5,
+            degree: 0,
+            id: '',
+        });
     }
 
+    // Compute phase: pure geometry from the cached sizes + camera transform.
     entries.sort((a, b) => (
         a.priority - b.priority || b.degree - a.degree || a.id.localeCompare(b.id)
     ));
-
     const kept = [];
+    const culled = new Set();
     for (const entry of entries) {
-        const rect = entry.el.getBoundingClientRect();
+        if (entry.kind !== 'edge') entry.metrics = labelMetricsFor(entry.el, false);
+        const rect = entry.kind === 'edge'
+            ? edgeLabelRect(entry.el, entry.metrics)
+            : roomLabelRect(entry.node, entry.kind, entry.metrics);
         if (rect.width <= 0 || rect.height <= 0) continue;
         if (kept.some(other => labelsOverlap(other, rect))) {
-            entry.el.classList.add('is-label-culled');
+            culled.add(entry.el);
         } else {
             kept.push(rect);
         }
     }
+
+    // Write phase: no reads after this point.
+    for (const entry of entries) {
+        entry.el.classList.toggle('is-label-culled', culled.has(entry.el));
+    }
+    canvas.dataset.cullRuns = String((Number(canvas.dataset.cullRuns) || 0) + 1);
+}
+
+if (typeof document !== 'undefined' && document.fonts?.ready) {
+    document.fonts.ready.then(() => {
+        labelMetrics = new WeakMap();
+        scheduleLabelCulling();
+    });
 }
 
 function refreshNodeStates() {
@@ -1018,7 +1159,7 @@ function applyHoverNeighbourhood(id) {
         path?.classList.toggle('is-neighbor', adjacent);
         label?.classList.toggle('is-neighbor', adjacent);
     }
-    scheduleLabelCulling();
+    scheduleLabelCulling({ immediate: true });
 }
 
 function clearHover() {
@@ -1038,7 +1179,7 @@ function clearHover() {
         card.hidden = true;
         card.innerHTML = '';
     }
-    scheduleLabelCulling();
+    scheduleLabelCulling({ immediate: true });
 }
 
 function showHoverCard(id) {
@@ -1183,6 +1324,38 @@ function wireInspector(panel) {
     });
 }
 
+function isMobileLayout() {
+    return window.innerWidth < 768;
+}
+
+// The mobile inspector is a bottom sheet that can cover the lower half of the
+// canvas. After opening it, pan the focused node up so it stays visible above
+// the sheet (radius + 16px clearance).
+function panInspectedNodeAboveSheet() {
+    if (!isMobileLayout() || !inspectedId) return;
+    const node = nodeById(inspectedId);
+    const canvas = document.getElementById('map-canvas');
+    const inspector = document.getElementById('map-inspector');
+    if (!node || !canvas || !inspector || inspector.hidden) return;
+
+    const canvasRect = canvas.getBoundingClientRect();
+    const sheetRect = inspector.getBoundingClientRect();
+    const screen = worldToScreen({ x: node.x, y: node.y }, camera);
+    const centreY = canvasRect.top + screen.y;
+    const radius = node.radius * camera.zoom;
+    const threshold = sheetRect.top - radius - 16;
+    if (centreY <= threshold) return;
+
+    camera = {
+        ...camera,
+        y: camera.y - (centreY - threshold),
+        initialized: true
+    };
+    cameraMode = 'manual';
+    applyCamera();
+    positionInspectorImmediate();
+}
+
 function openInspector(id) {
     const room = roomById(id);
     if (!room) return;
@@ -1209,6 +1382,7 @@ function openInspector(id) {
     renderInspectorBody(room);
     refreshNodeStates();
     positionInspectorImmediate();
+    panInspectedNodeAboveSheet();
     startInspectorTracking();
 }
 
@@ -1393,10 +1567,17 @@ function inspectorTarget() {
         .filter(([id]) => id !== inspectedId)
         .map(([, nodeEl]) => nodeEl.getBoundingClientRect());
 
+    // Keep the inspector in the chat pane, clear of the sidebar tabs and map
+    // toolbar. The popover is fixed to the viewport, so the usable width ends
+    // 8px left of the sidebar.
+    const sidebar = document.querySelector('.sidebar-panel');
+    const sidebarLeft = sidebar ? sidebar.getBoundingClientRect().left : window.innerWidth;
+    const usableRight = Math.max(160, sidebarLeft - 8);
+
     return chooseBestPopoverPosition({
         anchor: { left: anchor.left, top: anchor.top, width: anchor.width, height: anchor.height },
         size,
-        viewport: { width: window.innerWidth, height: window.innerHeight },
+        viewport: { width: usableRight, height: window.innerHeight },
         obstacles,
         gap: 14,
         margin: 8,

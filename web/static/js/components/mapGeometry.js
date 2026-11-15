@@ -13,6 +13,35 @@ const LEADING_ARTICLE = /^(the|an|a)\s+/i;
  * Two-tier naming: the canvas orb shows a compact title (<= 16 chars), the
  * hover card and inspector show the full `room.name`.
  */
+// Build `prefix…lastToken` while keeping distinguishing middle words when the
+// budget allows. Returns null when the tail plus ellipsis cannot fit.
+function compactWithTail(withoutArticle, maxLength) {
+    const tokens = withoutArticle.split(/\s+/).filter(Boolean);
+    if (tokens.length < 2) return null;
+    const lastToken = tokens[tokens.length - 1];
+    const budget = maxLength - 1 - lastToken.length;
+    if (budget < 1) return null;
+
+    let prefix = '';
+    for (let i = 0; i < tokens.length - 1; i += 1) {
+        const candidate = prefix ? `${prefix} ${tokens[i]}` : tokens[i];
+        if (candidate.length <= budget) {
+            prefix = candidate;
+            continue;
+        }
+        const remaining = budget - prefix.length - 1;
+        if (prefix && remaining >= 1) {
+            // Include an initial from the first omitted distinguishing word so
+            // shared prefixes don't collapse to the same label.
+            prefix = `${prefix} ${tokens[i].slice(0, remaining)}`.trimEnd();
+        } else if (!prefix) {
+            prefix = tokens[i].slice(0, budget).trimEnd();
+        }
+        break;
+    }
+    return prefix ? `${prefix}${ELLIPSIS}${lastToken}` : null;
+}
+
 export function formatCompactRoomName(name, maxLength = COMPACT_NAME_MAX) {
     const full = String(name ?? '').trim();
     if (!full) return '';
@@ -22,40 +51,13 @@ export function formatCompactRoomName(name, maxLength = COMPACT_NAME_MAX) {
     if (withoutArticle.length <= maxLength) return withoutArticle;
 
     const tokens = withoutArticle.split(/\s+/).filter(Boolean);
+    const lastToken = tokens[tokens.length - 1];
 
     // Numbered rooms keep their trailing number so dense sets stay
-    // distinguishable ("Winding Passage 23" -> "Winding P…23"). Only a
-    // digit-bearing tail qualifies; other names use a clean word boundary.
-    const lastToken = tokens[tokens.length - 1];
+    // distinguishable ("Winding Passage 23" -> "Winding Passa…23").
     if (tokens.length > 1 && /\d/.test(lastToken)) {
-        const budget = maxLength - 1 - lastToken.length;
-        if (budget >= 1) {
-            let prefix = '';
-            if (tokens.length === 3) {
-                // One middle word: the trailing number already distinguishes
-                // the room, so keep the label clean ("Winding…23").
-                prefix = tokens[0].slice(0, budget).trimEnd();
-            } else {
-                for (let i = 0; i < tokens.length - 1; i += 1) {
-                    const candidate = prefix ? `${prefix} ${tokens[i]}` : tokens[i];
-                    if (candidate.length <= budget) {
-                        prefix = candidate;
-                        continue;
-                    }
-                    const remaining = budget - prefix.length - 1;
-                    if (prefix && remaining >= 1) {
-                        // Include an initial from the first omitted
-                        // distinguishing word so shared prefixes don't
-                        // collapse to the same label.
-                        prefix = `${prefix} ${tokens[i].slice(0, remaining)}`.trimEnd();
-                    } else if (!prefix) {
-                        prefix = tokens[i].slice(0, budget).trimEnd();
-                    }
-                    break;
-                }
-            }
-            if (prefix) return `${prefix}${ELLIPSIS}${lastToken}`;
-        }
+        const withTail = compactWithTail(withoutArticle, maxLength);
+        if (withTail) return withTail;
     }
 
     // Non-numbered names: truncate on a word boundary, never mid-word.
@@ -71,6 +73,60 @@ export function formatCompactRoomName(name, maxLength = COMPACT_NAME_MAX) {
     }
     if (prefix) return `${prefix}${ELLIPSIS}`;
     return `${withoutArticle.slice(0, budget)}${ELLIPSIS}`;
+}
+
+/**
+ * Render-time label dedupe. `formatCompactRoomName` is intentionally
+ * context-free, so two distinct rooms can still share a compact label
+ * ("Chapel of Quiet Bells" / "Chapel of Quiet Waters" both -> "Chapel of…").
+ * This pass expands the distinguishing tail per colliding room, then applies a
+ * minimal `~N` suffix as a final uniqueness guarantee. Returns `Map<id,label>`.
+ */
+export function dedupeCompactLabels(rooms, maxLength = COMPACT_NAME_MAX) {
+    const list = (rooms || []).filter(room => room && room.id);
+    const labels = new Map();
+    const groups = new Map();
+
+    for (const room of list) {
+        const full = String(room.name ?? room.id).trim() || room.id;
+        const label = formatCompactRoomName(full, maxLength);
+        labels.set(room.id, label);
+        if (!groups.has(label)) groups.set(label, []);
+        groups.get(label).push({ room, full });
+    }
+
+    for (const ids of groups.values()) {
+        if (ids.length < 2) continue;
+        for (const { room, full } of ids) {
+            const withoutArticle = full.replace(LEADING_ARTICLE, '');
+            const withTail = compactWithTail(withoutArticle, maxLength);
+            if (withTail) labels.set(room.id, withTail);
+        }
+    }
+
+    // Final pass: guarantee every visible label is unique and within budget.
+    const used = new Set();
+    for (const room of list) {
+        let candidate = labels.get(room.id);
+        if (!used.has(candidate)) {
+            used.add(candidate);
+            continue;
+        }
+        let counter = 2;
+        while (true) {
+            const suffix = `~${counter}`;
+            const head = candidate.replace(/…$/u, '').slice(0, Math.max(1, maxLength - suffix.length));
+            const next = `${head}${suffix}`;
+            if (!used.has(next)) {
+                labels.set(room.id, next);
+                used.add(next);
+                break;
+            }
+            counter += 1;
+        }
+    }
+
+    return labels;
 }
 
 // ─── camera ───────────────────────────────────────────────────────────────

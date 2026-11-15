@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
     formatCompactRoomName,
+    dedupeCompactLabels,
     worldToScreen,
     screenToWorld,
     zoomAtPoint,
@@ -45,13 +46,38 @@ test('formatCompactRoomName: handles empty and nullish input', () => {
 
 test('formatCompactRoomName: preserves a trailing number for numbered rooms', () => {
     const compact = formatCompactRoomName('Winding Passage 23');
-    assert.equal(compact, 'Winding…23');
+    assert.equal(compact, 'Winding Passa…23');
     assert.ok(compact.length <= 16);
     assert.notEqual(
         formatCompactRoomName('Winding Passage 23'),
         formatCompactRoomName('Winding Passage 7'),
         'numbered rooms must remain distinguishable',
     );
+});
+
+test('formatCompactRoomName: keeps distinguishing middle words for numbered rooms', () => {
+    const cavern = formatCompactRoomName('Crystal Cavern 12');
+    const chamber = formatCompactRoomName('Crystal Chamber 12');
+    assert.ok(cavern.length <= 16, cavern);
+    assert.ok(chamber.length <= 16, chamber);
+    assert.notEqual(cavern, chamber);
+});
+
+test('dedupeCompactLabels: disambiguates non-digit shared prefixes', () => {
+    const labels = dedupeCompactLabels([
+        { id: 'bells', name: 'Chapel of Quiet Bells' },
+        { id: 'waters', name: 'Chapel of Quiet Waters' },
+        { id: 'tunnel-b', name: 'Sector 7 Maintenance Tunnel B' },
+        { id: 'tunnel-c', name: 'Sector 7 Maintenance Tunnel C' },
+        { id: 'hall', name: 'North Hall' },
+    ]);
+    assert.ok(labels instanceof Map);
+    const values = [...labels.values()];
+    assert.equal(new Set(values).size, values.length, values);
+    for (const value of values) assert.ok(value.length <= 16, value);
+    assert.equal(labels.get('hall'), 'North Hall');
+    assert.notEqual(labels.get('bells'), labels.get('waters'));
+    assert.notEqual(labels.get('tunnel-b'), labels.get('tunnel-c'));
 });
 
 test('formatCompactRoomName: digit-gates tail preservation and keeps shared prefixes distinct', () => {
