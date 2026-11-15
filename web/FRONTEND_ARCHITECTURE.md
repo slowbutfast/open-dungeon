@@ -19,7 +19,10 @@ web/static/
     components/
       barterModal.js    (Barter Modal UI — inventory + trader offers side-by-side)
       actionChips.js    (Action chips — Talk, Barter, Goals rendered from NPC entities)
-      mapPanel.js       (MAP panel — cartographic + node-graph render modes, current-room highlight)
+      forceLayout.js    (Pure force simulation — seeded PRNG, degree radii, springs, collision pass, idle|hover|drag|coasting)
+      mapGeometry.js    (Pure camera math, compact names, antiparallel curves, border trim, edge keys)
+      popoverPlacement.js (Pure 8-candidate obstacle-aware popover scorer)
+      mapPanel.js       (MAP panel — single-mode gravitational renderer, pan/zoom, hover/inspect overlays, route overlay)
     api/
       saves.js          (loadSavesList, loadSaveGame, deleteSaveGame)
       settings.js       (pingLlm, saveSystemPrompt, saveSummaryMemory)
@@ -29,7 +32,7 @@ web/static/
       streaming.js      (submitPlayerCommand, executeStreamAction, revealAssistantText)
       debug.js          (pollDebugData, startDebugPolling, toggleCallDetails)
       barter.js         (fetchInventory, fetchOffers, executeTrade, fetchGoals, createGoal, completeGoal, acceptGoal, failGoal)
-      map.js            (fetchMap — spatial room graph for the MAP panel)
+      map.js            (fetchMap, fetchPath — spatial room graph + directed walk routes for the MAP panel)
       auth.js           (initAuthBanner, renderQuota, handleAuthError — sign-in/profile + quota) 
   style.css
 ```
@@ -47,7 +50,7 @@ app.js
   ├── ui/renderers.js   ── utils.js (cleanMarkdownText, scrollToBottom, escapeHtml)
   ├── components/barterModal.js  ── ui/toast.js, ui/screens.js, api/memory.js, api/barter.js
   ├── components/actionChips.js  ── components/barterModal.js, ui/toast.js, state.js, api/barter.js
-  ├── components/mapPanel.js     ── api/map.js
+  ├── components/mapPanel.js     ── api/map.js, components/forceLayout.js, components/mapGeometry.js, components/popoverPlacement.js
   ├── api/settings.js   ── ui/toast.js, ui/screens.js
   ├── api/saves.js      ── ui/toast.js, ui/screens.js
   ├── api/presets.js    ── ui/screens.js
@@ -60,7 +63,7 @@ app.js
   └── api/auth.js       (leaf — no module deps)
 ```
 
-`components/mapPanel.js` is imported by both `ui/screens.js` (tab activation) and `api/streaming.js` (post-turn refresh); it depends only on `api/map.js`, so there is no dependency cycle.
+`components/mapPanel.js` is imported by both `ui/screens.js` (tab activation) and `api/streaming.js` (post-turn refresh); it depends on `api/map.js` plus the three pure modules `forceLayout.js`, `mapGeometry.js` and `popoverPlacement.js`, so there is no dependency cycle.
 
 ---
 
@@ -196,9 +199,11 @@ Consumed by modules in `js/api/`:
 8. `syncMemoryAndLore()` silently updates sidebar (lore cards, inventory, event log, memory stats)
 9. Clicking `🔄 Barter` opens the Barter Modal (`barterModal.js`) which fetches `/api/memory/inventory` and `/api/trade/offers` and displays them side-by-side; one-click trade executes via `POST /api/trade` and triggers a toast notification
 
-The MAP panel renderer (`components/mapPanel.js`) is hand-rolled per D6: DOM room nodes (`.map-room[data-room-id]`) plus an SVG edge layer, zero-build with no graph library. Cartographic mode clusters rooms by region with curved walk paths, distinct portal/time arrows, and dashed inferred edges; node-graph mode renders straight labelled edges and highlights the current room.
+The MAP panel renderer (`components/mapPanel.js`) is hand-rolled per D6: DOM room orbs (`.map-room[data-room-id]`) plus a keyed SVG edge layer (`.map-edge[data-edge-key]`), zero-build with no graph library. It has a **single** render mode: an Obsidian-style gravitational node map. `forceLayout.js` settles rooms with deterministic seeded-PRNG seeding, degree-weighted radii/mass, tighter `walk` springs than `portal`/`time`, weak centering gravity, an alpha-threshold convergence loop, and a bounded final circle-circle collision pass. `mapGeometry.js` owns the shared camera transform (`worldToScreen`/`screenToWorld`/`zoomAtPoint`/`computeFitViewport`), `formatCompactRoomName` (16-character canvas labels with the full `room.name` kept in `data-full-name`), symmetric antiparallel edge curves, circle-border arrowhead trimming, and `edgeKey` route matching. `popoverPlacement.js` scores the eight `R, L, T, B, TR, BR, TL, BL` candidates against the viewport and node obstacles.
 
-The panel's sizing model keeps the graph within its container: `#map-canvas` is a panel-bound scroll box (`width: 100%`) that is never sized from JS, and only the inner `#map-canvas-content` layer is sized from the layout. `computeLayout(data, panelWidth)` is width-aware — it caps the columns per region to the available width and wraps region bands onto new rows, so a narrow sidebar grows downward instead of overflowing. After every render the current room is scrolled into view (clamped), and edge endpoints are trimmed to the room border (`boxBorderPoint`) so arrowheads are not hidden beneath the room nodes. The panel re-renders from its cached payload on a debounced `window resize` (150 ms) as well as on tab activation and post-turn refresh, so the desktop-sidebar ↔ mobile-tab switch re-lays out. Layout is deterministic per `(payload, width)`.
+The panel keeps `#map-canvas` as a bounded, `touch-action: none` viewport and transforms only `#map-canvas-content` (translate + scale), so the graph never overflows `#tab-map`. Pointer drag pans, cursor-anchored wheel zooms, two-pointer pinch zooms, and the toolbar exposes `+`, `-`, `FIT` and `⌖`. `refreshMapPanel()` performs a keyed diff (preserving room/edge elements), warm-starts existing coordinates, prunes `homeAnchors` for vanished rooms, clears stale routes, and closes or updates `#map-inspector`. Node drags (`>= 6px`) pin an in-memory `homeAnchor` for the session only (never `localStorage`); `pointercancel` drops the drag cleanly and desktop `dblclick` unpins.
+
+On fine-pointer desktops, a 200 ms dwell temporarily pins the node, dims non-neighbours and opens the obstacle-aware `#map-hover-card` (150 ms dismissal grace). Clicking or pressing `Enter`/`Space` on a focused node opens `#map-inspector` — an anchored popover on desktop (exponential-lerp tracking, draggable header) and a docked bottom sheet below 768 px — with full room metadata, clickable exit chips, `Unpin`, and a `ROUTE HERE` action wired to `GET /api/path` through `fetchPath()` with an `AbortController` stale-response guard. Reached steps are matched by `data-edge-key` and painted `.map-edge-route`; `found: false` (`different_region`/`no_route`) and HTTP `404` show an inline reason in the `aria-live="polite"` route status without painting stale edges.
 
 ---
 

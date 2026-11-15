@@ -1,21 +1,26 @@
-"""Frontend map-panel render smoke (spatial-map-visualization-pathfinding, 1.5).
+"""Frontend gravitational node-map render + interaction E2E (gravitational-node-map).
 
-Fails today because no map panel exists yet: the MAP sidebar tab, the panel
-root, and the mode toggle are all absent. This file pins the DOM contract the
-Slice B implementation must satisfy (renderer-agnostic — D6 is a hand-rolled
-canvas/DOM renderer, so these assertions target data attributes and element
-classes, never a third-party graph library):
+The MAP sidebar tab renders the persisted room graph from GET /api/map as a
+single-mode, Obsidian-style force-directed constellation. This file pins the
+DOM contract and the interaction model the implementation must satisfy
+(renderer-agnostic — a hand-rolled DOM/SVG renderer, so these assertions target
+data attributes, element classes and geometry, never a graph library):
 
   #tab-btn-map                      sidebar tab button (label "MAP")
   #tab-map                          sidebar tab content container
-  #map-panel                        panel root; data-mode + data-current-room-id
-  #map-mode-toggle                  render-mode toggle button
-  .map-room[data-room-id]           one element per room node
+  #map-panel                        panel root; data-current-room-id
+  #map-canvas                       pan/zoom viewport (touch-action: none)
+  #map-canvas-content               transformed world layer
+  .map-room[data-room-id]           one circular orb per room (keyed diff)
   .map-room.current-room            the current-room highlight
+  .map-edge[data-edge-key]          SVG edge keyed "<from>|<direction ?? ''>|<to>"
+  #map-hover-card                   200 ms dwell preview (fine pointers only)
+  #map-inspector                    anchored popover / mobile bottom sheet
   .map-empty                        the empty-state element
 
 Follows tests/e2e/test_barter_ui.py fixtures/port/save-dir conventions.
 """
+import copy
 import os
 import sys
 import time
@@ -24,7 +29,7 @@ import socket
 import subprocess
 import shutil
 import pytest
-from playwright.sync_api import sync_playwright, expect
+from playwright.sync_api import expect
 
 pytestmark = pytest.mark.e2e
 
@@ -120,8 +125,64 @@ def _open_map_tab(page):
     page.wait_for_selector("#map-panel", timeout=5000)
 
 
+def _open_map_tab_mobile(page):
+    page.locator('.mobile-tab[data-panel="map"]').click(timeout=5000)
+    page.wait_for_selector("#tab-map.active #map-panel", timeout=5000)
+
+
 def _fetch_map(page):
     return page.evaluate("() => fetch('/api/map').then(r => r.json())")
+
+
+def _mock_map(page, fixture):
+    page.route(
+        "**/api/map",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(fixture),
+        ),
+    )
+
+
+def _mock_path(page, payload, status=200):
+    page.route(
+        "**/api/path*",
+        lambda route: route.fulfill(
+            status=status,
+            content_type="application/json",
+            body=json.dumps(payload),
+        ),
+    )
+
+
+def _room_rect(page, room_id):
+    return page.evaluate(
+        """(id) => {
+            const el = document.querySelector(`.map-room[data-room-id="${id}"]`);
+            const r = el.getBoundingClientRect();
+            return { left: r.left, top: r.top, right: r.right, bottom: r.bottom,
+                     width: r.width, height: r.height };
+        }""",
+        room_id,
+    )
+
+
+def _canvas_rect(page):
+    return page.evaluate(
+        """() => {
+            const r = document.querySelector('#map-canvas').getBoundingClientRect();
+            return { left: r.left, top: r.top, right: r.right, bottom: r.bottom,
+                     width: r.width, height: r.height };
+        }"""
+    )
+
+
+def _rect_inside(inner, outer, tolerance=1.0):
+    return (inner["left"] >= outer["left"] - tolerance
+            and inner["top"] >= outer["top"] - tolerance
+            and inner["right"] <= outer["right"] + tolerance
+            and inner["bottom"] <= outer["bottom"] + tolerance)
 
 
 def test_map_panel_renders_rooms_from_api(game_page):
@@ -131,6 +192,7 @@ def test_map_panel_renders_rooms_from_api(game_page):
     _open_map_tab(page)
 
     expect(page.locator("#map-panel")).to_be_visible()
+    expect(page.locator("#map-mode-toggle")).to_have_count(0)
 
     map_data = _fetch_map(page)
     assert map_data.get("rooms"), f"expected rooms in /api/map, got {map_data}"
@@ -139,24 +201,23 @@ def test_map_panel_renders_rooms_from_api(game_page):
     expect(panel).to_have_attribute("data-current-room-id", map_data["current_room_id"])
     assert page.locator(".map-room").count() >= 1, "the panel must render a room node per room"
 
+    # Every edge carries the route-matching key and rooms expose the two-tier
+    # naming contract (compact canvas label + full name attribute).
+    edge_keys = page.eval_on_selector_all(
+        ".map-edge[data-edge-key]", "els => els.map(el => el.getAttribute('data-edge-key'))"
+    )
+    expected_keys = {
+        f"{edge['from']}|{edge['direction'] if edge['direction'] is not None else ''}|{edge['to']}"
+        for edge in map_data["edges"]
+    }
+    assert set(edge_keys) == expected_keys, (edge_keys, expected_keys)
+    for key in edge_keys:
+        assert key.count("|") == 2, key
 
-def test_map_mode_toggle_switches_render_mode(game_page):
-    """The mode toggle switches render modes without losing the map data."""
-    page = game_page
-    _commit_move(page)
-    _open_map_tab(page)
-
-    panel = page.locator("#map-panel")
-    expect(panel).to_have_attribute("data-mode", "cartographic")
-    rooms_before = page.locator(".map-room").count()
-
-    page.locator("#map-mode-toggle").click()
-    expect(panel).to_have_attribute("data-mode", "node-graph")
-    assert page.locator(".map-room").count() == rooms_before, \
-        "toggling render modes must not lose the map data"
-
-    page.locator("#map-mode-toggle").click()
-    expect(panel).to_have_attribute("data-mode", "cartographic")
+    full_name = page.locator(".map-room").first.get_attribute("data-full-name")
+    compact = page.locator(".map-room").first.locator(".map-room-name").inner_text()
+    assert full_name, "rooms must store the full untruncated name"
+    assert len(compact) <= 16, compact
 
 
 def test_map_current_room_highlight(game_page):
@@ -171,24 +232,18 @@ def test_map_current_room_highlight(game_page):
 
     highlight = page.locator(f'.map-room[data-room-id="{current}"].current-room')
     expect(highlight).to_have_count(1)
+    expect(highlight.locator(".map-room-meta")).to_contain_text("CURRENT")
 
 
 def test_map_empty_state(game_page):
     """An empty graph renders an empty state rather than an error."""
     page = game_page
-    page.route(
-        "**/api/map",
-        lambda route: route.fulfill(
-            status=200,
-            content_type="application/json",
-            body=json.dumps({
-                "rooms": [],
-                "edges": [],
-                "regions": [],
-                "current_room_id": None,
-            }),
-        ),
-    )
+    _mock_map(page, {
+        "rooms": [],
+        "edges": [],
+        "regions": [],
+        "current_room_id": None,
+    })
 
     # A committed turn drives the post-turn refresh cycle against the empty map.
     _commit_move(page, "look around")
@@ -217,84 +272,476 @@ P6_FIXTURE = {
     "current_room_id": "r4",
 }
 
+# Same graph, but the party starts in r1 so a route to r3 has a walkable path.
+ROUTE_FIXTURE = copy.deepcopy(P6_FIXTURE)
+ROUTE_FIXTURE["current_room_id"] = "r1"
+
+
+def _open_fixture_map(page, fixture=P6_FIXTURE):
+    _mock_map(page, fixture)
+    _commit_move(page, "look around")
+    _open_map_tab(page)
+    expect(page.locator(".map-room")).to_have_count(len(fixture["rooms"]))
+
 
 def test_map_panel_fits_sidebar_and_centres_current_room(game_page):
-    """A multi-region graph fits the narrow sidebar without clipping.
+    """The camera model keeps the graph inside the panel and the current room in view.
 
-    Regression for the P6 defect: renderMapPanel sized the scroll box
+    Regression for the P6 defect: the old renderer sized the scroll box
     (#map-canvas) instead of a content layer inside it, so the box grew past
-    #tab-map (overflow: hidden) and the right-hand region + current room were
-    unreachable (no scrollbar).
+    #tab-map. The gravitational renderer instead transforms a bounded world
+    layer and frames the current room with the camera.
     """
     page = game_page
+    _open_fixture_map(page)
+
+    tab = page.locator("#tab-map").bounding_box()
+    canvas = _canvas_rect(page)
+    assert canvas["right"] <= tab["x"] + tab["width"] + 0.5, (canvas, tab)
+    assert canvas["bottom"] <= tab["y"] + tab["height"] + 0.5, (canvas, tab)
+
+    # The current room (region 3) is inside the visible viewport without panning.
+    current = _room_rect(page, "r4")
+    assert _rect_inside(current, canvas), (current, canvas)
+
+    # FIT frames every room inside the viewport.
+    page.locator("#map-fit").click()
+    page.wait_for_timeout(100)
+    canvas = _canvas_rect(page)
+    for room_id in ("r1", "r2", "r3", "r4"):
+        assert _rect_inside(_room_rect(page, room_id), canvas), room_id
+
+    # Resize re-centers on the current room without losing data or pins.
+    page.set_viewport_size({"width": 900, "height": 900})
+    page.wait_for_timeout(450)  # debounced re-layout is 150 ms
+    canvas = _canvas_rect(page)
+    assert _rect_inside(_room_rect(page, "r4"), canvas)
+    assert page.locator(".map-room").count() == 4
+
+
+def test_map_hover_dwell_opens_card_and_dims_neighbours(game_page):
+    """A 200 ms fine-pointer dwell opens the full-name card and dims non-neighbours."""
+    page = game_page
+    _open_fixture_map(page)
+
+    page.clock.install()
+    page.evaluate(
+        """() => {
+            const node = document.querySelector('.map-room[data-room-id="r1"]');
+            node.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }));
+        }"""
+    )
+
+    page.clock.run_for(180)
+    expect(page.locator("#map-hover-card")).to_be_hidden()
+
+    page.clock.run_for(40)
+    card = page.locator("#map-hover-card")
+    expect(card).to_be_visible()
+    expect(card).to_contain_text("North Hall")
+    expect(card).to_contain_text("VISITED")
+    expect(card).to_contain_text("Region 1")
+
+    assert page.eval_on_selector("#map-canvas", "el => el.classList.contains('has-hover')")
+    expect(page.locator(".map-room.is-neighbor")).to_have_count(1)
+
+    # The reverse edge r2 -> r1 and the forward r1 -> r2 are both adjacent.
+    assert page.locator(".map-edge.is-neighbor").count() == 2
+
+    # Moving onto the card within the 150 ms grace keeps it open.
+    page.evaluate(
+        """() => {
+            const node = document.querySelector('.map-room[data-room-id="r1"]');
+            const card = document.getElementById('map-hover-card');
+            node.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, pointerType: 'mouse' }));
+            card.dispatchEvent(new PointerEvent('pointerenter', { pointerType: 'mouse' }));
+        }"""
+    )
+    page.clock.run_for(200)
+    expect(card).to_be_visible()
+
+    # Leaving the node dismisses the card after the 150 ms grace period.
+    page.evaluate(
+        """() => {
+            const node = document.querySelector('.map-room[data-room-id="r1"]');
+            const card = document.getElementById('map-hover-card');
+            node.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, pointerType: 'mouse' }));
+            card.dispatchEvent(new PointerEvent('pointerleave', { pointerType: 'mouse' }));
+        }"""
+    )
+    page.clock.run_for(200)
+    expect(card).to_be_hidden()
+    assert not page.eval_on_selector("#map-canvas", "el => el.classList.contains('has-hover')")
+
+
+def test_map_fast_sweep_does_not_open_hover_card(game_page):
+    """A sweep faster than the dwell threshold never pins or opens the card."""
+    page = game_page
+    _open_fixture_map(page)
+
+    page.clock.install()
+    # Simulate a sub-200 ms sweep across r1 then r2 and off the canvas in one
+    # JS task. Playwright's locator.hover() advances the fake clock during
+    # actionability waits, which would defeat the dwell-threshold assertion.
+    page.evaluate(
+        """() => {
+            const a = document.querySelector('.map-room[data-room-id="r1"]');
+            const b = document.querySelector('.map-room[data-room-id="r2"]');
+            a.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }));
+            a.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, pointerType: 'mouse', relatedTarget: b }));
+            b.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse', relatedTarget: a }));
+            b.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, pointerType: 'mouse', relatedTarget: document.body }));
+        }"""
+    )
+    page.clock.run_for(400)
+
+    expect(page.locator("#map-hover-card")).to_be_hidden()
+    expect(page.locator(".map-canvas.has-hover")).to_have_count(0)
+
+
+def test_map_drag_pins_node_in_memory_and_dblclick_unpins(game_page):
+    """Dragging pins a session-only homeAnchor; a desktop dblclick unpins it."""
+    page = game_page
+    _open_fixture_map(page)
+
+    node = page.locator('.map-room[data-room-id="r2"]')
+    box = node.bounding_box()
+    start_x = box["x"] + box["width"] / 2
+    start_y = box["y"] + box["height"] / 2
+
+    page.mouse.move(start_x, start_y)
+    page.mouse.down()
+    # Drag inward (left/up) so the orb stays inside the visible viewport; a
+    # node dragged under the clipped canvas edge cannot be clicked afterwards.
+    page.mouse.move(start_x - 35, start_y - 25, steps=10)
+    page.mouse.up()
+
+    expect(node).to_have_attribute("data-pinned", "true")
+    assert page.evaluate(
+        """() => Object.keys(localStorage).filter(k => /map|pin|node|coord/i.test(k))"""
+    ) == [], "pins must never be persisted to localStorage"
+
+    page.locator('.map-room[data-room-id="r2"]').dblclick()
+    expect(page.locator('.map-room[data-room-id="r2"]')).to_have_attribute("data-pinned", "false")
+
+
+def test_map_pan_zoom_and_fit_controls(game_page):
+    """Toolbar zoom, cursor-anchored wheel zoom, panning and FIT all move the camera."""
+    page = game_page
+    _open_fixture_map(page)
+
+    canvas = _canvas_rect(page)
+    zoom_before = float(page.locator("#map-canvas").get_attribute("data-zoom"))
+
+    page.locator("#map-zoom-in").click()
+    zoom_in = float(page.locator("#map-canvas").get_attribute("data-zoom"))
+    assert zoom_in > zoom_before
+
+    page.locator("#map-zoom-out").click()
+    zoom_out = float(page.locator("#map-canvas").get_attribute("data-zoom"))
+    assert zoom_out < zoom_in
+
+    page.mouse.move(canvas["left"] + canvas["width"] / 2, canvas["top"] + canvas["height"] / 2)
+    page.mouse.wheel(0, -240)
+    page.wait_for_timeout(100)
+    zoom_wheel = float(page.locator("#map-canvas").get_attribute("data-zoom"))
+    assert zoom_wheel > zoom_out, "wheel-up must zoom in around the cursor"
+
+    transform_before = page.locator("#map-canvas-content").get_attribute("style")
+    page.mouse.move(canvas["left"] + 30, canvas["top"] + canvas["height"] - 30)
+    page.mouse.down()
+    page.mouse.move(canvas["left"] + 90, canvas["top"] + canvas["height"] - 70, steps=8)
+    page.mouse.up()
+    transform_after = page.locator("#map-canvas-content").get_attribute("style")
+    assert transform_after != transform_before, "background drag must pan the camera"
+
+    page.locator("#map-fit").click()
+    page.wait_for_timeout(100)
+    fitted = _canvas_rect(page)
+    for room_id in ("r1", "r2", "r3", "r4"):
+        assert _rect_inside(_room_rect(page, room_id), fitted), room_id
+
+
+def test_map_keyboard_inspector_open_and_escape(game_page):
+    """Focused nodes open the inspector with Enter; Escape closes it."""
+    page = game_page
+    _open_fixture_map(page)
+
+    node = page.locator('.map-room[data-room-id="r3"]')
+    node.focus()
+    page.keyboard.press("Enter")
+
+    inspector = page.locator("#map-inspector")
+    expect(inspector).to_be_visible()
+    expect(page.locator("#map-inspector-title")).to_have_text("Vault of Echoes")
+    expect(inspector).to_contain_text("Region 2")
+    expect(inspector).to_contain_text("archway")
+    expect(inspector.locator('[data-action="route"]')).to_be_visible()
+
+    page.keyboard.press("Escape")
+    expect(inspector).to_be_hidden()
+
+
+def test_map_mobile_inspector_bottom_sheet_and_suppressed_hover(game_page):
+    """Mobile renders a docked bottom sheet and never opens the hover card."""
+    page = game_page
+    page.set_viewport_size({"width": 390, "height": 844})
+    _mock_map(page, P6_FIXTURE)
+    _commit_move(page, "look around")
+    _open_map_tab_mobile(page)
+    expect(page.locator(".map-room")).to_have_count(4)
+
+    # Hover is suppressed below the desktop breakpoint even with a fine pointer.
+    page.locator('.map-room[data-room-id="r1"]').hover()
+    page.wait_for_timeout(350)
+    expect(page.locator("#map-hover-card")).to_be_hidden()
+
+    page.locator('.map-room[data-room-id="r3"]').click()
+    inspector = page.locator("#map-inspector")
+    expect(inspector).to_be_visible()
+    expect(page.locator("#map-inspector-title")).to_have_text("Vault of Echoes")
+
+    box = inspector.bounding_box()
+    assert box["width"] >= 380, box
+    assert box["y"] + box["height"] >= 844 - 60, "bottom sheet must dock near the viewport bottom"
+
+    page.keyboard.press("Escape")
+    expect(inspector).to_be_hidden()
+
+
+def test_map_route_highlights_reachable_path(game_page):
+    """ROUTE HERE matches /api/path steps (including direction: null) to edges."""
+    page = game_page
+    _mock_path(page, {
+        "found": True,
+        "from_room_id": "r1",
+        "to_room_id": "r3",
+        "step_count": 2,
+        "steps": [
+            {"from_room_id": "r1", "direction": "east", "to_room_id": "r2"},
+            {"from_room_id": "r2", "direction": "archway", "to_room_id": "r3"},
+        ],
+        "reason": None,
+    })
+    _open_fixture_map(page, ROUTE_FIXTURE)
+
+    page.locator('.map-room[data-room-id="r3"]').click()
+    expect(page.locator("#map-inspector")).to_be_visible()
+    page.locator('#map-inspector [data-action="route"]').click()
+
+    expect(page.locator(".map-edge-route")).to_have_count(2)
+    status = page.locator("#map-inspector-route-status")
+    expect(status).to_have_attribute("aria-live", "polite")
+    expect(status).to_contain_text("2 steps")
+    expect(status).to_contain_text("east")
+    expect(status).to_contain_text("archway")
+
+
+def test_map_route_unreachable_shows_reason_without_edges(game_page):
+    """A found:false route paints no stale edges and explains why."""
+    page = game_page
+    _mock_path(page, {
+        "found": False,
+        "from_room_id": "r1",
+        "to_room_id": "r4",
+        "step_count": 0,
+        "steps": [],
+        "reason": "different_region",
+    })
+    _open_fixture_map(page, ROUTE_FIXTURE)
+
+    page.locator('.map-room[data-room-id="r4"]').click()
+    page.locator('#map-inspector [data-action="route"]').click()
+
+    expect(page.locator(".map-edge-route")).to_have_count(0)
+    expect(page.locator("#map-inspector-route-status")).to_contain_text("different region")
+
+
+def test_map_route_404_shows_inline_reason(game_page):
+    """A 404 from /api/path is surfaced inline without painting route edges."""
+    page = game_page
+    _mock_path(page, {"error": "Room 'ghost' not found."}, status=404)
+    _open_fixture_map(page, ROUTE_FIXTURE)
+
+    page.locator('.map-room[data-room-id="r3"]').click()
+    page.locator('#map-inspector [data-action="route"]').click()
+
+    expect(page.locator(".map-edge-route")).to_have_count(0)
+    expect(page.locator("#map-inspector-route-status")).to_contain_text("404")
+
+
+def test_map_refresh_keeps_inspector_and_clears_route(game_page):
+    """A keyed turn refresh preserves the open inspector and clears stale routes."""
+    page = game_page
+    _mock_path(page, {
+        "found": True,
+        "from_room_id": "r1",
+        "to_room_id": "r3",
+        "step_count": 2,
+        "steps": [
+            {"from_room_id": "r1", "direction": "east", "to_room_id": "r2"},
+            {"from_room_id": "r2", "direction": "archway", "to_room_id": "r3"},
+        ],
+        "reason": None,
+    })
+    _open_fixture_map(page, ROUTE_FIXTURE)
+
+    page.locator('.map-room[data-room-id="r3"]').click()
+    page.locator('#map-inspector [data-action="route"]').click()
+    expect(page.locator(".map-edge-route")).to_have_count(2)
+
+    # Re-activating the tab forces refreshMapPanel() against the same payload.
+    page.locator("#tab-btn-map").click()
+    page.wait_for_timeout(500)
+
+    expect(page.locator(".map-edge-route")).to_have_count(0)
+    expect(page.locator("#map-inspector")).to_be_visible()
+    expect(page.locator("#map-inspector-title")).to_have_text("Vault of Echoes")
+    assert page.locator(".map-room").count() == 4
+
+
+def test_map_pinch_zoom_on_touch_pointers(game_page):
+    """Two-pointer spread zooms the camera around the pinch midpoint."""
+    page = game_page
+    _open_fixture_map(page)
+    canvas = _canvas_rect(page)
+    zoom_before = float(page.locator("#map-canvas").get_attribute("data-zoom"))
+
+    page.evaluate(
+        """({cx, cy}) => {
+            const canvas = document.getElementById('map-canvas');
+            const send = (type, id, x, y) => canvas.dispatchEvent(new PointerEvent(type, {
+                bubbles: true, cancelable: true, pointerId: id, pointerType: 'touch',
+                clientX: x, clientY: y, button: 0, buttons: type === 'pointerup' ? 0 : 1,
+            }));
+            send('pointerdown', 1, cx - 40, cy);
+            send('pointerdown', 2, cx + 40, cy);
+            send('pointermove', 1, cx - 90, cy);
+            send('pointermove', 2, cx + 90, cy);
+            send('pointerup', 1, cx - 90, cy);
+            send('pointerup', 2, cx + 90, cy);
+        }""",
+        {"cx": canvas["left"] + canvas["width"] / 2, "cy": canvas["top"] + canvas["height"] / 2},
+    )
+    zoom_after = float(page.locator("#map-canvas").get_attribute("data-zoom"))
+    assert zoom_after > zoom_before, (zoom_before, zoom_after)
+
+
+def test_map_route_matches_direction_null_step(game_page):
+    """A `direction: null` (onward) step matches its `data-edge-key` edge."""
+    page = game_page
+    fixture = copy.deepcopy(P6_FIXTURE)
+    fixture["current_room_id"] = "r3"
+    _mock_path(page, {
+        "found": True,
+        "from_room_id": "r3",
+        "to_room_id": "r4",
+        "step_count": 1,
+        "steps": [{"from_room_id": "r3", "direction": None, "to_room_id": "r4"}],
+        "reason": None,
+    })
+    _open_fixture_map(page, fixture)
+
+    page.locator('.map-room[data-room-id="r4"]').click()
+    page.locator('#map-inspector [data-action="route"]').click()
+
+    expect(page.locator(".map-edge-route")).to_have_count(1)
+    assert page.locator(".map-edge-route").get_attribute("data-edge-key") == "r3||r4"
+    expect(page.locator("#map-inspector-route-status")).to_contain_text("1 step")
+
+
+def test_map_refresh_closes_inspector_for_removed_room(game_page):
+    """An undo/refresh that removes the inspected room closes the inspector."""
+    page = game_page
+    state = {"fixture": copy.deepcopy(P6_FIXTURE)}
     page.route(
         "**/api/map",
         lambda route: route.fulfill(
             status=200,
             content_type="application/json",
-            body=json.dumps(P6_FIXTURE),
+            body=json.dumps(state["fixture"]),
         ),
     )
     _commit_move(page, "look around")
     _open_map_tab(page)
+    expect(page.locator(".map-room")).to_have_count(4)
 
-    expect(page.locator("#map-panel")).to_have_attribute("data-current-room-id", "r4")
-    assert page.locator(".map-room").count() == 4
+    page.locator('.map-room[data-room-id="r3"]').click()
+    expect(page.locator("#map-inspector")).to_be_visible()
 
-    # The scroll box must not overflow its tab.
-    metrics = page.evaluate(
+    # The room vanishes from the next payload.
+    state["fixture"] = {
+        "rooms": [room for room in P6_FIXTURE["rooms"] if room["id"] != "r3"],
+        "edges": [
+            edge for edge in P6_FIXTURE["edges"]
+            if edge["from"] != "r3" and edge["to"] != "r3"
+        ],
+        "regions": [{"room_ids": ["r1", "r2"]}, {"room_ids": ["r4"]}],
+        "current_room_id": "r4",
+    }
+    page.locator("#tab-btn-map").click()
+    page.wait_for_timeout(600)
+
+    expect(page.locator("#map-inspector")).to_be_hidden()
+    expect(page.locator(".map-room")).to_have_count(3)
+    expect(page.locator('.map-room[data-room-id="r3"]')).to_have_count(0)
+
+
+def test_map_hover_card_available_under_reduced_motion(game_page):
+    """prefers-reduced-motion disables animation but never the hover information."""
+    page = game_page
+    page.emulate_media(reduced_motion="reduce")
+    _open_fixture_map(page)
+
+    page.clock.install()
+    page.evaluate(
         """() => {
-            const tab = document.querySelector('#tab-map').getBoundingClientRect();
-            const canvas = document.querySelector('#map-canvas');
-            const rect = canvas.getBoundingClientRect();
-            return { tabRight: tab.right, canvasRight: rect.right };
+            const node = document.querySelector('.map-room[data-room-id="r1"]');
+            node.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }));
         }"""
     )
-    assert metrics["canvasRight"] <= metrics["tabRight"] + 0.5, metrics
+    page.clock.run_for(260)
 
-    # Every room is inside the scrollable content bounds (reachable).
-    reachable = page.evaluate(
-        """() => {
-            const canvas = document.querySelector('#map-canvas');
-            const content = document.querySelector('#map-canvas-content');
-            const maxX = content.offsetWidth;
-            const maxY = content.offsetHeight;
-            return [...document.querySelectorAll('.map-room')].every(el => (
-                el.offsetLeft >= 0 && el.offsetLeft + el.offsetWidth <= maxX + 0.5 &&
-                el.offsetTop >= 0 && el.offsetTop + el.offsetHeight <= maxY + 0.5
-            ));
-        }"""
-    )
-    assert reachable, "every room must be within the canvas scroll bounds"
+    expect(page.locator("#map-hover-card")).to_be_visible()
+    expect(page.locator("#map-hover-card")).to_contain_text("North Hall")
 
-    # The current room (region 3) is scrolled into the visible rect.
-    current_in_view = page.evaluate(
-        """() => {
-            const canvas = document.querySelector('#map-canvas');
-            const cur = document.querySelector('.map-room.current-room');
-            if (!cur) return false;
-            const c = canvas.getBoundingClientRect();
-            const r = cur.getBoundingClientRect();
-            return r.left >= c.left - 0.5 && r.right <= c.right + 0.5 &&
-                   r.top >= c.top - 0.5 && r.bottom <= c.bottom + 0.5;
-        }"""
-    )
-    assert current_in_view, "the current room must be scrolled into view"
 
-    # Re-layout on width change: the debounced resize listener re-renders and the
-    # map still stays within its tab without losing data.
-    page.set_viewport_size({"width": 800, "height": 900})
-    page.wait_for_timeout(400)  # debounced re-render is 150ms
-    resized = page.evaluate(
-        """() => {
-            const tab = document.querySelector('#tab-map').getBoundingClientRect();
-            const canvas = document.querySelector('#map-canvas').getBoundingClientRect();
-            return {
-                tabRight: tab.right,
-                canvasRight: canvas.right,
-                rooms: document.querySelectorAll('.map-room').length,
-            };
-        }"""
-    )
-    assert resized["canvasRight"] <= resized["tabRight"] + 0.5, resized
-    assert resized["rooms"] == 4, resized
+def test_map_inspector_exit_chip_jumps_to_neighbour(game_page):
+    """Activating an exit chip centers and inspects the target room."""
+    page = game_page
+    _open_fixture_map(page)
+
+    page.locator('.map-room[data-room-id="r2"]').click()
+    expect(page.locator("#map-inspector-title")).to_have_text("Gallery")
+
+    chip = page.locator('#map-inspector .map-exit-chip[data-target-id="r3"]').first
+    expect(chip).to_be_visible()
+    chip.click()
+
+    expect(page.locator("#map-inspector")).to_be_visible()
+    expect(page.locator("#map-inspector-title")).to_have_text("Vault of Echoes")
+    canvas = _canvas_rect(page)
+    assert _rect_inside(_room_rect(page, "r3"), canvas)
+
+
+def test_map_inspector_unpin_button(game_page):
+    """The inspector's Unpin button removes the session pin."""
+    page = game_page
+    _open_fixture_map(page)
+
+    node = page.locator('.map-room[data-room-id="r2"]')
+    box = node.bounding_box()
+    x = box["x"] + box["width"] / 2
+    y = box["y"] + box["height"] / 2
+    page.mouse.move(x, y)
+    page.mouse.down()
+    page.mouse.move(x - 30, y - 20, steps=8)
+    page.mouse.up()
+    expect(page.locator('.map-room[data-room-id="r2"]')).to_have_attribute("data-pinned", "true")
+
+    page.locator('.map-room[data-room-id="r2"]').click()
+    unpin = page.locator('#map-inspector [data-action="unpin"]')
+    expect(unpin).to_be_visible()
+    unpin.click()
+
+    expect(page.locator('.map-room[data-room-id="r2"]')).to_have_attribute("data-pinned", "false")

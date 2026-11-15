@@ -400,12 +400,28 @@
 
                         <!-- SPATIAL MAP PANEL -->
                         <div id="tab-map" class="tab-content">
-                            <div id="map-panel" class="map-panel" data-mode="cartographic" data-current-room-id="">
+                            <div id="map-panel" class="map-panel" data-current-room-id="">
                                 <div class="map-toolbar">
                                     <span class="map-toolbar-title">SPATIAL MAP</span>
-                                    <button id="map-mode-toggle" type="button" class="btn btn-sm map-mode-toggle" aria-pressed="false">MODE: CARTOGRAPHIC</button>
+                                    <div class="map-toolbar-controls" role="group" aria-label="Map viewport controls">
+                                        <button id="map-zoom-in" type="button" class="map-control" aria-label="Zoom in" title="Zoom in">+</button>
+                                        <button id="map-zoom-out" type="button" class="map-control" aria-label="Zoom out" title="Zoom out">-</button>
+                                        <button id="map-fit" type="button" class="map-control" aria-label="Fit all rooms" title="Fit all rooms">FIT</button>
+                                        <button id="map-center" type="button" class="map-control" aria-label="Center on current room" title="Center on current room">⌖</button>
+                                    </div>
                                 </div>
-                                <div id="map-canvas" class="map-canvas"></div>
+                                <div id="map-canvas" class="map-canvas">
+                                    <div id="map-canvas-content" class="map-canvas-content"></div>
+                                </div>
+                                <div id="map-hover-card" class="map-hover-card" role="tooltip" hidden></div>
+                                <div id="map-inspector" class="map-inspector" role="dialog" aria-label="Room inspector" hidden>
+                                    <div id="map-inspector-drag" class="map-inspector-header">
+                                        <h4 id="map-inspector-title" class="map-inspector-title"></h4>
+                                        <button id="map-inspector-close" type="button" class="map-inspector-close" aria-label="Close room inspector">×</button>
+                                    </div>
+                                    <div id="map-inspector-body" class="map-inspector-body"></div>
+                                    <div id="map-inspector-route-status" class="map-route-status" aria-live="polite"></div>
+                                </div>
                             </div>
                         </div>
                     </div>
