@@ -57,6 +57,8 @@ function overlapArea(a, b) {
  * @param {{width:number,height:number}} options.size
  * @param {{width:number,height:number}} options.viewport
  * @param {Array<{left:number,top:number,width:number,height:number}>} [options.obstacles]
+ * @param {number} [options.margin] side/bottom viewport margin
+ * @param {number} [options.topMargin] minimum top edge (e.g. below a top bar)
  * @returns {{left:number,top:number,placement:string}}
  */
 export function chooseBestPopoverPosition({
@@ -66,6 +68,7 @@ export function chooseBestPopoverPosition({
     obstacles = [],
     gap = 12,
     margin = 8,
+    topMargin = margin,
 } = {}) {
     const anchorRect = rectOf(anchor || {});
     const card = {
@@ -76,6 +79,7 @@ export function chooseBestPopoverPosition({
         width: Math.max(1, viewport?.width ?? 1),
         height: Math.max(1, viewport?.height ?? 1),
     };
+    const minTop = Math.max(0, topMargin);
     const obstacleRects = (obstacles || []).map(rectOf);
     // The focal node itself is a blocker: a clamped candidate must never end
     // up sitting on top of the orb it describes.
@@ -90,14 +94,14 @@ export function chooseBestPopoverPosition({
             Math.max(margin, view.width - card.width - margin),
         );
         const top = Math.min(
-            Math.max(margin, raw.top),
-            Math.max(margin, view.height - card.height - margin),
+            Math.max(minTop, raw.top),
+            Math.max(minTop, view.height - card.height - margin),
         );
         const rect = { left, top, width: card.width, height: card.height };
 
         let overflow = 0;
         if (left < margin) overflow += (margin - left) * card.height;
-        if (top < margin) overflow += (margin - top) * card.width;
+        if (top < minTop) overflow += (minTop - top) * card.width;
         if (left + card.width > view.width - margin) {
             overflow += (left + card.width - (view.width - margin)) * card.height;
         }

@@ -491,6 +491,10 @@ def test_map_mobile_inspector_bottom_sheet_and_suppressed_hover(game_page):
     _open_map_tab_mobile(page)
     expect(page.locator(".map-room")).to_have_count(4)
 
+    # Mobile canvas fills the pane instead of collapsing to a 200px strip.
+    canvas_box = page.locator("#map-canvas").bounding_box()
+    assert canvas_box["height"] >= 420, canvas_box
+
     # Hover is suppressed below the desktop breakpoint even with a fine pointer.
     page.locator('.map-room[data-room-id="r1"]').hover()
     page.wait_for_timeout(350)
@@ -745,3 +749,111 @@ def test_map_inspector_unpin_button(game_page):
     unpin.click()
 
     expect(page.locator('.map-room[data-room-id="r2"]')).to_have_attribute("data-pinned", "false")
+
+
+# ─── PATCH-01 reproductions ───────────────────────────────────────────────
+
+def test_map_fit_survives_noop_resize_and_preserves_manual_pan(game_page):
+    """Initial FIT / user pan must not be overwritten by a no-op ResizeObserver."""
+    page = game_page
+    _open_fixture_map(page)
+
+    expect(page.locator("#map-center")).to_have_text("◎")
+
+    page.locator("#map-fit").click()
+    page.wait_for_timeout(80)
+    fitted = page.locator("#map-canvas-content").get_attribute("style")
+
+    # A no-op resize event (same dimensions) must not recenter the camera.
+    page.evaluate("() => window.dispatchEvent(new Event('resize'))")
+    page.wait_for_timeout(350)
+    assert page.locator("#map-canvas-content").get_attribute("style") == fitted, \
+        "a no-op resize overwrote the FIT camera"
+
+    # A manual pan must survive a real viewport resize.
+    canvas = _canvas_rect(page)
+    page.mouse.move(canvas["left"] + 30, canvas["top"] + canvas["height"] - 30)
+    page.mouse.down()
+    page.mouse.move(canvas["left"] + 90, canvas["top"] + canvas["height"] - 70, steps=8)
+    page.mouse.up()
+    panned = page.locator("#map-canvas-content").get_attribute("style")
+
+    page.set_viewport_size({"width": 1180, "height": 720})
+    page.wait_for_timeout(450)
+    assert page.locator("#map-canvas-content").get_attribute("style") == panned, \
+        "resize discarded the user's manual pan"
+    assert page.locator(".map-room").count() == 4
+
+
+def test_map_tap_hits_small_orb_at_low_zoom(game_page):
+    """A 44 px screen-space tap target survives low camera zoom."""
+    page = game_page
+    _open_fixture_map(page)
+
+    for _ in range(8):
+        page.locator("#map-zoom-out").click()
+    page.wait_for_timeout(100)
+    zoom = float(page.locator("#map-canvas").get_attribute("data-zoom"))
+    assert zoom <= 0.35, zoom
+
+    target = page.evaluate(
+        """() => {
+            const rooms = [...document.querySelectorAll('.map-room')].map(el => {
+                const r = el.getBoundingClientRect();
+                return { id: el.getAttribute('data-room-id'),
+                         name: el.getAttribute('data-full-name'),
+                         x: r.left + r.width / 2, y: r.top + r.height / 2 };
+            });
+            const r1 = rooms.find(room => room.id === 'r1');
+            const clickX = r1.x;
+            const clickY = r1.y + 18;  // outside the scaled orb, inside a 44px target
+            const nearest = rooms.reduce((best, room) => {
+                const d = Math.hypot(room.x - clickX, room.y - clickY);
+                return (!best || d < best.d) ? { ...room, d } : best;
+            }, null);
+            return { clickX, clickY, name: nearest.name, distance: nearest.d };
+        }"""
+    )
+    assert target["distance"] <= 22, target
+
+    page.mouse.click(target["clickX"], target["clickY"])
+    expect(page.locator("#map-inspector")).to_be_visible()
+    expect(page.locator("#map-inspector-title")).to_have_text(target["name"])
+
+
+def test_map_switching_nodes_clears_route_status(game_page):
+    """Switching inspected rooms clears stale route status text."""
+    page = game_page
+    _mock_path(page, {
+        "found": True,
+        "from_room_id": "r1",
+        "to_room_id": "r3",
+        "step_count": 2,
+        "steps": [
+            {"from_room_id": "r1", "direction": "east", "to_room_id": "r2"},
+            {"from_room_id": "r2", "direction": "archway", "to_room_id": "r3"},
+        ],
+        "reason": None,
+    })
+    _open_fixture_map(page, ROUTE_FIXTURE)
+
+    page.locator('.map-room[data-room-id="r3"]').click()
+    page.locator('#map-inspector [data-action="route"]').click()
+    status = page.locator("#map-inspector-route-status")
+    expect(status).to_contain_text("2 steps")
+
+    page.locator('.map-room[data-room-id="r2"]').click()
+    expect(page.locator("#map-inspector-title")).to_have_text("Gallery")
+    assert status.inner_text() == "", "stale route status leaked onto the next room"
+
+
+def test_map_inspector_stays_below_top_margin(game_page):
+    """The desktop inspector never overlaps the top status bar."""
+    page = game_page
+    _open_fixture_map(page)
+
+    page.locator('.map-room[data-room-id="r2"]').click()
+    expect(page.locator("#map-inspector")).to_be_visible()
+    box = page.locator("#map-inspector").bounding_box()
+    assert box["y"] >= 60, f"inspector top {box['y']} overlaps the top bar"
+    assert box["y"] + box["height"] <= 720 - 8 + 0.5, box

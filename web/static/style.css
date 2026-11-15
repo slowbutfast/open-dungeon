@@ -1985,7 +1985,8 @@ body:not(.crt-effect) .screen-flicker {
     z-index: 35;
     width: 280px;
     max-width: calc(100vw - 1.5rem);
-    max-height: min(70dvh, 520px);
+    max-height: min(440px, calc(100vh - 88px));
+    max-height: min(440px, calc(100dvh - 88px));
     display: flex;
     flex-direction: column;
     border: 1px solid rgba(56, 189, 248, 0.45);
@@ -2041,8 +2042,10 @@ body:not(.crt-effect) .screen-flicker {
 }
 
 .map-inspector-body {
+    flex: 1 1 auto;
     padding: 0.6rem 0.65rem;
     overflow-y: auto;
+    overscroll-behavior: contain;
     min-height: 0;
 }
 
@@ -2119,10 +2122,16 @@ body:not(.crt-effect) .screen-flicker {
 }
 
 .map-inspector-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
     display: flex;
     flex-wrap: wrap;
     gap: 0.4rem;
     margin-top: 0.7rem;
+    padding-top: 0.45rem;
+    border-top: 1px solid var(--border-light);
+    background: rgba(13, 17, 23, 0.98);
 }
 
 .map-action-btn {
@@ -2168,7 +2177,7 @@ body:not(.crt-effect) .screen-flicker {
     }
 
     .map-canvas {
-        min-height: 200px;
+        min-height: calc(100dvh - 220px);
     }
 
     .map-control {

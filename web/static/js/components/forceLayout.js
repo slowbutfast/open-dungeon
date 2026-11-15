@@ -14,7 +14,7 @@ export const ALPHA_DECAY = 0.82;
 const MIN_RADIUS = 10;
 const MAX_RADIUS = 30;
 const RADIUS_SCALE = 4;
-const REPULSION = 2200;
+const REPULSION = 3000;
 const GRAVITY = 0.012;
 const VELOCITY_DAMPING = 0.55;
 const COLLISION_PADDING = 2;
@@ -75,7 +75,7 @@ export function springForEdge(edge = {}) {
     if (edge.kind === 'portal' || edge.kind === 'time') {
         return { length: 190, strength: 0.018 };
     }
-    return { length: 74, strength: 0.09 };
+    return { length: 98, strength: 0.09 };
 }
 
 function compassOffset(direction) {

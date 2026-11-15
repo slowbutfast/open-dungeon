@@ -33,7 +33,7 @@ const HOVER_GRACE_MS = 150;
 const DRAG_THRESHOLD = 6;
 const MIN_ZOOM = 0.2;
 const MAX_ZOOM = 2.5;
-const FAR_ZOOM = 0.6;
+const FAR_ZOOM = 0.85;
 const FALLBACK_WIDTH = 300;
 const FALLBACK_HEIGHT = 320;
 const EDGE_GAP = 3;
@@ -50,6 +50,9 @@ let cachedMap = null;
 let graphData = { rooms: [], edges: [], regions: [], current_room_id: null };
 let layout = null;
 let camera = { x: 0, y: 0, zoom: 1, initialized: false };
+// 'fit' = frame all rooms, 'center' = focus the current room, 'manual' = the
+// player panned/zoomed and resize must not steal the camera back.
+let cameraMode = 'fit';
 
 const nodeEls = new Map();
 const edgePaths = new Map();
@@ -485,6 +488,7 @@ function fitCamera() {
     const size = measureCanvas(canvas);
     const bounds = computeBounds([...layout.nodes.values()], 46);
     camera = { ...computeFitViewport(bounds, size, { padding: 28 }), initialized: true };
+    cameraMode = 'fit';
     applyCamera();
 }
 
@@ -500,6 +504,7 @@ function centerOnRoom(id) {
         zoom,
         initialized: true
     };
+    cameraMode = 'center';
     applyCamera();
     return true;
 }
@@ -525,6 +530,7 @@ function zoomBy(factor, point) {
     const rect = canvas.getBoundingClientRect();
     const local = point || { x: rect.width / 2, y: rect.height / 2 };
     camera = { ...zoomAtPoint(camera, factor, local, { min: MIN_ZOOM, max: MAX_ZOOM }), initialized: true };
+    cameraMode = 'manual';
     applyCamera();
 }
 
@@ -587,9 +593,21 @@ function wireResize(canvas) {
         clearTimeout(resizeTimer);
         resizeTimer = setTimeout(() => {
             if (!layout || !cachedMap) return;
+            const previous = { ...lastCanvasSize };
             const size = measureCanvas(canvas);
+            const changed = Math.abs(size.width - previous.width) > 0.5
+                || Math.abs(size.height - previous.height) > 0.5;
+            // ResizeObserver fires once when observation starts; that is not a
+            // real resize and must not overwrite the first-paint FIT.
+            if (!changed) return;
+
             layout.setViewport(size.width, size.height);
-            if (graphData.current_room_id && nodeById(graphData.current_room_id)) {
+            if (cameraMode === 'manual') {
+                // Preserve the player's pan/zoom.
+                applyCamera();
+            } else if (cameraMode === 'center'
+                && graphData.current_room_id
+                && nodeById(graphData.current_room_id)) {
                 centerOnRoom(graphData.current_room_id);
             } else {
                 fitCamera();
@@ -621,6 +639,29 @@ function localPoint(event, canvas) {
     return { x: event.clientX - rect.left, y: event.clientY - rect.top };
 }
 
+// Screen-space nearest-node hit testing. The visual orb and its DOM ::before
+// hit target scale with the camera, so at low zoom a finger/mouse can land
+// outside the scaled orb. A fixed 22 px screen radius keeps taps reliable at
+// any zoom without shrinking the visible graph.
+function nearestNodeAtClientPoint(canvas, clientX, clientY, maxDistance = 22) {
+    if (!layout) return null;
+    const canvasRect = canvas.getBoundingClientRect();
+    let best = null;
+    for (const [id, el] of nodeEls) {
+        const rect = el.getBoundingClientRect();
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top + rect.height / 2;
+        // Ignore nodes scrolled/clipped outside the viewport.
+        if (cx < canvasRect.left || cx > canvasRect.right
+            || cy < canvasRect.top || cy > canvasRect.bottom) continue;
+        const distance = Math.hypot(clientX - cx, clientY - cy);
+        if (distance <= maxDistance && (!best || distance < best.distance)) {
+            best = { id, distance };
+        }
+    }
+    return best ? best.id : null;
+}
+
 function onPointerDown(event) {
     const canvas = event.currentTarget;
     if (event.pointerType === 'mouse' && event.button !== 0) return;
@@ -634,9 +675,11 @@ function onPointerDown(event) {
     }
 
     const roomEl = event.target.closest?.('.map-room');
-    if (roomEl) {
+    const nearestId = roomEl ? null
+        : nearestNodeAtClientPoint(canvas, event.clientX, event.clientY);
+    if (roomEl || nearestId) {
         pointerPress = {
-            id: roomEl.getAttribute('data-room-id'),
+            id: roomEl ? roomEl.getAttribute('data-room-id') : nearestId,
             startX: event.clientX,
             startY: event.clientY,
             pointerId: event.pointerId,
@@ -691,6 +734,7 @@ function onPointerMove(event) {
             y: panGesture.camera.y + (event.clientY - panGesture.startY),
             initialized: true
         };
+        cameraMode = 'manual';
         applyCamera();
     }
 }
@@ -799,6 +843,7 @@ function updatePinch(canvas) {
         y: zoomed.y + (midpoint.y - pinchGesture.midpoint.y),
         initialized: true
     };
+    cameraMode = 'manual';
     applyCamera();
 }
 
@@ -1072,6 +1117,16 @@ function openInspector(id) {
     const inspector = document.getElementById('map-inspector');
     if (!inspector) return;
 
+    // Switching focus cancels any in-flight route and clears the prior
+    // target's route edges + aria-live status text.
+    if (inspectedId !== id) {
+        if (routeController) {
+            routeController.abort();
+            routeController = null;
+        }
+        clearRoute();
+    }
+
     inspectedId = id;
     inspector.hidden = false;
     inspectorManual = null;
@@ -1272,7 +1327,8 @@ function inspectorTarget() {
         viewport: { width: window.innerWidth, height: window.innerHeight },
         obstacles,
         gap: 14,
-        margin: 8
+        margin: 8,
+        topMargin: 64
     });
 }
 
@@ -1326,8 +1382,8 @@ function routeTo(toRoomId) {
     routeController = new AbortController();
     const signal = routeController.signal;
     const status = document.getElementById('map-inspector-route-status');
-    if (status) status.textContent = 'Finding route…';
     clearRoute();
+    if (status) status.textContent = 'Finding route…';
 
     const fromRoomId = graphData.current_room_id;
     fetchPath(toRoomId, fromRoomId, signal)
@@ -1389,4 +1445,6 @@ function paintRoute(keys) {
 function clearRoute() {
     routeKeys = [];
     for (const path of edgePaths.values()) path.classList.remove('map-edge-route');
+    const status = document.getElementById('map-inspector-route-status');
+    if (status) status.textContent = '';
 }

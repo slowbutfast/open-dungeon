@@ -76,3 +76,16 @@ test('all returned positions stay inside the viewport', () => {
         assert.ok(result.top + 160 <= 700 - 8 + 1e-9, `bottom for ${JSON.stringify(anchor)}`);
     }
 });
+
+test('topMargin keeps a clamped popover below the top status bar', () => {
+    const result = chooseBestPopoverPosition({
+        anchor: { left: 100, top: 40, width: 40, height: 40 },
+        size: { width: 240, height: 160 },
+        viewport: { width: 400, height: 320 },
+        obstacles: [],
+        gap: 12,
+        margin: 8,
+        topMargin: 64,
+    });
+    assert.ok(result.top >= 64, `top ${result.top} must clear the 64px top margin`);
+});

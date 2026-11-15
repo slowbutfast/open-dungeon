@@ -21,6 +21,19 @@ export function formatCompactRoomName(name, maxLength = COMPACT_NAME_MAX) {
     const withoutArticle = full.replace(LEADING_ARTICLE, '');
     if (withoutArticle.length <= maxLength) return withoutArticle;
 
+    // Preserve the trailing token/number so dense numbered rooms stay
+    // distinguishable ("Winding Passage 23" -> "Winding…23") instead of all
+    // collapsing to the same prefix.
+    const tokens = withoutArticle.split(/\s+/).filter(Boolean);
+    if (tokens.length > 1) {
+        const lastToken = tokens[tokens.length - 1];
+        const budget = maxLength - 1 - lastToken.length;
+        if (budget >= 1) {
+            const prefix = tokens[0].slice(0, budget).trimEnd();
+            if (prefix) return `${prefix}${ELLIPSIS}${lastToken}`;
+        }
+    }
+
     return `${withoutArticle.slice(0, Math.max(0, maxLength - 1))}${ELLIPSIS}`;
 }
 

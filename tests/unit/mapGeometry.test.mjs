@@ -34,13 +34,30 @@ test('formatCompactRoomName: strips a leading article when the name is too long'
 test('formatCompactRoomName: caps at 16 characters with an ellipsis', () => {
     const compact = formatCompactRoomName('The Grand Central Nexus');
     assert.ok(compact.length <= 16, `${compact} should be <= 16 chars`);
-    assert.ok(compact.endsWith('…'), 'truncation uses an ellipsis');
+    assert.ok(compact.includes('…'), 'truncation uses an ellipsis');
 });
 
 test('formatCompactRoomName: handles empty and nullish input', () => {
     assert.equal(formatCompactRoomName(''), '');
     assert.equal(formatCompactRoomName(null), '');
     assert.equal(formatCompactRoomName(undefined), '');
+});
+
+test('formatCompactRoomName: preserves a trailing token for numbered rooms', () => {
+    const compact = formatCompactRoomName('Winding Passage 23');
+    assert.equal(compact, 'Winding…23');
+    assert.ok(compact.length <= 16);
+    assert.notEqual(
+        formatCompactRoomName('Winding Passage 23'),
+        formatCompactRoomName('Winding Passage 7'),
+        'numbered rooms must remain distinguishable',
+    );
+});
+
+test('formatCompactRoomName: preserves the trailing token after an article', () => {
+    assert.equal(formatCompactRoomName('The Winding Passage 23'), 'Winding…23');
+    assert.equal(formatCompactRoomName('A Gallery of Falling Light'), 'Gallery…Light');
+    assert.ok(formatCompactRoomName('A Gallery of Falling Light').length <= 16);
 });
 
 // ─── camera transforms ────────────────────────────────────────────────────

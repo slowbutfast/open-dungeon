@@ -1,7 +1,7 @@
 ## Executive Summary & Environment
 
-- **Status**: Implementation complete — all 17 tasks checked, 119 Node unit tests and 20 Playwright E2E tests passing. No critical verification issues.
-- **Date**: 2026-11-15
+- **Status**: Implementation complete — all 17 tasks checked, 122 Node unit tests and 24 Playwright E2E tests passing. PATCH-01 RESOLVED. No critical verification issues.
+- **Date**: 2026-11-15 (PATCH-01 applied after visual verification)
 - **Change**: `gravitational-node-map` (schema `tdd-rnd`)
 - **Environment**
   - OS: Linux (arm64)
@@ -127,7 +127,7 @@ $ node --test tests/unit/forceLayout.test.mjs tests/unit/mapGeometry.test.mjs \
 # duration_ms 3405.923192
 ```
 
-New module split: `forceLayout.test.mjs` (22), `mapGeometry.test.mjs` (14), `popoverPlacement.test.mjs` (6) = **42 new**; the 77 pre-existing spatial tests remain unchanged and green (matches the research baseline of 77/77).
+New module split: `forceLayout.test.mjs` (20), `mapGeometry.test.mjs` (18), `popoverPlacement.test.mjs` (7) = **45 new**; the 77 pre-existing spatial tests remain unchanged and green (77 + 45 = 122).
 
 ### 2. Playwright E2E suite
 
@@ -170,8 +170,9 @@ The single warning is pytest's pre-existing `PytestRemovedIn10Warning` about ses
 | Metric / Count | Before | After | Delta / Observation |
 | :--- | :--- | :--- | :--- |
 | Existing spatial unit tests | 77 | 77 | 0 lost; all pass |
-| New map unit tests | 0 | 42 | +42 (determinism, degree, collision, springs, state machine, geometry, placement) |
-| Playwright map E2E tests | 6 (two-mode grid suite) | 20 | +14 net; mode toggle test removed |
+| New map unit tests | 0 | 45 | +45 (determinism, degree, collision, springs, state machine, geometry, placement, PATCH-01 naming/topMargin) |
+| Playwright map E2E tests | 6 (two-mode grid suite) | 24 | +18 net; mode toggle test removed, PATCH-01 reproductions added |
+| PATCH-01 reproduction tests | 0 | 7 (3 unit + 4 E2E) | All fail before the patch, all pass after |
 | Backend/API schema changes | 0 | 0 | `GET /api/map` and `GET /api/path` consumed unchanged |
 | SQLite tables / persisted records | 0 | 0 | No model or migration changes; pins intentionally session-only |
 | Production save directories touched | 0 | 0 | E2E writes only to `tests/adventures_map_e2e_test/`, removed by fixture |
@@ -184,32 +185,99 @@ The single warning is pytest's pre-existing `PytestRemovedIn10Warning` about ses
 - `.env`, `.env.*`, credentials, `engine/`, `web/routes/game.js`, `tests/test_cli_behavior.py`, `tests/test_pty_integration.py`, and `tests/simulate_playtest.py` were not modified.
 - No new runtime dependencies; `package.json` unchanged. Test tooling was installed into the git-ignored `venv/` and `node_modules/`.
 
+## PATCH-01 — Visual Polish, Dense-Graph Readability, Mobile Hit Targets & Camera Stability
+
+**Status: RESOLVED** (tracked in `patch.md`).
+
+| Fix | Final implementation | Reproduction test(s) |
+| :--- | :--- | :--- |
+| Dense-graph label crowding | `FAR_ZOOM` raised `0.6 → 0.85`; `.map-zoom-far` hides meta/edge labels at FIT zoom | `test_map_fit_survives_noop_resize_and_preserves_manual_pan` (glyph + camera); visual LOD covered by existing render assertions |
+| Numbered rooms collapse to identical labels | `formatCompactRoomName` now emits `first…last` (`Winding Passage 23 → Winding…23`, `≤ 16` chars) | `tests/unit/mapGeometry.test.mjs::formatCompactRoomName: preserves a trailing token for numbered rooms`; `::...after an article` |
+| Dense graphs lack breathing room | `REPULSION 2200 → 3000`; walk spring `length 74 → 98` | Full force-layout suite (collision/cluster invariants) |
+| 44 px tap target scales with camera | `nearestNodeAtClientPoint()` screen-space fallback (`≤ 22 px` from orb centre) in `onPointerDown` | `test_map_tap_hits_small_orb_at_low_zoom` (8× zoom-out, 18 px off-centre tap) |
+| Initial FIT / manual pan overwritten by `ResizeObserver` | `cameraMode = 'fit' | 'center' | 'manual'`; no-op size changes ignored; `manual` preserved across real resizes | `test_map_fit_survives_noop_resize_and_preserves_manual_pan` |
+| Missing `⌖` glyph | `#map-center` now renders `◎` | `test_map_fit_survives_noop_resize_and_preserves_manual_pan` asserts `◎` |
+| Inspector overlaps top bar / clips actions | `topMargin: 64` in `inspectorTarget()`; `popoverPlacement` supports `topMargin`; `.map-inspector` capped at `min(440px, calc(100dvh - 88px))`, scrollable body, sticky actions | `tests/unit/popoverPlacement.test.mjs::topMargin keeps a clamped popover below the top status bar`; `test_map_inspector_stays_below_top_margin` |
+| Stale route status on node switch | `clearRoute()` clears `#map-inspector-route-status`; `openInspector()` aborts/clears on room change | `test_map_switching_nodes_clears_route_status` |
+| Mobile canvas collapsed to 200 px | mobile `.map-canvas { min-height: calc(100dvh - 220px); }` | `test_map_mobile_inspector_bottom_sheet_and_suppressed_hover` (height ≥ 420 px) |
+
+### Reproduction-first evidence (RED before fix)
+
+```text
+$ node --test tests/unit/mapGeometry.test.mjs tests/unit/popoverPlacement.test.mjs
+1..25
+# pass 22
+# fail 3        # trailing-token naming (2) + topMargin (1)
+
+$ ./venv/bin/python -m pytest tests/e2e/test_map_render.py -v -k "fit_survives or tap_hits or switching_nodes or top_margin or mobile_inspector"
+FAILED test_map_mobile_inspector_bottom_sheet_and_suppressed_hover[...]
+FAILED test_map_fit_survives_noop_resize_and_preserves_manual_pan[...]
+FAILED test_map_tap_hits_small_orb_at_low_zoom[...]
+FAILED test_map_switching_nodes_clears_route_status[...]
+4 failed, 1 passed, 19 deselected
+```
+
+### Post-fix execution logs
+
+```bash
+$ node --test tests/unit/forceLayout.test.mjs tests/unit/mapGeometry.test.mjs \
+    tests/unit/popoverPlacement.test.mjs tests/unit/roomMap.test.mjs \
+    tests/unit/pathfinding.test.mjs tests/unit/structuredStore.spatial.test.mjs \
+    tests/unit/spatialIntegration.test.mjs tests/unit/spatialUndo.test.mjs
+1..122
+# tests 122
+# suites 0
+# pass 122
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 3447.93243
+```
+
+```bash
+$ ./venv/bin/python -m pytest tests/e2e/test_map_render.py -v
+collecting ... collected 24 items
+...
+tests/e2e/test_map_render.py::test_map_fit_survives_noop_resize_and_preserves_manual_pan[chromium] PASSED [ 87%]
+tests/e2e/test_map_render.py::test_map_tap_hits_small_orb_at_low_zoom[chromium] PASSED [ 91%]
+tests/e2e/test_map_render.py::test_map_switching_nodes_clears_route_status[chromium] PASSED [ 95%]
+tests/e2e/test_map_render.py::test_map_inspector_stays_below_top_margin[chromium] PASSED [100%]
+================== 24 passed, 1 warning in 105.32s (0:01:45) ===================
+```
+
+### PATCH-01 scope/guardrail audit
+
+- Only the PATCH-01 Target Context Map files were modified: `mapGeometry.js`, `forceLayout.js`, `popoverPlacement.js`, `mapPanel.js`, `index.html`, `style.css`, plus the mapped unit/E2E tests.
+- Invariants preserved: zero unpinned overlaps, deterministic PRNG, 200 ms dwell + 150 ms grace, `AbortController` route cancellation, session-only `homeAnchors`.
+- No backend, API, dependency, `.env`, or credential changes.
+
 ## Quick Re-Verification (60-Second Audit)
 
 ```bash
-# JS unit modules (42 tests, ~0.2 s)
+# JS unit modules (45 tests, ~0.2 s)
 node --test tests/unit/forceLayout.test.mjs tests/unit/mapGeometry.test.mjs tests/unit/popoverPlacement.test.mjs
 
-# Full spatial + frontend unit suite (119 tests, ~3.5 s)
+# Full spatial + frontend unit suite (122 tests, ~3.5 s)
 node --test tests/unit/forceLayout.test.mjs tests/unit/mapGeometry.test.mjs \
   tests/unit/popoverPlacement.test.mjs tests/unit/roomMap.test.mjs \
   tests/unit/pathfinding.test.mjs tests/unit/structuredStore.spatial.test.mjs \
   tests/unit/spatialIntegration.test.mjs tests/unit/spatialUndo.test.mjs
 
-# Map E2E (20 tests, ~90 s; requires the provisioned venv + Chromium)
+# Map E2E (24 tests, ~105 s; requires the provisioned venv + Chromium)
 ./venv/bin/python -m pytest tests/e2e/test_map_render.py -q
 ```
 
 Expected output:
 
 ```text
-# tests 42
-# pass 42
+# tests 45
+# pass 45
 # fail 0
 
-# tests 119
-# pass 119
+# tests 122
+# pass 122
 # fail 0
 
-20 passed, 1 warning in ~88s
+24 passed, 1 warning in ~105s
 ```

@@ -32,3 +32,10 @@
 
 - [x] 6.1 Run full Node.js spatial & frontend unit test suite (`node --test tests/unit/forceLayout.test.mjs tests/unit/mapGeometry.test.mjs tests/unit/popoverPlacement.test.mjs tests/unit/roomMap.test.mjs tests/unit/pathfinding.test.mjs tests/unit/structuredStore.spatial.test.mjs tests/unit/spatialIntegration.test.mjs tests/unit/spatialUndo.test.mjs`) and Playwright E2E suite (`python3 -m pytest tests/e2e/test_map_render.py -v`), verifying clean passes.
 - [x] 6.2 Populate `verification.md` with Requirement Adherence Matrix, resolved assumptions, and verbatim execution logs.
+
+## Patch 01: Visual Polish, Dense-Graph Readability, Mobile Hit Targets & Camera Stability
+
+- [x] P01.1 Add failing unit & E2E tests for trailing-token `formatCompactRoomName` (`Winding Passage 23` → `Winding…23`), `ResizeObserver` preserving `FIT`/manual camera, 44 px screen-space tap hit-testing at low zoom, and clearing `#map-inspector-route-status` on node switch.
+- [x] P01.2 Update `mapGeometry.js`, `forceLayout.js`, `popoverPlacement.js`, `mapPanel.js`, `index.html`, and `style.css` within the PATCH-01 Target Context Map.
+- [x] P01.3 Verify all reproduction tests pass and run full Node unit (`119+`) and Playwright E2E (`20+`) suites with zero regressions.
+- [x] P01.4 Update `verification.md` with PATCH-01 audit logs and mark `PATCH-01` `RESOLVED` in `patch.md`.
