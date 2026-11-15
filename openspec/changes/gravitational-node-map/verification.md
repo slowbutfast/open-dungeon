@@ -1,6 +1,6 @@
 ## Executive Summary & Environment
 
-- **Status**: Implementation complete — all 17 tasks checked, 122 Node unit tests and 24 Playwright E2E tests passing. PATCH-01 RESOLVED. No critical verification issues.
+- **Status**: Implementation complete — all 25 tasks checked (17 original + 4 PATCH-01 + 4 PATCH-02), 123 Node unit tests and 26 Playwright E2E tests passing. PATCH-01 and PATCH-02 RESOLVED. No critical verification issues.
 - **Date**: 2026-11-15 (PATCH-01 applied after visual verification)
 - **Change**: `gravitational-node-map` (schema `tdd-rnd`)
 - **Environment**
@@ -170,9 +170,10 @@ The single warning is pytest's pre-existing `PytestRemovedIn10Warning` about ses
 | Metric / Count | Before | After | Delta / Observation |
 | :--- | :--- | :--- | :--- |
 | Existing spatial unit tests | 77 | 77 | 0 lost; all pass |
-| New map unit tests | 0 | 45 | +45 (determinism, degree, collision, springs, state machine, geometry, placement, PATCH-01 naming/topMargin) |
-| Playwright map E2E tests | 6 (two-mode grid suite) | 24 | +18 net; mode toggle test removed, PATCH-01 reproductions added |
+| New map unit tests | 0 | 46 | +46 (determinism, degree, collision, springs, state machine, geometry, placement, PATCH-01/02 naming + topMargin) |
+| Playwright map E2E tests | 6 (two-mode grid suite) | 26 | +20 net; mode toggle removed, PATCH-01/02 reproductions + dense-label culling added |
 | PATCH-01 reproduction tests | 0 | 7 (3 unit + 4 E2E) | All fail before the patch, all pass after |
+| PATCH-02 reproduction tests | 0 | 5 (2 unit + 2 E2E RED) | Mobile containment + digit-gated naming failed before, all pass after |
 | Backend/API schema changes | 0 | 0 | `GET /api/map` and `GET /api/path` consumed unchanged |
 | SQLite tables / persisted records | 0 | 0 | No model or migration changes; pins intentionally session-only |
 | Production save directories touched | 0 | 0 | E2E writes only to `tests/adventures_map_e2e_test/`, removed by fixture |
@@ -252,32 +253,100 @@ tests/e2e/test_map_render.py::test_map_inspector_stays_below_top_margin[chromium
 - Invariants preserved: zero unpinned overlaps, deterministic PRNG, 200 ms dwell + 150 ms grace, `AbortController` route cancellation, session-only `homeAnchors`.
 - No backend, API, dependency, `.env`, or credential changes.
 
+## PATCH-02 — Mobile Flex Containment, Digit-Gated Naming, Coarse Tap Fallback & Inspector Polish
+
+**Status: RESOLVED** (tracked in `patch.md`).
+
+| Fix | Final implementation | Reproduction test(s) |
+| :--- | :--- | :--- |
+| Mobile `#tab-map` clipped / orbs hidden | `375×812`: `.sidebar-panel.active:has(#tab-map.active)` drops the `40dvh` cap; `#tab-map.active`, `.map-panel`, `.map-canvas` flex-fill (`flex: 1; min-height: 0`); canvas bottom sits exactly at the tab-bar top | `test_map_mobile_panel_fits_above_tab_bar` (tab/canvas containment + all 4 orbs + current room) |
+| Digit-gated compact naming | Trailing tail preserved only when the last token contains a digit; shared prefixes keep distinguishing initials (`Northern Cave Mouth 3 → Northern Cave…3`, `Northern Tunnel Junction 3 → Northern Tunne…3`); non-numbered names truncate at a word boundary (`Dawn Camp…`, `Shimmering…`) | `tests/unit/mapGeometry.test.mjs::formatCompactRoomName: digit-gates tail preservation...`; `::non-numbered names truncate at a word boundary` |
+| 22 px fallback hijacked desktop pan | Fallback gated to `pointerType` `touch`/`pen` or `(pointer: coarse)` | `test_map_tap_hits_small_orb_at_low_zoom` (touch tap selects; desktop off-node drag pans with no pin) |
+| Inspector overlaps toolbar / clipped-row bleed | `topMargin: 108`; `.map-inspector-body` bottom padding `0`; sticky `.map-inspector-actions` bottom padding `0.6rem` | `tests/unit/popoverPlacement.test.mjs::topMargin...`; `test_map_inspector_stays_below_top_margin` |
+| `FAR_ZOOM` spec conflict + stacked dense labels | `FAR_ZOOM` restored to `0.6` (`< 0.6x` spec); priority screen-space label culling (`current > hovered > neighbour > hub > other > edge`) via `.is-label-culled` | `test_map_dense_graph_culls_colliding_labels` (24-room hub graph: colliding labels culled, current kept, zero visible overlaps) |
+| Spec drift (`⌖`) | `⌖ → ◎` and collision-culling wording synced into both delta and main specs | `openspec validate gravitational-node-map --strict` |
+
+### Reproduction-first evidence (RED before fix)
+
+```text
+$ node --test tests/unit/mapGeometry.test.mjs
+1..19
+# pass 17
+# fail 2        # digit-gated tail preservation + word-boundary truncation
+
+$ ./venv/bin/python -m pytest tests/e2e/test_map_render.py -v -k "mobile_panel_fits or tap_hits or top_margin or mobile_inspector"
+FAILED test_map_mobile_panel_fits_above_tab_bar[...]
+  AssertionError: #map-canvas bottom=830.375 exceeds #tab-map bottom=422.578 (fresh 375x812)
+FAILED test_map_tap_hits_small_orb_at_low_zoom[...]    # desktop mouse grabbed the orb instead of panning
+2 failed, 2 passed, 21 deselected
+```
+
+The mobile RED was reproduced against the PATCH-01 stylesheet on a fresh `375×812` mobile context (`is_mobile=True`), not a resized desktop page: `#tab-map` ended at `y+height = 422.58` while `#map-canvas` extended to `830.38`, i.e. the 592 px `min-height` escaping the `40dvh` sidebar cap and running under the tab bar. After the flex-containment patch, the canvas bottom equals the tab-map bottom exactly.
+
+### Post-fix execution logs
+
+```bash
+$ node --test tests/unit/forceLayout.test.mjs tests/unit/mapGeometry.test.mjs \
+    tests/unit/popoverPlacement.test.mjs tests/unit/roomMap.test.mjs \
+    tests/unit/pathfinding.test.mjs tests/unit/structuredStore.spatial.test.mjs \
+    tests/unit/spatialIntegration.test.mjs tests/unit/spatialUndo.test.mjs
+1..123
+# tests 123
+# suites 0
+# pass 123
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 3792.959645
+```
+
+```bash
+$ ./venv/bin/python -m pytest tests/e2e/test_map_render.py -v
+collecting ... collected 26 items
+...
+tests/e2e/test_map_render.py::test_map_mobile_panel_fits_above_tab_bar[chromium] PASSED [ 42%]
+tests/e2e/test_map_render.py::test_map_tap_hits_small_orb_at_low_zoom[chromium] PASSED [ 88%]
+tests/e2e/test_map_render.py::test_map_inspector_stays_below_top_margin[chromium] PASSED [ 96%]
+tests/e2e/test_map_render.py::test_map_dense_graph_culls_colliding_labels[chromium] PASSED [100%]
+================== 26 passed, 1 warning in 116.41s (0:01:56) ===================
+```
+
+```bash
+$ openspec validate gravitational-node-map --strict
+Change 'gravitational-node-map' is valid
+```
+
+### Deferred code-review findings (explicitly not resolved by PATCH-02)
+
+Tracked in `patch.md` → **DEFERRED**: `settle()` ~20-tick cutoff, `startPinch` stale `panGesture`, `dragEnd({ cancel: true })` pinned restore, drag-wipes-route, and pinned-node repulsion `continue`. These are out of scope for both visual patches and require a dedicated physics/interaction maintenance pass.
+
 ## Quick Re-Verification (60-Second Audit)
 
 ```bash
-# JS unit modules (45 tests, ~0.2 s)
+# JS unit modules (46 tests, ~0.2 s)
 node --test tests/unit/forceLayout.test.mjs tests/unit/mapGeometry.test.mjs tests/unit/popoverPlacement.test.mjs
 
-# Full spatial + frontend unit suite (122 tests, ~3.5 s)
+# Full spatial + frontend unit suite (123 tests, ~3.5 s)
 node --test tests/unit/forceLayout.test.mjs tests/unit/mapGeometry.test.mjs \
   tests/unit/popoverPlacement.test.mjs tests/unit/roomMap.test.mjs \
   tests/unit/pathfinding.test.mjs tests/unit/structuredStore.spatial.test.mjs \
   tests/unit/spatialIntegration.test.mjs tests/unit/spatialUndo.test.mjs
 
-# Map E2E (24 tests, ~105 s; requires the provisioned venv + Chromium)
+# Map E2E (26 tests, ~117 s; requires the provisioned venv + Chromium)
 ./venv/bin/python -m pytest tests/e2e/test_map_render.py -q
 ```
 
 Expected output:
 
 ```text
-# tests 45
-# pass 45
+# tests 46
+# pass 46
 # fail 0
 
-# tests 122
-# pass 122
+# tests 123
+# pass 123
 # fail 0
 
-24 passed, 1 warning in ~105s
+26 passed, 1 warning in ~117s
 ```

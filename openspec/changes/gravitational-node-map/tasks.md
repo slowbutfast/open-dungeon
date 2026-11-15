@@ -39,3 +39,10 @@
 - [x] P01.2 Update `mapGeometry.js`, `forceLayout.js`, `popoverPlacement.js`, `mapPanel.js`, `index.html`, and `style.css` within the PATCH-01 Target Context Map.
 - [x] P01.3 Verify all reproduction tests pass and run full Node unit (`119+`) and Playwright E2E (`20+`) suites with zero regressions.
 - [x] P01.4 Update `verification.md` with PATCH-01 audit logs and mark `PATCH-01` `RESOLVED` in `patch.md`.
+
+## Patch 02: Mobile Flex Containment, Digit-Gated Naming & Pointer Polish
+
+- [x] P02.1 Add reproducing unit tests (`formatCompactRoomName` numbered vs non-numbered) and `375×812` `#tab-map` containment E2E test; confirm RED.
+- [x] P02.2 Implement mobile flex containment + sticky inspector padding in `web/static/style.css`, digit-gated naming in `mapGeometry.js`, coarse-pointer tap gating + `topMargin: 108` + `FAR_ZOOM = 0.6` label culling in `mapPanel.js`, and sync `◎` in specs.
+- [x] P02.3 Re-run reproduction tests, full Node unit suite, full Playwright E2E suite, and `openspec validate gravitational-node-map --strict`.
+- [x] P02.4 Update `verification.md` with PATCH-02 audit results and mark `PATCH-02` `RESOLVED` in `patch.md`.

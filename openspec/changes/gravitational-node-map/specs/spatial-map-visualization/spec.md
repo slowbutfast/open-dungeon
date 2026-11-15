@@ -89,11 +89,11 @@ Each room node SHALL display a compact, shortened title on the canvas (`formatCo
 - **THEN** the canvas node displays the compact label (<= 16 characters) and `#map-hover-card` and `#map-inspector` display the full complete `room.name`
 
 ### Requirement: Pan, Zoom & Viewport Navigation
-The map canvas (`touch-action: none`) SHALL support pointer-drag panning, cursor-anchored wheel zooming, two-pointer touch pinch-zooming, and toolbar controls (`+`, `-`, `FIT`, `⌖` center-on-current). At low zoom levels (`< 0.6x`), edge direction labels and non-essential node labels SHALL fade out via `.map-zoom-far` to prevent label clutter.
+The map canvas (`touch-action: none`) SHALL support pointer-drag panning, cursor-anchored wheel zooming, two-pointer touch pinch-zooming, and toolbar controls (`+`, `-`, `FIT`, `◎` center-on-current). At low zoom levels (`< 0.6x`), edge direction labels and non-essential node labels SHALL fade out via `.map-zoom-far`. At any zoom, screen-space label collision culling SHALL hide lower-priority labels (current > hovered > hovered neighbour > hub > other, with edge labels last) so dense clusters never stack text.
 
 #### Scenario: Fit and center controls
-- **WHEN** the player clicks `FIT` or `⌖`
-- **THEN** the viewport adjusts pan and zoom to frame all rooms (`FIT`) or center on `current_room_id` (`⌖`)
+- **WHEN** the player clicks `FIT` or `◎`
+- **THEN** the viewport adjusts pan and zoom to frame all rooms (`FIT`) or center on `current_room_id` (`◎`)
 
 #### Scenario: Pinch zoom on touch devices
 - **WHEN** two touch pointers pinch or spread on `#map-canvas`

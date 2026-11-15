@@ -33,7 +33,7 @@ const HOVER_GRACE_MS = 150;
 const DRAG_THRESHOLD = 6;
 const MIN_ZOOM = 0.2;
 const MAX_ZOOM = 2.5;
-const FAR_ZOOM = 0.85;
+const FAR_ZOOM = 0.6;
 const FALLBACK_WIDTH = 300;
 const FALLBACK_HEIGHT = 320;
 const EDGE_GAP = 3;
@@ -460,6 +460,70 @@ function updateAllGeometry() {
             label.setAttribute('y', String(curve.control.y - 4));
         }
     }
+
+    scheduleLabelCulling();
+}
+
+// Screen-space label collision culling. Dense inner rings can stack titles at
+// FIT zoom; priority keeps the labels that carry the most context:
+// current > hovered > hovered neighbour > hub > other, with edge labels last.
+let labelCullFrame = null;
+
+function scheduleLabelCulling() {
+    if (labelCullFrame !== null) return;
+    labelCullFrame = requestAnimationFrame(() => {
+        labelCullFrame = null;
+        cullLabels();
+    });
+}
+
+function labelsOverlap(a, b, padding = 2) {
+    return !(a.right + padding <= b.left
+        || b.right + padding <= a.left
+        || a.bottom + padding <= b.top
+        || b.bottom + padding <= a.top);
+}
+
+function labelPriority(id, node) {
+    if (id === graphData.current_room_id) return 0;
+    if (id === hoveredId) return 1;
+    if (hoveredId && edgeTouches(id, hoveredId)) return 2;
+    if ((node?.degree || 0) >= 3) return 3;
+    return 4;
+}
+
+function cullLabels() {
+    if (!layout) return;
+    const entries = [];
+    for (const [id, el] of nodeEls) {
+        const node = layout.getNode(id);
+        const priority = labelPriority(id, node);
+        for (const [selector, bump] of [['.map-room-name', 0], ['.map-room-meta', 0.5]]) {
+            const labelEl = el.querySelector(selector);
+            if (!labelEl) continue;
+            labelEl.classList.remove('is-label-culled');
+            entries.push({ el: labelEl, priority: priority + bump, degree: node?.degree || 0, id });
+        }
+    }
+    for (const labelEl of edgeLabels.values()) {
+        labelEl.classList.remove('is-label-culled');
+        entries.push({ el: labelEl, priority: 5, degree: 0, id: '' });
+    }
+
+    entries.sort((a, b) => (
+        a.priority - b.priority || b.degree - a.degree || a.id.localeCompare(b.id)
+    ));
+
+    const kept = [];
+    for (const entry of entries) {
+        const rect = entry.el.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) continue;
+        if (kept.some(other => labelsOverlap(other, rect))) {
+            entry.el.classList.add('is-label-culled');
+        } else {
+            kept.push(rect);
+        }
+    }
 }
 
 function refreshNodeStates() {
@@ -478,6 +542,7 @@ function applyCamera() {
     content.style.transform = `translate(${camera.x}px, ${camera.y}px) scale(${camera.zoom})`;
     canvas.setAttribute('data-zoom', camera.zoom.toFixed(3));
     canvas.classList.toggle('map-zoom-far', camera.zoom < FAR_ZOOM);
+    scheduleLabelCulling();
     if (inspectedId) positionInspectorImmediate();
 }
 
@@ -675,8 +740,13 @@ function onPointerDown(event) {
     }
 
     const roomEl = event.target.closest?.('.map-room');
-    const nearestId = roomEl ? null
-        : nearestNodeAtClientPoint(canvas, event.clientX, event.clientY);
+    const coarsePointer = event.pointerType === 'touch'
+        || event.pointerType === 'pen'
+        || (typeof window.matchMedia === 'function'
+            && window.matchMedia('(pointer: coarse)').matches);
+    const nearestId = (!roomEl && coarsePointer)
+        ? nearestNodeAtClientPoint(canvas, event.clientX, event.clientY)
+        : null;
     if (roomEl || nearestId) {
         pointerPress = {
             id: roomEl ? roomEl.getAttribute('data-room-id') : nearestId,
@@ -948,6 +1018,7 @@ function applyHoverNeighbourhood(id) {
         path?.classList.toggle('is-neighbor', adjacent);
         label?.classList.toggle('is-neighbor', adjacent);
     }
+    scheduleLabelCulling();
 }
 
 function clearHover() {
@@ -967,6 +1038,7 @@ function clearHover() {
         card.hidden = true;
         card.innerHTML = '';
     }
+    scheduleLabelCulling();
 }
 
 function showHoverCard(id) {
@@ -1328,7 +1400,7 @@ function inspectorTarget() {
         obstacles,
         gap: 14,
         margin: 8,
-        topMargin: 64
+        topMargin: 108
     });
 }
 

@@ -113,6 +113,29 @@ def game_page(page):
     return page
 
 
+@pytest.fixture(scope="function")
+def mobile_game_page(browser):
+    """A fresh 375x812 mobile context (not a resized desktop page)."""
+    context = browser.new_context(
+        viewport={"width": 375, "height": 812},
+        is_mobile=True,
+    )
+    page = context.new_page()
+    page.goto("http://127.0.0.1:5008")
+    page.wait_for_selector("#llm-status-pill:not(.llm-pill-checking)")
+    page.keyboard.press("1")
+    page.wait_for_selector(".preset-card")
+    page.locator("#btn-custom-preset").click()
+    page.wait_for_selector("#custom-preset-screen:not(.hidden)")
+    page.locator("#btn-submit-custom-preset").click()
+    page.wait_for_selector("#character-screen:not(.hidden)")
+    page.wait_for_selector(".char-card")
+    page.locator("#btn-submit-character").click()
+    page.wait_for_selector("#gameplay-screen:not(.hidden)", timeout=15000)
+    yield page
+    context.close()
+
+
 def _commit_move(page, text="go north"):
     """Commit one turn so the spatial graph has at least the current room."""
     page.locator("#console-input").fill(text)
@@ -513,6 +536,33 @@ def test_map_mobile_inspector_bottom_sheet_and_suppressed_hover(game_page):
     expect(inspector).to_be_hidden()
 
 
+def test_map_mobile_panel_fits_above_tab_bar(mobile_game_page):
+    """375x812 fresh mobile load: panel + canvas fit above the tab bar."""
+    page = mobile_game_page
+    _mock_map(page, P6_FIXTURE)
+    _commit_move(page, "look around")
+    _open_map_tab_mobile(page)
+    expect(page.locator(".map-room")).to_have_count(4)
+
+    tab = page.locator("#tab-map").bounding_box()
+    tab_bar = page.locator("#mobile-tab-bar").bounding_box()
+    canvas = _canvas_rect(page)
+
+    tab_rect = {
+        "left": tab["x"], "top": tab["y"],
+        "right": tab["x"] + tab["width"], "bottom": tab["y"] + tab["height"],
+    }
+
+    assert tab["y"] >= -0.5, tab
+    assert tab_rect["bottom"] <= tab_bar["y"] + 0.5, (tab, tab_bar)
+    assert _rect_inside(canvas, tab_rect), (canvas, tab_rect)
+    assert canvas["height"] >= 250, canvas
+    for room_id in ("r1", "r2", "r3", "r4"):
+        room = _room_rect(page, room_id)
+        assert _rect_inside(room, tab_rect), (room_id, room, tab_rect)
+    assert _rect_inside(_room_rect(page, "r4"), tab_rect), "current room is clipped"
+
+
 def test_map_route_highlights_reachable_path(game_page):
     """ROUTE HERE matches /api/path steps (including direction: null) to edges."""
     page = game_page
@@ -786,7 +836,7 @@ def test_map_fit_survives_noop_resize_and_preserves_manual_pan(game_page):
 
 
 def test_map_tap_hits_small_orb_at_low_zoom(game_page):
-    """A 44 px screen-space tap target survives low camera zoom."""
+    """Coarse/touch taps hit a 44 px screen target; desktop mouse pans instead."""
     page = game_page
     _open_fixture_map(page)
 
@@ -816,9 +866,35 @@ def test_map_tap_hits_small_orb_at_low_zoom(game_page):
     )
     assert target["distance"] <= 22, target
 
-    page.mouse.click(target["clickX"], target["clickY"])
+    # Coarse/touch pointer: the screen-space fallback selects the nearest orb.
+    page.evaluate(
+        """({x, y}) => {
+            const canvas = document.getElementById('map-canvas');
+            const send = type => canvas.dispatchEvent(new PointerEvent(type, {
+                bubbles: true, cancelable: true, pointerId: 77, pointerType: 'touch',
+                clientX: x, clientY: y, button: 0,
+                buttons: type === 'pointerdown' ? 1 : 0,
+            }));
+            send('pointerdown');
+            send('pointerup');
+        }""",
+        {"x": target["clickX"], "y": target["clickY"]},
+    )
     expect(page.locator("#map-inspector")).to_be_visible()
     expect(page.locator("#map-inspector-title")).to_have_text(target["name"])
+    page.keyboard.press("Escape")
+    expect(page.locator("#map-inspector")).to_be_hidden()
+
+    # Desktop mouse: an off-node grab must pan the canvas, not drag the orb.
+    transform_before = page.locator("#map-canvas-content").get_attribute("style")
+    page.mouse.move(target["clickX"], target["clickY"])
+    page.mouse.down()
+    page.mouse.move(target["clickX"] + 50, target["clickY"] - 30, steps=8)
+    page.mouse.up()
+    transform_after = page.locator("#map-canvas-content").get_attribute("style")
+    assert transform_after != transform_before, "desktop off-node drag must pan the camera"
+    expect(page.locator("#map-inspector")).to_be_hidden()
+    assert page.locator('.map-room[data-pinned="true"]').count() == 0
 
 
 def test_map_switching_nodes_clears_route_status(game_page):
@@ -855,5 +931,57 @@ def test_map_inspector_stays_below_top_margin(game_page):
     page.locator('.map-room[data-room-id="r2"]').click()
     expect(page.locator("#map-inspector")).to_be_visible()
     box = page.locator("#map-inspector").bounding_box()
-    assert box["y"] >= 60, f"inspector top {box['y']} overlaps the top bar"
+    assert box["y"] >= 108, f"inspector top {box['y']} overlaps the top toolbar"
     assert box["y"] + box["height"] <= 720 - 8 + 0.5, box
+
+
+def test_map_dense_graph_culls_colliding_labels(game_page):
+    """A 24-room graph culls lower-priority labels instead of stacking text."""
+    page = game_page
+    rooms = [{"id": "hub", "name": "Grand Central Nexus", "first_turn": 1, "last_visit_turn": 9, "visit_count": 9}]
+    edges = []
+    for index in range(1, 24):
+        room_id = f"n{index}"
+        rooms.append({
+            "id": room_id,
+            "name": f"Winding Passage {index}",
+            "first_turn": index,
+            "last_visit_turn": index,
+            "visit_count": 1,
+        })
+        edges.append({"from": "hub", "direction": "north", "to": room_id, "kind": "walk", "inferred": 0})
+    fixture = {
+        "rooms": rooms,
+        "edges": edges,
+        "regions": [{"room_ids": [room["id"] for room in rooms]}],
+        "current_room_id": "hub",
+    }
+    _mock_map(page, fixture)
+    _commit_move(page, "look around")
+    _open_map_tab(page)
+    expect(page.locator(".map-room")).to_have_count(24)
+    page.wait_for_timeout(250)  # label culling runs on requestAnimationFrame
+
+    assert page.locator(".map-room-name.is-label-culled").count() > 0, \
+        "dense graphs must cull colliding labels"
+    expect(page.locator('.map-room[data-room-id="hub"] .map-room-name')).not_to_have_class(
+        "map-room-name is-label-culled"
+    )
+    overlaps = page.evaluate(
+        """() => {
+            const rects = [...document.querySelectorAll('.map-room-name')]
+                .filter(el => !el.classList.contains('is-label-culled'))
+                .map(el => el.getBoundingClientRect());
+            let overlaps = 0;
+            for (let i = 0; i < rects.length; i += 1) {
+                for (let j = i + 1; j < rects.length; j += 1) {
+                    const a = rects[i];
+                    const b = rects[j];
+                    if (!(a.right <= b.left || b.right <= a.left
+                        || a.bottom <= b.top || b.bottom <= a.top)) overlaps += 1;
+                }
+            }
+            return overlaps;
+        }"""
+    )
+    assert overlaps == 0, f"{overlaps} visible labels overlap"

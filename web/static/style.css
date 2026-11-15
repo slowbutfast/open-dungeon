@@ -1899,6 +1899,13 @@ body:not(.crt-effect) .screen-flicker {
     color: var(--text-neon);
 }
 
+.map-room-name.is-label-culled,
+.map-room-meta.is-label-culled,
+.map-edge-label.is-label-culled {
+    opacity: 0 !important;
+    visibility: hidden;
+}
+
 .map-room-meta {
     position: absolute;
     top: calc(100% + 1.3rem);
@@ -2043,7 +2050,7 @@ body:not(.crt-effect) .screen-flicker {
 
 .map-inspector-body {
     flex: 1 1 auto;
-    padding: 0.6rem 0.65rem;
+    padding: 0.6rem 0.65rem 0;
     overflow-y: auto;
     overscroll-behavior: contain;
     min-height: 0;
@@ -2130,6 +2137,7 @@ body:not(.crt-effect) .screen-flicker {
     gap: 0.4rem;
     margin-top: 0.7rem;
     padding-top: 0.45rem;
+    padding-bottom: 0.6rem;
     border-top: 1px solid var(--border-light);
     background: rgba(13, 17, 23, 0.98);
 }
@@ -2177,7 +2185,8 @@ body:not(.crt-effect) .screen-flicker {
     }
 
     .map-canvas {
-        min-height: calc(100dvh - 220px);
+        flex: 1;
+        min-height: 0;
     }
 
     .map-control {
@@ -2308,6 +2317,32 @@ body:not(.crt-effect) .screen-flicker {
 
     .sidebar-panel.active {
         display: flex;
+    }
+
+    /* The map owns the full pane height above the mobile tab bar; the generic
+       40dvh sidebar cap clips the canvas and hides orbs. */
+    .sidebar-panel.active:has(#tab-map.active) {
+        max-height: none;
+        height: 100%;
+        min-height: 0;
+        overflow: hidden;
+    }
+
+    #tab-map.active {
+        flex: 1;
+        min-height: 0;
+        height: 100%;
+    }
+
+    .map-panel {
+        flex: 1;
+        min-height: 0;
+        height: 100%;
+    }
+
+    .map-canvas {
+        flex: 1;
+        min-height: 0;
     }
 
     .glass-panel {

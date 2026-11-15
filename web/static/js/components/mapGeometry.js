@@ -21,20 +21,56 @@ export function formatCompactRoomName(name, maxLength = COMPACT_NAME_MAX) {
     const withoutArticle = full.replace(LEADING_ARTICLE, '');
     if (withoutArticle.length <= maxLength) return withoutArticle;
 
-    // Preserve the trailing token/number so dense numbered rooms stay
-    // distinguishable ("Winding Passage 23" -> "Winding…23") instead of all
-    // collapsing to the same prefix.
     const tokens = withoutArticle.split(/\s+/).filter(Boolean);
-    if (tokens.length > 1) {
-        const lastToken = tokens[tokens.length - 1];
+
+    // Numbered rooms keep their trailing number so dense sets stay
+    // distinguishable ("Winding Passage 23" -> "Winding P…23"). Only a
+    // digit-bearing tail qualifies; other names use a clean word boundary.
+    const lastToken = tokens[tokens.length - 1];
+    if (tokens.length > 1 && /\d/.test(lastToken)) {
         const budget = maxLength - 1 - lastToken.length;
         if (budget >= 1) {
-            const prefix = tokens[0].slice(0, budget).trimEnd();
+            let prefix = '';
+            if (tokens.length === 3) {
+                // One middle word: the trailing number already distinguishes
+                // the room, so keep the label clean ("Winding…23").
+                prefix = tokens[0].slice(0, budget).trimEnd();
+            } else {
+                for (let i = 0; i < tokens.length - 1; i += 1) {
+                    const candidate = prefix ? `${prefix} ${tokens[i]}` : tokens[i];
+                    if (candidate.length <= budget) {
+                        prefix = candidate;
+                        continue;
+                    }
+                    const remaining = budget - prefix.length - 1;
+                    if (prefix && remaining >= 1) {
+                        // Include an initial from the first omitted
+                        // distinguishing word so shared prefixes don't
+                        // collapse to the same label.
+                        prefix = `${prefix} ${tokens[i].slice(0, remaining)}`.trimEnd();
+                    } else if (!prefix) {
+                        prefix = tokens[i].slice(0, budget).trimEnd();
+                    }
+                    break;
+                }
+            }
             if (prefix) return `${prefix}${ELLIPSIS}${lastToken}`;
         }
     }
 
-    return `${withoutArticle.slice(0, Math.max(0, maxLength - 1))}${ELLIPSIS}`;
+    // Non-numbered names: truncate on a word boundary, never mid-word.
+    const budget = maxLength - 1;
+    let prefix = '';
+    for (const token of tokens) {
+        const candidate = prefix ? `${prefix} ${token}` : token;
+        if (candidate.length <= budget) {
+            prefix = candidate;
+        } else {
+            break;
+        }
+    }
+    if (prefix) return `${prefix}${ELLIPSIS}`;
+    return `${withoutArticle.slice(0, budget)}${ELLIPSIS}`;
 }
 
 // ─── camera ───────────────────────────────────────────────────────────────

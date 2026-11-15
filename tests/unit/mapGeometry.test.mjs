@@ -43,7 +43,7 @@ test('formatCompactRoomName: handles empty and nullish input', () => {
     assert.equal(formatCompactRoomName(undefined), '');
 });
 
-test('formatCompactRoomName: preserves a trailing token for numbered rooms', () => {
+test('formatCompactRoomName: preserves a trailing number for numbered rooms', () => {
     const compact = formatCompactRoomName('Winding Passage 23');
     assert.equal(compact, 'Winding…23');
     assert.ok(compact.length <= 16);
@@ -54,10 +54,22 @@ test('formatCompactRoomName: preserves a trailing token for numbered rooms', () 
     );
 });
 
-test('formatCompactRoomName: preserves the trailing token after an article', () => {
-    assert.equal(formatCompactRoomName('The Winding Passage 23'), 'Winding…23');
-    assert.equal(formatCompactRoomName('A Gallery of Falling Light'), 'Gallery…Light');
-    assert.ok(formatCompactRoomName('A Gallery of Falling Light').length <= 16);
+test('formatCompactRoomName: digit-gates tail preservation and keeps shared prefixes distinct', () => {
+    const cave = formatCompactRoomName('Northern Cave Mouth 3');
+    const tunnel = formatCompactRoomName('Northern Tunnel Junction 3');
+    assert.ok(cave.length <= 16, cave);
+    assert.ok(tunnel.length <= 16, tunnel);
+    assert.notEqual(cave, tunnel, 'rooms sharing first + last tokens must stay distinct');
+    assert.ok(cave.includes('3') && tunnel.includes('3'), `${cave} / ${tunnel}`);
+});
+
+test('formatCompactRoomName: non-numbered names truncate at a word boundary', () => {
+    assert.equal(formatCompactRoomName('Dawn Camp (Another Age)'), 'Dawn Camp…');
+    assert.equal(formatCompactRoomName('Shimmering Portal Chamber'), 'Shimmering…');
+    assert.equal(formatCompactRoomName('A Gallery of Falling Light'), 'Gallery of…');
+    for (const name of ['Dawn Camp (Another Age)', 'Shimmering Portal Chamber', 'A Gallery of Falling Light']) {
+        assert.ok(formatCompactRoomName(name).length <= 16, name);
+    }
 });
 
 // ─── camera transforms ────────────────────────────────────────────────────
