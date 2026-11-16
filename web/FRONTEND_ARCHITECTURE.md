@@ -19,9 +19,13 @@ web/static/
     components/
       barterModal.js    (Barter Modal UI — inventory + trader offers side-by-side)
       actionChips.js    (Action chips — Talk, Barter, Goals rendered from NPC entities)
-      mapPanel.js       (MAP panel — cartographic + node-graph render modes, current-room highlight)
+      forceLayout.js    (Pure force simulation — seeded PRNG, degree radii, springs, collision pass, idle|hover|drag|coasting)
+      mapGeometry.js    (Pure camera math, compact names, antiparallel curves, border trim, edge keys)
+      popoverPlacement.js (Pure 8-candidate obstacle-aware popover scorer)
+      saveListModel.js  (Pure restore-save sort/prune/page helpers)
+      mapPanel.js       (MAP panel — single-mode gravitational renderer, pan/zoom, hover/inspect overlays, route overlay)
     api/
-      saves.js          (loadSavesList, loadSaveGame, deleteSaveGame)
+      saves.js          (loadSavesList, loadSaveGame, deleteSaveGame, sort/prune/paged rendering)
       settings.js       (pingLlm, saveSystemPrompt, saveSummaryMemory)
       presets.js        (loadPresets, loadCharactersList, launchSimulation)
       lore.js           (toggleLoreCard, editLoreCard, saveLoreCard, triggerLoreScan)
@@ -29,7 +33,7 @@ web/static/
       streaming.js      (submitPlayerCommand, executeStreamAction, revealAssistantText)
       debug.js          (pollDebugData, startDebugPolling, toggleCallDetails)
       barter.js         (fetchInventory, fetchOffers, executeTrade, fetchGoals, createGoal, completeGoal, acceptGoal, failGoal)
-      map.js            (fetchMap — spatial room graph for the MAP panel)
+      map.js            (fetchMap, fetchPath — spatial room graph + directed walk routes for the MAP panel)
       auth.js           (initAuthBanner, renderQuota, handleAuthError — sign-in/profile + quota) 
   style.css
 ```
@@ -47,9 +51,10 @@ app.js
   ├── ui/renderers.js   ── utils.js (cleanMarkdownText, scrollToBottom, escapeHtml)
   ├── components/barterModal.js  ── ui/toast.js, ui/screens.js, api/memory.js, api/barter.js
   ├── components/actionChips.js  ── components/barterModal.js, ui/toast.js, state.js, api/barter.js
-  ├── components/mapPanel.js     ── api/map.js
+  ├── components/mapPanel.js     ── api/map.js, components/forceLayout.js, components/mapGeometry.js, components/popoverPlacement.js
+  ├── components/saveListModel.js (leaf — pure restore-save helpers)
   ├── api/settings.js   ── ui/toast.js, ui/screens.js
-  ├── api/saves.js      ── ui/toast.js, ui/screens.js
+  ├── api/saves.js      ── ui/toast.js, ui/screens.js, components/saveListModel.js
   ├── api/presets.js    ── ui/screens.js
   ├── api/lore.js       ── ui/toast.js, ui/screens.js, utils.js
   ├── api/memory.js     ── ui/renderers.js
@@ -60,7 +65,7 @@ app.js
   └── api/auth.js       (leaf — no module deps)
 ```
 
-`components/mapPanel.js` is imported by both `ui/screens.js` (tab activation) and `api/streaming.js` (post-turn refresh); it depends only on `api/map.js`, so there is no dependency cycle.
+`components/mapPanel.js` is imported by both `ui/screens.js` (tab activation) and `api/streaming.js` (post-turn refresh); it depends on `api/map.js` plus the three pure modules `forceLayout.js`, `mapGeometry.js` and `popoverPlacement.js`, so there is no dependency cycle.
 
 ---
 
@@ -113,7 +118,9 @@ The application switches between 6 main screens by toggling the `.hidden` and `.
   - Displays preset character avatars (`#character-grid`) or a custom creation form (`#custom-character-form`).
   - Navigation: "Back", "Customize Character / Select Preset Hero" (`#btn-char-custom-toggle`), and "Launch Simulation" (`#btn-submit-character`).
 - **Restore Saved Simulation Screen (`#restore-screen`)**:
-  - Lists saved sessions (`#save-list` loaded from `/api/saves` via `loadSavesList()` in `js/api/saves.js`).
+  - Lists saved sessions (`#save-list` loaded from `/api/saves` via `loadSavesList()` in `js/api/saves.js`), sorted client-side by Recent (`updated_at`), numeric-aware A–Z, or Moves; the choice persists in `localStorage`.
+  - Renders 50 rows at a time with `#btn-saves-more` ("Show more"); each row shows `Moves: N`, with title/location/summary assigned via `textContent`.
+  - Toolbar: `#save-sort`, a move-threshold `#save-prune-moves`, `#btn-prune-saves`, and a debounced `#save-prune-preview`. Prune uses `POST /api/saves/prune` dry-run first, confirms via `showConfirm()`, and excludes the active adventure.
   - Item Options: "Restore" (loads save via API and opens gameplay) and "Delete" (prompts confirmation then deletes).
 - **Gameplay Dashboard Screen (`#gameplay-screen` / class `.game-dashboard`)**:
   - **Status Bar**: Live feedback of `#val-location`, `#val-score`, `#val-moves`, and `#val-title`.
@@ -164,7 +171,8 @@ Consumed by modules in `js/api/`:
 | POST | `/api/action` | streaming.js | Sends action command; streams SSE response |
 | POST | `/api/system` | settings.js | Saves system prompts |
 | POST | `/api/summary` | settings.js | Saves memory summary |
-| GET | `/api/saves` | saves.js | Lists saved slots |
+| GET | `/api/saves` | saves.js | Lists saved slots with `updated_at`/`moves` |
+| POST | `/api/saves/prune` | saves.js | Dry-run preview or bulk move-threshold prune |
 | POST | `/api/saves/<id>` | saves.js | Loads save game |
 | DELETE | `/api/saves/<id>` | saves.js | Wipes save slot |
 | POST | `/api/lore` | lore.js | Creates, deletes, or toggles lore cards |
@@ -196,9 +204,13 @@ Consumed by modules in `js/api/`:
 8. `syncMemoryAndLore()` silently updates sidebar (lore cards, inventory, event log, memory stats)
 9. Clicking `🔄 Barter` opens the Barter Modal (`barterModal.js`) which fetches `/api/memory/inventory` and `/api/trade/offers` and displays them side-by-side; one-click trade executes via `POST /api/trade` and triggers a toast notification
 
-The MAP panel renderer (`components/mapPanel.js`) is hand-rolled per D6: DOM room nodes (`.map-room[data-room-id]`) plus an SVG edge layer, zero-build with no graph library. Cartographic mode clusters rooms by region with curved walk paths, distinct portal/time arrows, and dashed inferred edges; node-graph mode renders straight labelled edges and highlights the current room.
+The MAP panel renderer (`components/mapPanel.js`) is hand-rolled per D6: DOM room orbs (`.map-room[data-room-id]`) plus a keyed SVG edge layer (`.map-edge[data-edge-key]`), zero-build with no graph library. It has a **single** render mode: an Obsidian-style gravitational node map. `forceLayout.js` settles rooms with deterministic seeded-PRNG seeding, degree-weighted radii/mass, tighter `walk` springs than `portal`/`time`, weak centering gravity, an alpha-threshold convergence loop, and a bounded final circle-circle collision pass. `mapGeometry.js` owns the shared camera transform (`worldToScreen`/`screenToWorld`/`zoomAtPoint`/`computeFitViewport`), `formatCompactRoomName` (16-character canvas labels with the full `room.name` kept in `data-full-name`), symmetric antiparallel edge curves, circle-border arrowhead trimming, and `edgeKey` route matching. `popoverPlacement.js` scores the eight `R, L, T, B, TR, BR, TL, BL` candidates against the viewport and node obstacles.
 
-The panel's sizing model keeps the graph within its container: `#map-canvas` is a panel-bound scroll box (`width: 100%`) that is never sized from JS, and only the inner `#map-canvas-content` layer is sized from the layout. `computeLayout(data, panelWidth)` is width-aware — it caps the columns per region to the available width and wraps region bands onto new rows, so a narrow sidebar grows downward instead of overflowing. After every render the current room is scrolled into view (clamped), and edge endpoints are trimmed to the room border (`boxBorderPoint`) so arrowheads are not hidden beneath the room nodes. The panel re-renders from its cached payload on a debounced `window resize` (150 ms) as well as on tab activation and post-turn refresh, so the desktop-sidebar ↔ mobile-tab switch re-lays out. Layout is deterministic per `(payload, width)`.
+Node titles live in a dedicated `.map-label-layer` above every orb (`.map-node-label` wrappers with `.map-room-name` pills and focal-only `.map-room-meta`). `cullLabels()` seeds its obstacle set with all orb rects, then places each visible label in the first unobstructed slot of `bottom → top → right → left`, checking orbs, incident edge segments and already-placed labels. Labels below ~8 px (non-focal, non-hub) are hidden, edge labels whose screen edge is shorter than their text plus 24 px are culled, and `◉ CURRENT` / hovered / inspected captions are never hidden. Intrinsic label sizes are cached, so pan/zoom frames perform no per-label DOM reads; culling is debounced during gestures.
+
+The panel keeps `#map-canvas` as a bounded, `touch-action: none` viewport and transforms only `#map-canvas-content` (translate + scale), so the graph never overflows `#tab-map`. Pointer drag pans, cursor-anchored wheel zooms, two-pointer pinch zooms, and the toolbar exposes `+`, `-`, `FIT` and `⌖`. `refreshMapPanel()` performs a keyed diff (preserving room/edge elements), warm-starts existing coordinates, prunes `homeAnchors` for vanished rooms, clears stale routes, and closes or updates `#map-inspector`. Node drags (`>= 6px`) pin an in-memory `homeAnchor` for the session only (never `localStorage`); `pointercancel` drops the drag cleanly and desktop `dblclick` unpins.
+
+On fine-pointer desktops, a 200 ms dwell temporarily pins the node, dims non-neighbours and opens the obstacle-aware `#map-hover-card` (150 ms dismissal grace). Clicking or pressing `Enter`/`Space` on a focused node opens `#map-inspector` — an anchored popover on desktop (exponential-lerp tracking, draggable header) and a docked bottom sheet below 768 px — with full room metadata, clickable exit chips, `Unpin`, and a `ROUTE HERE` action wired to `GET /api/path` through `fetchPath()` with an `AbortController` stale-response guard. Reached steps are matched by `data-edge-key` and painted `.map-edge-route`; `found: false` (`different_region`/`no_route`) and HTTP `404` show an inline reason in the `aria-live="polite"` route status without painting stale edges.
 
 ---
 

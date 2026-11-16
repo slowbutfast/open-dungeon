@@ -661,6 +661,81 @@ body {
     gap: 0.5rem;
 }
 
+/* Restore window toolbar: sort, move-threshold prune, paginated list. */
+.saves-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+    padding: 0.7rem 0.8rem;
+    border: 1px solid var(--border-light);
+    border-radius: 6px;
+    background: rgba(7, 9, 13, 0.45);
+}
+
+.saves-sort-group,
+.saves-prune-group {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+}
+
+.saves-toolbar label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.04em;
+    color: var(--text-neon);
+}
+
+.saves-toolbar select,
+.saves-toolbar input[type="number"] {
+    min-height: 32px;
+    padding: 0 0.4rem;
+    border: 1px solid var(--border-light);
+    border-radius: 4px;
+    background: rgba(7, 9, 13, 0.85);
+    color: var(--text-user);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+}
+
+.saves-toolbar input[type="number"] {
+    width: 4.5rem;
+}
+
+.save-prune-preview {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.66rem;
+    color: var(--text-muted);
+    min-width: 9rem;
+}
+
+#btn-saves-more {
+    display: block;
+    margin: 0 auto 1.25rem;
+}
+
+#btn-saves-more.hidden {
+    display: none;
+}
+
+@media (max-width: 767px) {
+    .saves-toolbar {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .saves-toolbar select,
+    .saves-toolbar input[type="number"],
+    #btn-prune-saves,
+    #btn-saves-more {
+        min-height: 44px;
+    }
+}
+
 /* CORE GAMEPLAY MAIN UI */
 .game-dashboard {
     width: 100%;
@@ -1669,6 +1744,7 @@ body:not(.crt-effect) .screen-flicker {
     min-height: 260px;
     width: 100%;
     min-width: 0;
+    position: relative;
 }
 
 .map-toolbar {
@@ -1686,9 +1762,32 @@ body:not(.crt-effect) .screen-flicker {
     letter-spacing: 0.05em;
 }
 
-.map-mode-toggle {
-    font-family: 'VT323', monospace;
-    font-size: 0.95rem;
+.map-toolbar-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.map-control {
+    min-width: 28px;
+    height: 26px;
+    padding: 0 0.4rem;
+    border: 1px solid var(--border-light);
+    border-radius: 4px;
+    background: rgba(13, 20, 30, 0.8);
+    color: var(--text-neon);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    line-height: 1;
+    cursor: pointer;
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.map-control:hover,
+.map-control:focus-visible {
+    border-color: var(--text-neon);
+    box-shadow: 0 0 8px rgba(56, 189, 248, 0.35);
+    outline: none;
 }
 
 .map-canvas {
@@ -1697,45 +1796,35 @@ body:not(.crt-effect) .screen-flicker {
     width: 100%;
     min-width: 0;
     min-height: 260px;
-    overflow: auto;
+    overflow: hidden;
     border: 1px solid var(--border-light);
     border-radius: 4px;
+    touch-action: none;
+    cursor: grab;
     background:
+        radial-gradient(circle at 50% 42%, rgba(56, 189, 248, 0.07), transparent 62%),
         linear-gradient(rgba(56, 189, 248, 0.05) 1px, transparent 1px) 0 0 / 100% 28px,
         linear-gradient(90deg, rgba(56, 189, 248, 0.05) 1px, transparent 1px) 0 0 / 28px 100%,
-        rgba(7, 9, 13, 0.55);
+        rgba(7, 9, 13, 0.72);
 }
 
-/* Sized layer inside the scroll box. The canvas scrolls; this grows. */
+.map-canvas.is-panning {
+    cursor: grabbing;
+}
+
+/* World layer: translated + scaled by the camera. Children use world coords. */
 .map-canvas-content {
-    position: relative;
-    min-width: 100%;
-    min-height: 100%;
-}
-
-.map-region {
     position: absolute;
-    border: 1px dashed rgba(56, 189, 248, 0.25);
-    border-radius: 6px;
-    background: rgba(56, 189, 248, 0.04);
-    pointer-events: none;
-}
-
-.map-region-label {
-    position: absolute;
-    top: -0.75rem;
-    left: 0.5rem;
-    padding: 0 0.35rem;
-    font-family: 'VT323', monospace;
-    font-size: 0.8rem;
-    color: var(--text-muted);
-    background: var(--bg-dark);
+    top: 0;
+    left: 0;
+    transform-origin: 0 0;
+    will-change: transform;
 }
 
 .map-edges {
     position: absolute;
-    top: 0;
     left: 0;
+    top: 0;
     pointer-events: none;
     overflow: visible;
 }
@@ -1744,98 +1833,471 @@ body:not(.crt-effect) .screen-flicker {
     fill: none;
     stroke-width: 2;
     stroke-linecap: round;
+    transition: opacity 140ms ease-out;
 }
 
-.map-edge-walk {
-    stroke: #38bdf8;
-}
-
-.map-edge-portal {
-    stroke: #c084fc;
-    stroke-width: 2.5;
-}
-
-.map-edge-time {
-    stroke: #facc15;
-}
-
-.map-edge-inferred {
-    stroke-dasharray: 6 5;
-    opacity: 0.85;
-}
+.map-edge-walk { stroke: #38bdf8; }
+.map-edge-portal { stroke: #c084fc; stroke-width: 2.5; }
+.map-edge-time { stroke: #facc15; }
+.map-edge-inferred { stroke-dasharray: 6 5; opacity: 0.85; }
 
 .map-edge-label {
     font-family: 'JetBrains Mono', monospace;
     font-size: 9px;
     fill: var(--text-muted);
     paint-order: stroke;
-    stroke: var(--bg-dark);
-    stroke-width: 3px;
+    stroke: rgba(7, 9, 13, 0.92);
+    stroke-width: 4px;
     stroke-linejoin: round;
+    pointer-events: none;
+    transition: opacity 140ms ease-out;
 }
 
+.map-edge-route {
+    stroke: #38bdf8;
+    stroke-width: 3.5;
+    stroke-dasharray: 8 5;
+    filter: drop-shadow(0 0 4px rgba(56, 189, 248, 0.85));
+    animation: map-route-flow 0.9s linear infinite;
+}
+
+@keyframes map-route-flow {
+    to { stroke-dashoffset: -26; }
+}
+
+/* Gravitational orb node. Width/height and the label offset are driven by
+   --node-diameter from forceLayout.js. The label lives below the orb so the
+   circle itself stays a clean, degree-scaled orb. */
 .map-room {
     position: absolute;
-    width: 132px;
-    min-height: 54px;
+    width: var(--node-diameter, 28px);
+    height: var(--node-diameter, 28px);
+    border-radius: 50%;
     box-sizing: border-box;
+    border: 1.5px solid rgba(74, 222, 128, 0.55);
+    background: radial-gradient(circle at 34% 30%, rgba(56, 189, 248, 0.3), rgba(7, 9, 13, 0.95) 72%);
+    box-shadow: 0 0 8px rgba(56, 189, 248, 0.16);
+    cursor: grab;
+    touch-action: none;
+    z-index: 2;
+    transition: opacity 160ms ease-out, border-color 150ms ease-out, box-shadow 180ms ease-out;
+}
+
+.map-room:active {
+    cursor: grabbing;
+}
+
+.map-room::before {
+    /* Collision-safe visual orb. The invisible expanded hit target is added
+       only for coarse/mobile pointers below. */
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+}
+
+.map-room.unvisited {
+    border-style: dashed;
+    border-color: var(--border-light);
+    background: radial-gradient(circle at 34% 30%, rgba(148, 163, 184, 0.16), rgba(7, 9, 13, 0.94) 72%);
+    opacity: 0.75;
+}
+
+.map-room.visited {
+    border-color: rgba(74, 222, 128, 0.55);
+}
+
+.map-room.current-room {
+    border: 2px solid #38bdf8;
+    box-shadow: 0 0 16px rgba(56, 189, 248, 0.6), inset 0 0 10px rgba(56, 189, 248, 0.25);
+    background: radial-gradient(circle at 34% 30%, rgba(56, 189, 248, 0.55), rgba(7, 9, 13, 0.92) 74%);
+    opacity: 1;
+}
+
+.map-room.is-selected {
+    box-shadow: 0 0 0 2px #38bdf8, 0 0 18px rgba(56, 189, 248, 0.7);
+}
+
+.map-room.is-hovered,
+.map-room.is-neighbor {
+    border-color: #38bdf8;
+    box-shadow: 0 0 14px rgba(56, 189, 248, 0.55);
+}
+
+.map-room[data-pinned="true"] {
+    border-color: #facc15;
+}
+
+.map-room:focus-visible {
+    outline: 2px solid #38bdf8;
+    outline-offset: 3px;
+}
+
+/* Dim non-neighbours while a hover preview is active, but keep labels legible. */
+.map-canvas.has-hover .map-room:not(.is-hovered):not(.is-neighbor) {
+    opacity: 0.2;
+}
+
+.map-canvas.has-hover .map-node-label:not(.is-hovered):not(.is-neighbor) {
+    opacity: 0.2;
+}
+
+.map-canvas.has-hover .map-edge:not(.is-neighbor) {
+    opacity: 0.18;
+}
+
+.map-canvas.has-hover .map-edge-label:not(.is-neighbor) {
+    opacity: 0.18;
+}
+
+.map-label-layer {
+    position: absolute;
+    left: 0;
+    top: 0;
+    z-index: 6;
+    pointer-events: none;
+}
+
+.map-node-label {
+    position: absolute;
     display: flex;
     flex-direction: column;
-    justify-content: center;
+    align-items: center;
     gap: 2px;
-    padding: 0.4rem 0.55rem;
-    border: 1px solid var(--border-light);
-    border-radius: 4px;
-    background: rgba(7, 9, 13, 0.92);
-    font-family: 'JetBrains Mono', monospace;
-    z-index: 2;
+    width: max-content;
+    max-width: 8.5rem;
+    pointer-events: none;
+    transition: opacity 140ms ease-out;
+}
+
+.map-node-label.label-pos-bottom {
+    transform: translateX(-50%);
+}
+
+.map-node-label.label-pos-top {
+    transform: translate(-50%, -100%);
+}
+
+.map-node-label.label-pos-right {
+    transform: translateY(-50%);
+    align-items: flex-start;
+}
+
+.map-node-label.label-pos-left {
+    transform: translate(-100%, -50%);
+    align-items: flex-end;
+}
+
+.map-node-label.is-focal {
+    z-index: 7;
 }
 
 .map-room-name {
-    font-size: 0.78rem;
+    max-width: 8.5rem;
+    padding: 1px 4px;
+    border-radius: 3px;
+    background: rgba(7, 9, 13, 0.82);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.68rem;
+    line-height: 1.2;
     color: var(--text-user);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    text-align: center;
+    text-shadow: 0 0 6px rgba(7, 9, 13, 0.95), 0 0 2px rgba(7, 9, 13, 1);
+    transition: opacity 140ms ease-out;
+}
+
+.map-room-name.is-current {
+    color: var(--text-neon);
+}
+
+.map-room-name.is-label-culled,
+.map-room-meta.is-label-culled,
+.map-edge-label.is-label-culled {
+    opacity: 0 !important;
+    visibility: hidden;
+}
+
+/* Culled labels leave the flex layout so top/left placements use only the
+   visible wrapper height. */
+.map-room-name.is-label-culled,
+.map-room-meta.is-label-culled {
+    display: none;
 }
 
 .map-room-meta {
-    font-size: 0.62rem;
+    max-width: 8.5rem;
+    padding: 0 2px;
+    border-radius: 2px;
+    background: rgba(7, 9, 13, 0.72);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.52rem;
+    letter-spacing: 0.04em;
     color: var(--text-muted);
-    letter-spacing: 0.03em;
+    white-space: nowrap;
+    text-align: center;
+    transition: opacity 140ms ease-out;
 }
 
-.map-room.unvisited {
-    opacity: 0.65;
-    border-style: dashed;
-}
-
-.map-room.visited {
-    border-color: rgba(74, 222, 128, 0.5);
-}
-
-.map-room.current-room {
-    border-color: var(--text-neon);
-    box-shadow: 0 0 12px rgba(56, 189, 248, 0.5);
-    background: rgba(56, 189, 248, 0.16);
-    opacity: 1;
-}
-
-.map-room.current-room .map-room-name {
-    color: var(--text-neon);
-    text-shadow: 0 0 5px rgba(56, 189, 248, 0.5);
+/* Low-zoom LOD: drop labels/meta so the constellation stays legible. */
+.map-canvas.map-zoom-far .map-edge-label,
+.map-canvas.map-zoom-far .map-room-meta {
+    opacity: 0;
+    visibility: hidden;
 }
 
 .map-empty {
+    position: absolute;
+    inset: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 100%;
-    min-height: 220px;
     font-family: 'VT323', monospace;
     font-size: 1.2rem;
     color: var(--text-muted);
     letter-spacing: 0.05em;
+}
+
+/* Floating hover card (fine-pointer desktop only). */
+.map-hover-card {
+    position: fixed;
+    z-index: 30;
+    max-width: 240px;
+    padding: 0.55rem 0.7rem;
+    border: 1px solid rgba(56, 189, 248, 0.45);
+    border-radius: 6px;
+    background: rgba(13, 17, 23, 0.96);
+    box-shadow: 0 8px 26px rgba(0, 0, 0, 0.55), 0 0 12px rgba(56, 189, 248, 0.18);
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--text-user);
+    pointer-events: auto;
+}
+
+.map-hover-card[hidden],
+.map-inspector[hidden] {
+    display: none;
+}
+
+.map-hover-card h4 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    line-height: 1.3;
+    font-weight: 600;
+    color: var(--text-user);
+    margin-bottom: 0.25rem;
+}
+
+.map-hover-card .map-meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem 0.55rem;
+    font-size: 0.62rem;
+    color: var(--text-muted);
+}
+
+.map-badge {
+    display: inline-block;
+    padding: 0 0.3rem;
+    border: 1px solid var(--border-light);
+    border-radius: 3px;
+    color: var(--text-neon);
+    font-size: 0.58rem;
+    letter-spacing: 0.04em;
+}
+
+/* Anchored desktop popover / docked mobile bottom sheet. */
+.map-inspector {
+    position: fixed;
+    z-index: 35;
+    width: 280px;
+    max-width: calc(100vw - 1.5rem);
+    max-height: min(440px, calc(100vh - 88px));
+    max-height: min(440px, calc(100dvh - 88px));
+    display: flex;
+    flex-direction: column;
+    border: 1px solid rgba(56, 189, 248, 0.45);
+    border-radius: 8px;
+    background: rgba(13, 17, 23, 0.97);
+    box-shadow: 0 14px 38px rgba(0, 0, 0, 0.62), 0 0 14px rgba(56, 189, 248, 0.2);
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--text-user);
+    overflow: hidden;
+}
+
+.map-inspector-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.55rem 0.65rem;
+    border-bottom: 1px solid var(--border-light);
+    cursor: grab;
+    user-select: none;
+}
+
+.map-inspector-header:active {
+    cursor: grabbing;
+}
+
+.map-inspector-title {
+    font-size: 0.9rem;
+    line-height: 1.3;
+    font-weight: 600;
+    color: var(--text-user);
+    overflow-wrap: anywhere;
+}
+
+.map-inspector-close {
+    flex-shrink: 0;
+    width: 24px;
+    height: 24px;
+    border: 1px solid var(--border-light);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 1rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.map-inspector-close:hover,
+.map-inspector-close:focus-visible {
+    color: var(--text-neon);
+    border-color: var(--text-neon);
+    outline: none;
+}
+
+.map-inspector-body {
+    flex: 1 1 auto;
+    padding: 0.6rem 0.65rem 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    min-height: 0;
+}
+
+.map-meta-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem 0.55rem;
+    margin-bottom: 0.55rem;
+    font-size: 0.62rem;
+    color: var(--text-muted);
+}
+
+.map-state-pill {
+    color: var(--text-log);
+}
+
+.map-state-pill.current {
+    color: var(--text-neon);
+}
+
+.map-inspector-section {
+    margin-top: 0.55rem;
+}
+
+.map-inspector-section h5 {
+    margin-bottom: 0.25rem;
+    font-family: 'VT323', monospace;
+    font-size: 0.85rem;
+    font-weight: 400;
+    letter-spacing: 0.06em;
+    color: var(--text-neon);
+}
+
+.map-exit-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.map-exit-chip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    width: 100%;
+    min-height: 30px;
+    padding: 0.28rem 0.45rem;
+    border: 1px solid var(--border-light);
+    border-radius: 4px;
+    background: rgba(7, 9, 13, 0.7);
+    color: var(--text-user);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.66rem;
+    text-align: left;
+    cursor: pointer;
+}
+
+.map-exit-chip:hover,
+.map-exit-chip:focus-visible {
+    border-color: var(--text-neon);
+    color: var(--text-neon);
+    outline: none;
+}
+
+.map-exit-dir {
+    color: var(--text-neon);
+    white-space: nowrap;
+}
+
+.map-exit-kind {
+    color: var(--text-muted);
+    font-size: 0.56rem;
+    text-transform: uppercase;
+}
+
+.map-inspector-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-top: 0.7rem;
+    padding-top: 0.45rem;
+    padding-bottom: 0.6rem;
+    border-top: 1px solid var(--border-light);
+    background: rgba(13, 17, 23, 0.98);
+}
+
+.map-action-btn {
+    min-height: 30px;
+    flex: 1;
+    padding: 0.3rem 0.5rem;
+    border: 1px solid var(--border-light);
+    border-radius: 4px;
+    background: rgba(56, 189, 248, 0.08);
+    color: var(--text-neon);
+    font-family: 'VT323', monospace;
+    font-size: 1rem;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+}
+
+.map-action-btn:hover,
+.map-action-btn:focus-visible {
+    border-color: var(--text-neon);
+    box-shadow: 0 0 8px rgba(56, 189, 248, 0.35);
+    outline: none;
+}
+
+.map-action-btn[hidden] {
+    display: none;
+}
+
+.map-route-status {
+    padding: 0 0.65rem 0.55rem;
+    min-height: 0;
+    font-size: 0.6rem;
+    line-height: 1.4;
+    color: var(--text-muted);
+}
+
+.map-route-status:empty {
+    padding-bottom: 0;
 }
 
 @media (max-width: 767px) {
@@ -1844,7 +2306,63 @@ body:not(.crt-effect) .screen-flicker {
     }
 
     .map-canvas {
-        min-height: 200px;
+        flex: 1;
+        min-height: 0;
+    }
+
+    .map-control {
+        min-width: 44px;
+        height: 44px;
+        font-size: 0.85rem;
+    }
+
+    /* Coarse/mobile hit target: keeps leaf orbs tappable even at 20px. */
+    .map-room::before {
+        inset: 50% auto auto 50%;
+        width: max(44px, var(--node-diameter, 28px));
+        height: max(44px, var(--node-diameter, 28px));
+        transform: translate(-50%, -50%);
+    }
+
+    .map-inspector {
+        left: 0 !important;
+        right: 0;
+        top: auto !important;
+        bottom: var(--tab-bar-h);
+        width: auto;
+        max-width: none;
+        max-height: 56dvh;
+        border-radius: 12px 12px 0 0;
+        border-left: none;
+        border-right: none;
+        border-bottom: none;
+    }
+
+    .map-inspector-header {
+        cursor: default;
+    }
+
+    .map-exit-chip,
+    .map-action-btn {
+        min-height: 44px;
+    }
+
+    .map-hover-card {
+        display: none !important;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .map-room,
+    .map-room-name,
+    .map-room-meta,
+    .map-edge,
+    .map-edge-label {
+        transition: none;
+    }
+
+    .map-edge-route {
+        animation: none;
     }
 }
 
@@ -1920,6 +2438,32 @@ body:not(.crt-effect) .screen-flicker {
 
     .sidebar-panel.active {
         display: flex;
+    }
+
+    /* The map owns the full pane height above the mobile tab bar; the generic
+       40dvh sidebar cap clips the canvas and hides orbs. */
+    .sidebar-panel.active:has(#tab-map.active) {
+        max-height: none;
+        height: 100%;
+        min-height: 0;
+        overflow: hidden;
+    }
+
+    #tab-map.active {
+        flex: 1;
+        min-height: 0;
+        height: 100%;
+    }
+
+    .map-panel {
+        flex: 1;
+        min-height: 0;
+        height: 100%;
+    }
+
+    .map-canvas {
+        flex: 1;
+        min-height: 0;
     }
 
     .glass-panel {

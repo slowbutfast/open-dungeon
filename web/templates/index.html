@@ -167,9 +167,26 @@
                 <h2>[RESTORE SIMULATION SAVE]</h2>
                 <p>Load preserved neural connections</p>
             </header>
+            <div class="saves-toolbar">
+                <div class="saves-sort-group">
+                    <label for="save-sort">SORT</label>
+                    <select id="save-sort" aria-label="Sort saved games">
+                        <option value="recent">Recent</option>
+                        <option value="alpha">A–Z</option>
+                        <option value="moves">Moves</option>
+                    </select>
+                </div>
+                <div class="saves-prune-group">
+                    <label for="save-prune-moves">PRUNE &lt;</label>
+                    <input id="save-prune-moves" type="number" min="1" step="1" value="3" aria-label="Prune saves below this move count">
+                    <button id="btn-prune-saves" type="button" class="btn btn-secondary btn-sm">PRUNE</button>
+                    <span id="save-prune-preview" class="save-prune-preview" aria-live="polite"></span>
+                </div>
+            </div>
             <div id="save-list" class="saves-container">
                 <!-- Saved adventure items dynamically rendered here -->
             </div>
+            <button id="btn-saves-more" type="button" class="btn btn-secondary btn-sm hidden">SHOW MORE</button>
             <footer class="panel-footer-nav">
                 <button class="btn btn-back" onclick="showScreen('startup-screen')">Back</button>
             </footer>
@@ -400,12 +417,28 @@
 
                         <!-- SPATIAL MAP PANEL -->
                         <div id="tab-map" class="tab-content">
-                            <div id="map-panel" class="map-panel" data-mode="cartographic" data-current-room-id="">
+                            <div id="map-panel" class="map-panel" data-current-room-id="">
                                 <div class="map-toolbar">
                                     <span class="map-toolbar-title">SPATIAL MAP</span>
-                                    <button id="map-mode-toggle" type="button" class="btn btn-sm map-mode-toggle" aria-pressed="false">MODE: CARTOGRAPHIC</button>
+                                    <div class="map-toolbar-controls" role="group" aria-label="Map viewport controls">
+                                        <button id="map-zoom-in" type="button" class="map-control" aria-label="Zoom in" title="Zoom in">+</button>
+                                        <button id="map-zoom-out" type="button" class="map-control" aria-label="Zoom out" title="Zoom out">-</button>
+                                        <button id="map-fit" type="button" class="map-control" aria-label="Fit all rooms" title="Fit all rooms">FIT</button>
+                                        <button id="map-center" type="button" class="map-control" aria-label="Center on current room" title="Center on current room">◎</button>
+                                    </div>
                                 </div>
-                                <div id="map-canvas" class="map-canvas"></div>
+                                <div id="map-canvas" class="map-canvas">
+                                    <div id="map-canvas-content" class="map-canvas-content"></div>
+                                </div>
+                                <div id="map-hover-card" class="map-hover-card" role="tooltip" hidden></div>
+                                <div id="map-inspector" class="map-inspector" role="dialog" aria-label="Room inspector" hidden>
+                                    <div id="map-inspector-drag" class="map-inspector-header">
+                                        <h4 id="map-inspector-title" class="map-inspector-title"></h4>
+                                        <button id="map-inspector-close" type="button" class="map-inspector-close" aria-label="Close room inspector">×</button>
+                                    </div>
+                                    <div id="map-inspector-body" class="map-inspector-body"></div>
+                                    <div id="map-inspector-route-status" class="map-route-status" aria-live="polite"></div>
+                                </div>
                             </div>
                         </div>
                     </div>

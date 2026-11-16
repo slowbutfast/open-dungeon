@@ -130,8 +130,10 @@ export class AdventureState {
             for (const file of files) {
                 if (file.endsWith('.json')) {
                     try {
-                        const data = await fs.readFile(path.join(saveDir, file), 'utf-8');
+                        const filepath = path.join(saveDir, file);
+                        const data = await fs.readFile(filepath, 'utf-8');
                         const state = JSON.parse(data);
+                        const stat = await fs.stat(filepath);
                         adventures.push({
                             id: state.adventure_id,
                             title: state.title || "Untitled Adventure",
@@ -139,7 +141,8 @@ export class AdventureState {
                             summary: state.summary || "",
                             location: state.location || "West of House",
                             score: state.score || 0,
-                            moves: state.moves || 0
+                            moves: state.moves || 0,
+                            updated_at: stat.mtimeMs
                         });
                     } catch (err) {
                         // Skip unreadable files

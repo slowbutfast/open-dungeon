@@ -30,7 +30,8 @@ def main_page(page):
     return page
     
 # Isolated save directory for E2E tests
-TEST_SAVE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "adventures_e2e_test")
+TEST_TMP_ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".tmp_od_root_menu")
+TEST_SAVE_DIR = os.path.join(TEST_TMP_ROOT, "local-dev", "adventures")
 
 def is_port_open(port):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -48,7 +49,8 @@ def start_server():
 
     env = os.environ.copy()
     env["MOCK_LLM"] = "1"  # Force mock mode for testing
-    env["SAVE_DIR"] = TEST_SAVE_DIR  # Isolate test saves
+    env.pop("SAVE_DIR", None)
+    env["OD_TMP_ROOT"] = TEST_TMP_ROOT  # web/server.js honours this
     proc = subprocess.Popen(
         ["node", "web/server.js"],
         stdout=subprocess.PIPE,
@@ -73,14 +75,10 @@ def start_server():
             proc.kill()
     
     # Safety guard: abort cleanup if save dir is outside tests/ directory
-    assert_save_dir_is_safe(TEST_SAVE_DIR)
+    assert_save_dir_is_safe(TEST_TMP_ROOT)
 
     # Clean up isolated test save directory and generated presets file
-    if os.path.isdir(TEST_SAVE_DIR):
-        shutil.rmtree(TEST_SAVE_DIR, ignore_errors=True)
-    presets_file = os.path.join(os.path.dirname(TEST_SAVE_DIR), 'presets.json')
-    if os.path.isfile(presets_file):
-        os.remove(presets_file)
+    shutil.rmtree(TEST_TMP_ROOT, ignore_errors=True)
 
 def test_startup_menu_keyboard_navigation(main_page):
     """Validates keyboard focus highlights, wrap-around, and Enter key activation on Startup Screen."""

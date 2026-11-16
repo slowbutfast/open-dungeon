@@ -28,7 +28,7 @@
 | `test_mcp_state.py` | Integration (unittest) | `integration` | MCP state tools — inspect state, history, lore. Spawns MCP stdio subprocess. |
 | `test_mcp_tools.py` | Integration (unittest) | `integration` | Comprehensive MCP tool handler tests — all 18 tools. Spawns MCP stdio subprocess. |
 | `test_scoring.py` | Mixed (unittest + node probe) | — / `integration` | Engine-driven score progression (`fix-score-progression`): pure `scoreRule` unit tests via a Node probe plus MCP integration for score advancement, save/load round-trip, 10+ turn non-frozen regression (#19), and undo-score recompute. |
-| `unit/*.test.mjs` | Unit (node:test) | — | The **unit seam** (`architecture-deepening-sequence`): module-level `node:test` tests for `StructuredStore` (canonical matching + full-surface rollback), `MemoryManager` (read-through freshness + flush dedup), `BarterEngine` (single matching regime + single instance per engine), and the turn-commit path (`isSuspiciousStatus`, `sanitizeForHistory`). Run via `npm run test:unit`. Backed by temp dirs under `os.tmpdir()` (`helpers.test-utils.mjs`). The three read-through freshness tests went green when #26 (`memory-freshness-read-through`) landed; the full-surface rollback and single-`BarterEngine`-instance tests went green when #27 (`memory-schema-boundary`) landed. `migration.test.mjs` (added by #27) exercises the guarded `turn_index` `ALTER TABLE` migration on a legacy-schema temp DB. `llmAdapter.test.mjs` (added by #28) pins the intent-keyed mock contract — each intent maps to its canned response regardless of prompt wording — the streaming-narration return shape, and the tracker kind labels; it went green when #28 (`llm-adapter-unification`) landed. The spatial suite (`spatial-map-region-graph`) adds: `roomMap.test.mjs` (transition classification, direction parsing, canonical room-name matching, every D3 decision-table branch, graceful degradation, `computeRegions`), `structuredStore.spatial.test.mjs` (new `rooms`/`exits`/`room_visits` tables, the `UNIQUE(adventure_id, from_room, direction)` constraint, `rollbackTurn` coverage of all three tables + hand-created-row survival), `spatialUndo.test.mjs` (old-save `currentRoomId` null tolerance, save/load round-trip, undo restoring the pre-turn room via the visits trail), and `spatialIntegration.test.mjs` (scripted west→north→east→south mock narration forming the expected graph with a deterministic return, save/load round-trip, and old-save load establishing the room from `location`). `sessionAuth.test.mjs` and `vercelEntry.test.mjs` cover Vercel deployment bootstrapping, fail-closed configuration guards, HMAC session cookie signing/verification, CSRF state verification, PKCE S256 code challenge/verifier generation with RFC 7636 Appendix B test vectors, missing-verifier fast-fail guards, and OAuth 2.0 wire exchange. |
+| `unit/*.test.mjs` | Unit (node:test) | — | The **unit seam** (`architecture-deepening-sequence`): module-level `node:test` tests for `StructuredStore` (canonical matching + full-surface rollback), `MemoryManager` (read-through freshness + flush dedup), `BarterEngine` (single matching regime + single instance per engine), and the turn-commit path (`isSuspiciousStatus`, `sanitizeForHistory`). Run via `npm run test:unit`. Backed by temp dirs under `os.tmpdir()` (`helpers.test-utils.mjs`). The three read-through freshness tests went green when #26 (`memory-freshness-read-through`) landed; the full-surface rollback and single-`BarterEngine`-instance tests went green when #27 (`memory-schema-boundary`) landed. `migration.test.mjs` (added by #27) exercises the guarded `turn_index` `ALTER TABLE` migration on a legacy-schema temp DB. `llmAdapter.test.mjs` (added by #28) pins the intent-keyed mock contract — each intent maps to its canned response regardless of prompt wording — the streaming-narration return shape, and the tracker kind labels; it went green when #28 (`llm-adapter-unification`) landed. The spatial suite (`spatial-map-region-graph`) adds: `roomMap.test.mjs` (transition classification, direction parsing, canonical room-name matching, every D3 decision-table branch, graceful degradation, `computeRegions`), `structuredStore.spatial.test.mjs` (new `rooms`/`exits`/`room_visits` tables, the `UNIQUE(adventure_id, from_room, direction)` constraint, `rollbackTurn` coverage of all three tables + hand-created-row survival), `spatialUndo.test.mjs` (old-save `currentRoomId` null tolerance, save/load round-trip, undo restoring the pre-turn room via the visits trail), and `spatialIntegration.test.mjs` (scripted west→north→east→south mock narration forming the expected graph with a deterministic return, save/load round-trip, and old-save load establishing the room from `location`). `sessionAuth.test.mjs` and `vercelEntry.test.mjs` cover Vercel deployment bootstrapping, fail-closed configuration guards, HMAC session cookie signing/verification, CSRF state verification, PKCE S256 code challenge/verifier generation with RFC 7636 Appendix B test vectors, missing-verifier fast-fail guards, and OAuth 2.0 wire exchange. The gravitational map (`gravitational-node-map`) adds DOM-free module tests backed by `tests/unit/fixtures/mapFixtures.mjs` (`P6_FIXTURE` + a dense hub-and-spoke graph): `forceLayout.test.mjs` (seeded-PRNG determinism, weighted degree incl. self-loop exclusion, monotonic radius/mass, walk-vs-portal/time springs, zero unpinned-orb overlap, warm-start + pruning, and the `idle \| hover \| drag \| coasting` machine incl. `dragEnd({ cancel: true })`), `mapGeometry.test.mjs` (16-char compact names, camera transforms/zoom anchoring/FIT, antiparallel curves + self-loops, circle-border trimming, `edgeKey` with `direction: null`), and `popoverPlacement.test.mjs` (8-candidate obstacle scoring + viewport clamping). PATCH-04 adds `savesPrune.test.mjs`: pure `sortSaves`/`selectPrunable`/`pageSlice` (`saveListModel.js`), `AdventureState.list()` mtime `updated_at`, and `AdventureEngine.pruneAdventures()` against a real temp engine (dry run, active exclusion, JSON + `rooms`/`exits`/`room_visits` + vector-index removal, invalid thresholds, per-id failure isolation, load does not change `mtimeMs`). |
 | `test_extractor_validation.py` | Mixed (unittest + node probe) | — / `integration` | Extractor output validation (`validate-memory-extraction`): `validateExtractorOutput` schema checks, trigger-token filtering, `normalizeInventoryChange` quantity parsing, canonical/stem name matching on write+read, and second-person summarization. Node probes for pure engine logic + MCP integration guards for mock-mode survival. |
 | `test_injection_defense.py` | Mixed (unittest + node probe) | — / `integration` | Prompt-injection defense (`close-prompt-injection-backdoor`): re-runs the four-step #15 reproduction (injection → persistence → lore card → re-arm) in mock/replayable mode — dumped system-prompt metadata not persisted, forged status (`Admin Room`/`Score: 9999`) not committed, `isSuspiciousStatus` guard, `<player_action>` delimiter framing, poisoned lore card rejected by extraction validation, and `dungeon_delete_lore_card` escape hatch (store + `state.cards`). |
 | `test_engine_status_parsing.py` | Mixed (unittest + node probe) | — / `integration` (MCP class) | Engine status parsing + history sanitization (`harden-context-history-integrity`): commit-from-last-status-line with trailing content, fragmented mock stream commit, sanitized history/save/summary, single-owner moves, and the 5-prompt status-format contract. Since `status-line-contract-residue` (#32), it also pins the shared `STATUS_FORMAT` constant and source-text contract tests asserting every producer (`mockOpenAI.js`, `web/routes/game.js` fallback, `app.js` default) and the frontend strip (`renderers.js`) use the canonical three-field line. |
@@ -36,6 +36,8 @@
 | `e2e/test_menu_navigation.py` | E2E (pytest + Playwright) | `e2e` | Browser-based UI — keyboard nav, hotkeys, preset/character flows, launch states, save/restore, lore scan, system prompt editing. Spawns a Node.js server on port 5001. |
 | `e2e/test_barter_ui.py` | E2E (pytest + Playwright) | `e2e` | Browser-based barter UI — trade offers, execution, inventory. Spawns a Node.js server. |
 | `e2e/test_mobile_viewport.py` | E2E (pytest + Playwright) | `e2e` | Browser-based mobile viewport — responsive layout, touch interactions, safe-area clearance, dynamic viewport heights, wizard scroll containment + bottom clearance, desktop regression. Spawns a Node.js server. |
+| `e2e/test_map_render.py` | E2E (pytest + Playwright) | `e2e` | Browser-based gravitational map — room/edge DOM contract (`data-edge-key`), current-room + visited/`◉ CURRENT` state, empty state, `getBoundingClientRect()` panel containment + `FIT` framing + resize re-centering, `page.clock` 200 ms hover dwell / <200 ms fast sweep / 150 ms card grace, drag-pin (no `localStorage`) + dblclick unpin, toolbar/wheel/pinch pan-zoom, keyboard `Enter`/`Escape`, mobile bottom-sheet inspector with suppressed hover, and `page.route`-mocked `GET /api/path` for reachable (`direction: null` included), unreachable (`different_region`) and `404` routes plus refresh-closes-removed-room. PATCH-04 adds meta-priority protection (`◉ CURRENT` never culled; no visible meta without its name) and the hidden-tab stale-FIT re-fit plus manual-camera preservation. Spawns a Node.js server on port 5008 with an isolated `OD_TMP_ROOT`. |
+| `e2e/test_restore_saves.py` | E2E (pytest + Playwright) | `e2e` | Restore-window E2E on an isolated `OD_TMP_ROOT`: Recent/A–Z (numeric-aware)/Moves sorting with persisted choice, 50-row pagination + Show more, debounced prune preview + confirm deleting only below-threshold saves, and `<img onerror>` titles rendered as literal text. Spawns a Node.js server on port 5009. |
 
 ## Save Isolation
 
@@ -51,19 +53,26 @@ a bounded restart, and always terminates children through `try/finally`, `atexit
 and signal handlers. `--max-concurrent N` is the recommended real-model guardrail;
 use `--mock 1` for the normal offline integration tier.
 
-Every test file that creates saves uses the `SAVE_DIR` environment variable to redirect the engine's file writes to an isolated directory under `tests/`.
+There are **two different save-root contracts**, and they are not interchangeable:
 
-### Global Fallback
+- **Direct engine / MCP paths** (`new AdventureEngine()` with no `saveDir`, `tests/mcp_client.py`, node probes): `SAVE_DIR` selects the save directory. `tests/conftest.py` injects a fallback via `pytest_configure` (`os.environ.setdefault("SAVE_DIR", "tests/.tmp_saves/default")`).
+- **`web/server.js`**: `SessionManager` always passes its own `saveDir` to `AdventureEngine`, so **`SAVE_DIR` is ignored**. The web server honors `OD_TMP_ROOT` and writes to `<OD_TMP_ROOT>/local-dev/adventures` with SQLite/vector data in `<OD_TMP_ROOT>/local-dev/data` (default root: `/tmp/open-dungeon`). A `SAVE_DIR` set for the web server triggers a startup warning.
 
-`tests/conftest.py` injects a **fallback default** via `pytest_configure`:
+### E2E Server Isolation (`OD_TMP_ROOT`)
 
-```python
-os.environ.setdefault("SAVE_DIR", "tests/.tmp_saves/default")
-```
+The Playwright server fixtures set `OD_TMP_ROOT` to a per-suite directory under `tests/` and `shutil.rmtree` that root on teardown. They deliberately do **not** use `SAVE_DIR`, which would silently write to the shared default root.
 
-This ensures that any test which forgets to set `SAVE_DIR` explicitly will write to `tests/.tmp_saves/default/` instead of `game/adventures/` (production). The `setdefault` call means per-suite overrides set in `setUp` (or pre-exported in the shell) take **precedence** over the global fallback.
+| E2E file | Isolated root | Real save dir |
+|-----------|---------------|---------------|
+| `e2e/test_menu_navigation.py` | `tests/.tmp_od_root_menu/` | `<root>/local-dev/adventures/` |
+| `e2e/test_barter_ui.py` | `tests/.tmp_od_root_barter/` | `<root>/local-dev/adventures/` |
+| `e2e/test_map_render.py` | `tests/.tmp_od_root_map/` | `<root>/local-dev/adventures/` |
+| `e2e/test_mobile_viewport.py` | `tests/.tmp_od_root_mobile/` | `<root>/local-dev/adventures/` |
+| `e2e/test_restore_saves.py` | `tests/.tmp_od_root_restore/` | `<root>/local-dev/adventures/` (directly seeded) |
 
-### Per-Suite Overrides
+The full E2E run must leave the shared default directory's save count unchanged. Never run `rm`, `rmtree`, or the prune endpoint against `/tmp/open-dungeon/local-dev`; cleanup is a user-approved operation through the Restore window's prune UI.
+
+### Direct-Engine / MCP Overrides (`SAVE_DIR`)
 
 | Test file | Isolated save directory |
 |-----------|------------------------|
@@ -74,18 +83,16 @@ This ensures that any test which forgets to set `SAVE_DIR` explicitly will write
 | `test_pty_integration.py` | `tests/adventures_pty_test/` |
 | `simulate_playtest.py` | `tests/adventures_sim_test/` |
 | `test_mcp_*.py` (all MCP tests) | `tests/mcp_test_data/` |
-| `e2e/test_menu_navigation.py` | `tests/adventures/` |
-| `e2e/test_barter_ui.py` | `tests/adventures_barter_e2e_test/` |
-| Unconfigured fallback | `tests/.tmp_saves/default/` |
+| Unconfigured engine fallback | `tests/.tmp_saves/default/` |
 
 The engine derives a `data/` directory from `SAVE_DIR` as `{SAVE_DIR}/../data` (e.g. `tests/adventures_memory_test/../data` → `tests/data/`). This is where SQLite memory databases and vector indexes live during memory-feature tests.
 
 ### Operator Warning
 
-Manual `node web/server.js` launches **bypass** the `conftest.py` global default and fall back to `game/adventures/` (production). Operators must pass `SAVE_DIR` explicitly for non-production sessions:
+Manual `node web/server.js` launches read from `<OD_TMP_ROOT>/local-dev/adventures` (default `/tmp/open-dungeon`). For a disposable preview, set `OD_TMP_ROOT`; setting `SAVE_DIR` has no effect and logs a warning:
 
 ```bash
-SAVE_DIR=tests/my_test_sandbox node web/server.js
+OD_TMP_ROOT=tests/my_test_sandbox MOCK_LLM=1 PORT=5001 node web/server.js
 ```
 
 ## Port-Conflict Guard

@@ -282,9 +282,10 @@ graph TD
 *   **`POST /api/scan`**: Triggers a manual LLM scan over recent history to automatically extract context cards.
 
 ### 6. Save Slots Management
-*   **`GET /api/saves`**: Lists all saved adventure connection JSON slots under `game/adventures/`.
-*   **`POST /api/saves/<id>`**: Loads the saved adventure variables into the active engine instance.
+*   **`GET /api/saves`**: Lists saved adventure JSON slots from the session's save dir (`<OD_TMP_ROOT>/local-dev/adventures` for `web/server.js`, default `/tmp/open-dungeon`), attaching `updated_at` from each file's `mtimeMs`, plus `moves`/`turns`/metadata for the Restore window.
+*   **`POST /api/saves/<id>`**: Loads the saved adventure variables into the active engine instance. Reading a save does not rewrite it, so `mtimeMs` is stable.
 *   **`DELETE /api/saves/<id>`**: Deletes the saved adventure JSON file from disk.
+*   **`POST /api/saves/prune`**: Bulk-prunes saves strictly below `{ max_moves }` (integer ≥ 1). `{ dry_run: true }` returns `{ count, ids, titles, excludedActive }` without deleting; a real run deletes per id through `engine.deleteAdventure()` (JSON + SQLite `rooms`/`exits`/`room_visits` + vector index), excludes the active adventure, and reports `{ deletedIds, failedIds, keptCount }` with per-id failure isolation. Registered before `/api/saves/:save_id` so `prune` is not parsed as an id.
 
 ### 7. Spatial Map & Pathfinding
 *   **`GET /api/map`**: Returns the persisted spatial room graph behind the `dungeon_inspect_map` MCP tool — rooms (id, canonical name, visit counts), edges (from, direction, to, kind, inferred flag), the current room id, and region groupings of walk-connected rooms. Same read-through freshness as the MCP surface (`forceFlushBeforeRead`).
@@ -461,8 +462,7 @@ before any handler runs. Engines are now created lazily, per request, by
    `db.serialize()` snapshot (after a `wal_checkpoint(TRUNCATE)`) are written
    back to the same KV keys.
 
-Outside serverless the manager caches one engine per `sub` in-process, keeping
-the single-user local workflow (and its `game/adventures/` saves) unchanged.
+Outside serverless the manager caches one engine per `sub` in-process. `SessionManager` always passes its own `saveDir` (`<OD_TMP_ROOT>/local-dev/adventures`), so **`SAVE_DIR` only affects direct-engine/MCP construction**, not `web/server.js`; the web server warns if `SAVE_DIR` is set. The MCP/direct-engine default remains `game/adventures/` unless `SAVE_DIR` is provided.
 
 `AdventureState.toJSON()`/`fromJSON()` (`engine/state.js`) were extracted from
 `save`/`load` so the same JSON shape is used for both disk saves and KV
