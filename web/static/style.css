@@ -1846,8 +1846,8 @@ body:not(.crt-effect) .screen-flicker {
     font-size: 9px;
     fill: var(--text-muted);
     paint-order: stroke;
-    stroke: var(--bg-dark);
-    stroke-width: 3px;
+    stroke: rgba(7, 9, 13, 0.92);
+    stroke-width: 4px;
     stroke-linejoin: round;
     pointer-events: none;
     transition: opacity 140ms ease-out;
@@ -1938,8 +1938,8 @@ body:not(.crt-effect) .screen-flicker {
     opacity: 0.2;
 }
 
-.map-canvas.has-hover .map-room:not(.is-hovered):not(.is-neighbor) .map-room-name {
-    opacity: 0.82;
+.map-canvas.has-hover .map-node-label:not(.is-hovered):not(.is-neighbor) {
+    opacity: 0.2;
 }
 
 .map-canvas.has-hover .map-edge:not(.is-neighbor) {
@@ -1950,13 +1950,53 @@ body:not(.crt-effect) .screen-flicker {
     opacity: 0.18;
 }
 
-.map-room-name {
+.map-label-layer {
     position: absolute;
-    top: calc(100% + 3px);
-    left: 50%;
-    transform: translateX(-50%);
+    left: 0;
+    top: 0;
+    z-index: 6;
+    pointer-events: none;
+}
+
+.map-node-label {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    width: max-content;
     max-width: 8.5rem;
-    padding: 0 0.15rem;
+    pointer-events: none;
+    transition: opacity 140ms ease-out;
+}
+
+.map-node-label.label-pos-bottom {
+    transform: translateX(-50%);
+}
+
+.map-node-label.label-pos-top {
+    transform: translate(-50%, -100%);
+}
+
+.map-node-label.label-pos-right {
+    transform: translateY(-50%);
+    align-items: flex-start;
+}
+
+.map-node-label.label-pos-left {
+    transform: translate(-100%, -50%);
+    align-items: flex-end;
+}
+
+.map-node-label.is-focal {
+    z-index: 7;
+}
+
+.map-room-name {
+    max-width: 8.5rem;
+    padding: 1px 4px;
+    border-radius: 3px;
+    background: rgba(7, 9, 13, 0.82);
     font-family: 'JetBrains Mono', monospace;
     font-size: 0.68rem;
     line-height: 1.2;
@@ -1965,12 +2005,11 @@ body:not(.crt-effect) .screen-flicker {
     overflow: hidden;
     text-overflow: ellipsis;
     text-align: center;
-    pointer-events: none;
     text-shadow: 0 0 6px rgba(7, 9, 13, 0.95), 0 0 2px rgba(7, 9, 13, 1);
     transition: opacity 140ms ease-out;
 }
 
-.map-room.current-room .map-room-name {
+.map-room-name.is-current {
     color: var(--text-neon);
 }
 
@@ -1981,17 +2020,24 @@ body:not(.crt-effect) .screen-flicker {
     visibility: hidden;
 }
 
+/* Culled labels leave the flex layout so top/left placements use only the
+   visible wrapper height. */
+.map-room-name.is-label-culled,
+.map-room-meta.is-label-culled {
+    display: none;
+}
+
 .map-room-meta {
-    position: absolute;
-    top: calc(100% + 1.3rem);
-    left: 50%;
-    transform: translateX(-50%);
+    max-width: 8.5rem;
+    padding: 0 2px;
+    border-radius: 2px;
+    background: rgba(7, 9, 13, 0.72);
     font-family: 'JetBrains Mono', monospace;
     font-size: 0.52rem;
     letter-spacing: 0.04em;
     color: var(--text-muted);
     white-space: nowrap;
-    pointer-events: none;
+    text-align: center;
     transition: opacity 140ms ease-out;
 }
 

@@ -1,7 +1,7 @@
 ## Executive Summary & Environment
 
-- **Status**: PATCH-01..PATCH-04 code fixes complete; **34/37 tasks checked, 2 partial, 1 open** — P03.4 live-API playtest BLOCKED (no credentials); P04.1 RED-capture partial (see honesty note); P04.7 user-approved cleanup pending. 133 Node unit tests and 150 Playwright E2E tests pass. `openspec validate --strict` passes.
-- **Date**: 2026-11-15 (PATCH-04 applied after save-manager/isolation investigation)
+- **Status**: PATCH-01..PATCH-04 and PATCH-06 code fixes complete; **39/47 tasks checked, 2 partial, 6 open** — P03.4 live-API playtest BLOCKED (no credentials); P04.1 RED-capture partial; P04.7 cleanup was completed externally; PATCH-05 remains unstarted. **133 Node unit tests and 154 Playwright E2E tests pass.** `openspec validate --strict` passes.
+- **Date**: 2026-11-16 (PATCH-06 applied after playground label audit)
 - **Change**: `gravitational-node-map` (schema `tdd-rnd`)
 - **Environment**
   - OS: Linux (arm64)
@@ -172,8 +172,8 @@ The single warning is pytest's pre-existing `PytestRemovedIn10Warning` about ses
 | Existing spatial unit tests | 77 | 77 | 0 lost; all pass |
 | New map unit tests | 0 | 48 | +48 (determinism, degree, collision, springs, state machine, geometry, placement, PATCH-01/02/03 naming + topMargin + dedupe) |
 | PATCH-04 save unit tests | 0 | 8 | `savesPrune.test.mjs`: sort/prune/page, `updated_at`, JSON+SQLite+index deletion, isolation, mtime |
-| Playwright map E2E tests | 6 (two-mode grid suite) | 32 | +26 net; PATCH-04 meta/FIT tests added |
-| Playwright E2E (all files) | — | 150 | Full `tests/e2e/` suite, including 4 new restore-window tests |
+| Playwright map E2E tests | 6 (two-mode grid suite) | 36 | +30 net; PATCH-06 re-fit/label-layer tests added |
+| Playwright E2E (all files) | — | 154 | Full `tests/e2e/` suite after PATCH-06 |
 | PATCH-01 reproduction tests | 0 | 7 (3 unit + 4 E2E) | All fail before the patch, all pass after |
 | PATCH-02 reproduction tests | 0 | 5 (2 unit + 2 E2E RED) | Mobile containment + digit-gated naming failed before, all pass after |
 | PATCH-03 reproduction tests | 0 | 6 (2 unit groups + 4 E2E) | Naming/dedupe, culling cost, mobile sheet pan, sidebar clamp failed before, all pass after |
@@ -522,6 +522,68 @@ Change 'gravitational-node-map' is valid
 
 `/tmp/open-dungeon/local-dev` (762 saves + shared `memory.db` + index folders) was not touched. Cleanup must go through the new prune UI after reviewing the dry-run preview.
 
+## PATCH-06 — Re-Fit on Graph Change, Separate Label Layer & 4-Side Placement
+
+**Status: RESOLVED.**
+
+| Fix | Implementation | Verification |
+| :--- | :--- | :--- |
+| Stale FIT on graph change | `graphSignature()` tracks current room + room ids + edge keys; `renderMapPanel()` calls `fitCamera()` when the signature changes **and** `cameraMode === 'fit'`. Manual/center cameras untouched. | `test_map_fit_refits_when_graph_changes`: 4→15 room zoom changes and all rooms stay in view; manual pan survives 15→24 room refresh unchanged |
+| Labels painted under orbs | Node titles moved into `.map-label-layer` / `.map-node-label` wrappers above every orb; focal wrappers raised; dark pills on names and opaque stroke halos on edge labels | `test_map_labels_never_overlap_orb_rects`: 0 label↔orb overlaps at 15 and 24 rooms |
+| Rigid bottom-only labels | `cullLabels()` seeds orb rects (+4px), then tests `bottom → top → right → left` against orbs, incident edge segments and placed labels; focal rooms retry with a narrowed title and finally a meta-only fallback so `◉ CURRENT` survives | `test_map_labels_use_four_position_placement`: visible labels use bottom/top/right/left; playground metrics use all four slots on every preset |
+| Sub-8px noise / short edge labels / meta crowding | Non-focal, non-hub names hidden when `11.5 * zoom < 8`; edge labels culled when screen edge `< width + 24`; `.map-room-meta` rendered only for current/hovered/inspected | `test_map_semantic_zoom_culls_sub8px_nonfocal_names`: all non-focal leaf names culled at low zoom while `◉ CURRENT` remains |
+
+### Repro-first evidence (RED)
+
+```text
+$ ./venv/bin/python -m pytest tests/e2e/test_map_render.py -v -k "fit_refits or labels_never_overlap or four_position or semantic_zoom"
+FAILED test_map_fit_refits_when_graph_changes
+FAILED test_map_labels_never_overlap_orb_rects
+FAILED test_map_labels_use_four_position_placement
+FAILED test_map_semantic_zoom_culls_sub8px_nonfocal_names
+4 failed, 32 deselected
+```
+
+### Playground verification (all six presets, 1280×900, settled)
+
+| Preset | Rooms | FIT zoom | Visible labels | Label↔orb overlaps | Slot usage (bottom/top/right/left) |
+| :--- | ---: | ---: | ---: | ---: | :--- |
+| Citadel | 15 | 1.545 | 12 | **0** | 4 / 1 / 5 / 2 |
+| Spiral | 24 | 1.924 | 10 | **0** | 1 / 1 / 4 / 4 |
+| Walk40 | 14 | 2.073 | 9 | **0** | 4 / 4 / 0 / 1 |
+| Grid 5×5 | 25 | 1.327 | 17 | **0** | 6 / 5 / 3 / 3 |
+| P6 portal/time | 4 | 1.764 | 4 | **0** | 2 / 1 / 1 / 0 |
+| Large 64 | 64 | 0.858 | 31 | **0** | 7 / 8 / 9 / 7 |
+
+Screenshots were captured for each preset under `.scratch/playground-*.png` during verification (scratch, not committed). No page errors; short-edge labels drop out and focal `◉ CURRENT` captions remain.
+
+### Full regression
+
+```bash
+$ node --test tests/unit/savesPrune.test.mjs tests/unit/forceLayout.test.mjs \
+    tests/unit/mapGeometry.test.mjs tests/unit/popoverPlacement.test.mjs \
+    tests/unit/roomMap.test.mjs tests/unit/pathfinding.test.mjs \
+    tests/unit/structuredStore.spatial.test.mjs tests/unit/spatialIntegration.test.mjs \
+    tests/unit/spatialUndo.test.mjs
+1..133
+# pass 133
+# fail 0
+# duration_ms 8336.4462
+
+$ ./venv/bin/python -m pytest tests/e2e/test_map_render.py -v
+36 passed, 1 warning in 182.49s
+
+$ ./venv/bin/python -m pytest tests/e2e/ -q
+154 passed, 1 warning in 284.62s
+```
+
+```bash
+$ openspec validate gravitational-node-map --strict
+Change 'gravitational-node-map' is valid
+```
+
+Save isolation remained intact across the full run: `/tmp/open-dungeon/local-dev/adventures` had **7 JSON saves before and 7 after** (the directory had already been cleaned externally from the earlier 762 before this patch; no shared files were deleted or modified by this run).
+
 ## Quick Re-Verification (60-Second Audit)
 
 ```bash
@@ -532,7 +594,7 @@ node --test tests/unit/savesPrune.test.mjs tests/unit/forceLayout.test.mjs \
   tests/unit/structuredStore.spatial.test.mjs tests/unit/spatialIntegration.test.mjs \
   tests/unit/spatialUndo.test.mjs
 
-# Full Playwright E2E suite (150 tests, ~4 min; requires the provisioned venv + Chromium)
+# Full Playwright E2E suite (154 tests, ~5 min; requires the provisioned venv + Chromium)
 ./venv/bin/python -m pytest tests/e2e/ -q
 ```
 
@@ -543,5 +605,5 @@ Expected output:
 # pass 133
 # fail 0
 
-150 passed, 1 warning in ~236s
+154 passed, 1 warning in ~285s
 ```

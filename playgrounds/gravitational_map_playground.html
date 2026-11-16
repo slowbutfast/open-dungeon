@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Open Dungeon — Gravitational Node Map Playground (PATCH-04)</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=VT323&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../web/static/style.css">
+    <style>
+        html, body {
+            height: 100%;
+            margin: 0;
+            overflow: hidden;
+            background: var(--bg-deep, #07090d);
+            color: var(--text-user, #e2e8f0);
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .pg-shell {
+            display: flex;
+            flex-direction: column;
+            height: 100dvh;
+            width: 100vw;
+            padding: 0.75rem;
+            gap: 0.65rem;
+            box-sizing: border-box;
+        }
+        .pg-topbar {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.6rem;
+            padding: 0.55rem 0.85rem;
+            border: 1px solid var(--border-light, rgba(56, 189, 248, 0.25));
+            border-radius: 6px;
+            background: rgba(13, 17, 23, 0.9);
+        }
+        .pg-title-group {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+        .pg-title {
+            font-family: 'VT323', monospace;
+            font-size: 1.45rem;
+            color: var(--text-neon, #38bdf8);
+            letter-spacing: 0.06em;
+            margin: 0;
+        }
+        .pg-stats {
+            font-size: 0.72rem;
+            color: var(--text-muted, #94a3b8);
+        }
+        .pg-controls {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.45rem;
+        }
+        .pg-btn {
+            padding: 0.32rem 0.65rem;
+            border: 1px solid var(--border-light, rgba(56, 189, 248, 0.25));
+            border-radius: 4px;
+            background: rgba(56, 189, 248, 0.08);
+            color: var(--text-user, #e2e8f0);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.72rem;
+            cursor: pointer;
+            transition: border-color 120ms ease, background 120ms ease;
+        }
+        .pg-btn:hover {
+            border-color: var(--text-neon, #38bdf8);
+        }
+        .pg-btn.active {
+            border-color: var(--text-neon, #38bdf8);
+            background: rgba(56, 189, 248, 0.22);
+            color: var(--text-neon, #38bdf8);
+        }
+        .pg-select {
+            padding: 0.32rem 0.5rem;
+            border: 1px solid var(--border-light, rgba(56, 189, 248, 0.25));
+            border-radius: 4px;
+            background: #0d1117;
+            color: var(--text-user, #e2e8f0);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.72rem;
+        }
+        .pg-stage {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            gap: 0.75rem;
+            align-items: stretch;
+            justify-content: center;
+        }
+        .pg-viewport-frame {
+            flex: 1;
+            min-width: 0;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            border: 1px solid var(--border-light, rgba(56, 189, 248, 0.25));
+            border-radius: 6px;
+            padding: 0.65rem;
+            background: rgba(7, 9, 13, 0.78);
+            transition: max-width 180ms ease, max-height 180ms ease;
+        }
+        .pg-viewport-frame.mode-sidebar {
+            max-width: 340px;
+        }
+        .pg-viewport-frame.mode-mobile {
+            max-width: 375px;
+            max-height: 620px;
+            align-self: center;
+        }
+        #tab-map.active {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            min-height: 0;
+            height: 100%;
+            overflow: hidden;
+        }
+        .pg-json-drawer {
+            width: 320px;
+            display: flex;
+            flex-direction: column;
+            border: 1px solid var(--border-light, rgba(56, 189, 248, 0.25));
+            border-radius: 6px;
+            background: rgba(13, 17, 23, 0.9);
+            overflow: hidden;
+        }
+        .pg-json-drawer.hidden {
+            display: none;
+        }
+        .pg-json-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.45rem 0.65rem;
+            border-bottom: 1px solid var(--border-light, rgba(56, 189, 248, 0.25));
+            font-size: 0.72rem;
+            color: var(--text-neon, #38bdf8);
+        }
+        .pg-json-pre {
+            flex: 1;
+            margin: 0;
+            padding: 0.65rem;
+            overflow: auto;
+            font-size: 0.68rem;
+            line-height: 1.4;
+            color: var(--text-muted, #94a3b8);
+        }
+    </style>
+</head>
+<body>
+    <div class="pg-shell">
+        <header class="pg-topbar">
+            <div class="pg-title-group">
+                <h1 class="pg-title">[GRAVITATIONAL MAP PLAYGROUND // PATCH-04]</h1>
+                <span id="pg-stats" class="pg-stats">Loading…</span>
+            </div>
+            <div class="pg-controls">
+                <button class="pg-btn active" data-preset="citadel">15-Room Citadel</button>
+                <button class="pg-btn" data-preset="spiral">24-Room Spiral</button>
+                <button class="pg-btn" data-preset="walk40">40-Move Walk (14 Rooms)</button>
+                <button class="pg-btn" data-preset="grid5x5">25-Room 5×5 Grid</button>
+                <button class="pg-btn" data-preset="p6">4-Room Portal/Time</button>
+                <button class="pg-btn" data-preset="large64">64-Room Dungeon</button>
+                <select id="pg-viewport" class="pg-select" aria-label="Viewport size">
+                    <option value="full" selected>Viewport: Full</option>
+                    <option value="sidebar">Viewport: 340px Sidebar</option>
+                    <option value="mobile">Viewport: 375px Mobile</option>
+                </select>
+                <button id="pg-toggle-json" class="pg-btn">JSON</button>
+            </div>
+        </header>
+
+        <div class="pg-stage">
+            <div id="pg-viewport-frame" class="pg-viewport-frame">
+                <div id="tab-map" class="tab-content active">
+                    <div id="map-panel" class="map-panel" data-current-room-id="">
+                        <div class="map-toolbar">
+                            <span class="map-toolbar-title">SPATIAL MAP</span>
+                            <div class="map-toolbar-controls" role="group" aria-label="Map viewport controls">
+                                <button id="map-zoom-in" type="button" class="map-control" aria-label="Zoom in" title="Zoom in">+</button>
+                                <button id="map-zoom-out" type="button" class="map-control" aria-label="Zoom out" title="Zoom out">-</button>
+                                <button id="map-fit" type="button" class="map-control" aria-label="Fit all rooms" title="Fit all rooms">FIT</button>
+                                <button id="map-center" type="button" class="map-control" aria-label="Center on current room" title="Center on current room">◎</button>
+                            </div>
+                        </div>
+                        <div id="map-canvas" class="map-canvas">
+                            <div id="map-canvas-content" class="map-canvas-content"></div>
+                        </div>
+                        <div id="map-hover-card" class="map-hover-card" role="tooltip" hidden></div>
+                        <div id="map-inspector" class="map-inspector" role="dialog" aria-label="Room inspector" hidden>
+                            <div id="map-inspector-drag" class="map-inspector-header">
+                                <h4 id="map-inspector-title" class="map-inspector-title"></h4>
+                                <button id="map-inspector-close" type="button" class="map-inspector-close" aria-label="Close room inspector">×</button>
+                            </div>
+                            <div id="map-inspector-body" class="map-inspector-body"></div>
+                            <div id="map-inspector-route-status" class="map-route-status" aria-live="polite"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <aside id="pg-json-drawer" class="pg-json-drawer hidden">
+                <div class="pg-json-header">
+                    <span>ACTIVE GRAPH PAYLOAD</span>
+                    <button id="pg-copy-json" class="pg-btn">Copy</button>
+                </div>
+                <pre id="pg-json-pre" class="pg-json-pre"></pre>
+            </aside>
+        </div>
+    </div>
+
+    <script type="module">
+        // ─── Synthetic Graph Fixtures ────────────────────────────────────────
+        function makeCitadel() {
+            const rooms = [
+                { id: 'courtyard', name: 'The Grand Citadel Courtyard', visit_count: 5, first_visited_turn: 1, last_visited_turn: 10, region_id: 1 },
+                { id: 'armory', name: 'Armory of Ten Thousand Blades', visit_count: 2, first_visited_turn: 2, last_visited_turn: 8, region_id: 1 },
+                { id: 'chapel', name: 'Chapel of Quiet Bells', visit_count: 1, first_visited_turn: 3, last_visited_turn: 3, region_id: 1 },
+                { id: 'gate', name: 'North Gate', visit_count: 3, first_visited_turn: 1, last_visited_turn: 12, region_id: 1 },
+                { id: 'stables', name: 'The Royal Stables', visit_count: 1, first_visited_turn: 4, last_visited_turn: 4, region_id: 1 },
+                { id: 'barracks', name: 'Barracks', visit_count: 1, first_visited_turn: 5, last_visited_turn: 5, region_id: 1 },
+                { id: 'scriptorium', name: 'Scriptorium', visit_count: 1, first_visited_turn: 6, last_visited_turn: 6, region_id: 1 },
+                { id: 'well', name: 'Well House', visit_count: 1, first_visited_turn: 7, last_visited_turn: 7, region_id: 1 },
+                { id: 'watchtower', name: 'Watchtower', visit_count: 0, first_visited_turn: null, last_visited_turn: null, region_id: 1 },
+                { id: 'guardpost', name: 'Guard Post', visit_count: 1, first_visited_turn: 9, last_visited_turn: 9, region_id: 1 },
+                { id: 'portal_hall', name: 'Shimmering Portal Chamber', visit_count: 2, first_visited_turn: 10, last_visited_turn: 11, region_id: 1 },
+                { id: 'vault', name: 'Vault of Echoes', visit_count: 1, first_visited_turn: 11, last_visited_turn: 11, region_id: 2 },
+                { id: 'dawn_camp', name: 'Dawn Camp (Another Age)', visit_count: 1, first_visited_turn: 12, last_visited_turn: 12, region_id: 3 },
+                { id: 'crypt', name: 'Crystal Cavern 12', visit_count: 1, first_visited_turn: 13, last_visited_turn: 13, region_id: 1 },
+                { id: 'crypt_b', name: 'Crystal Chamber 12', visit_count: 1, first_visited_turn: 14, last_visited_turn: 14, region_id: 1 }
+            ];
+            const edges = [
+                { from: 'courtyard', to: 'armory', direction: 'north', kind: 'walk', inferred: false },
+                { from: 'armory', to: 'courtyard', direction: 'south', kind: 'walk', inferred: true },
+                { from: 'courtyard', to: 'chapel', direction: 'south', kind: 'walk', inferred: false },
+                { from: 'courtyard', to: 'gate', direction: 'east', kind: 'walk', inferred: false },
+                { from: 'gate', to: 'courtyard', direction: 'west', kind: 'walk', inferred: true },
+                { from: 'courtyard', to: 'stables', direction: 'west', kind: 'walk', inferred: false },
+                { from: 'courtyard', to: 'barracks', direction: 'up', kind: 'walk', inferred: false },
+                { from: 'courtyard', to: 'scriptorium', direction: 'down', kind: 'walk', inferred: false },
+                { from: 'courtyard', to: 'well', direction: 'northeast', kind: 'walk', inferred: false },
+                { from: 'courtyard', to: 'watchtower', direction: 'southwest', kind: 'walk', inferred: false },
+                { from: 'gate', to: 'guardpost', direction: 'east', kind: 'walk', inferred: false },
+                { from: 'chapel', to: 'portal_hall', direction: 'east', kind: 'walk', inferred: false },
+                { from: 'portal_hall', to: 'vault', direction: 'archway', kind: 'portal', inferred: false },
+                { from: 'gate', to: 'dawn_camp', direction: null, kind: 'time', inferred: false },
+                { from: 'scriptorium', to: 'crypt', direction: 'down', kind: 'walk', inferred: false },
+                { from: 'crypt', to: 'crypt_b', direction: 'east', kind: 'walk', inferred: false }
+            ];
+            return { current_room_id: 'gate', rooms, edges };
+        }
+
+        function makeSpiral24() {
+            const rooms = [{ id: 'r0', name: 'Cave Mouth', visit_count: 2, first_visited_turn: 1, last_visited_turn: 2, region_id: 1 }];
+            const edges = [];
+            const dirs = ['north', 'east', 'south', 'west'];
+            for (let i = 1; i <= 23; i++) {
+                rooms.push({
+                    id: `r${i}`,
+                    name: `Winding Passage ${i}`,
+                    visit_count: 1,
+                    first_visited_turn: i + 1,
+                    last_visited_turn: i + 1,
+                    region_id: 1
+                });
+                edges.push({
+                    from: `r${i - 1}`,
+                    to: `r${i}`,
+                    direction: dirs[(i - 1) % 4],
+                    kind: 'walk',
+                    inferred: false
+                });
+            }
+            return { current_room_id: 'r23', rooms, edges };
+        }
+
+        function makeGrid(size) {
+            const rooms = [];
+            const edges = [];
+            for (let y = 0; y < size; y++) {
+                for (let x = 0; x < size; x++) {
+                    const id = `g_${x}_${y}`;
+                    rooms.push({
+                        id,
+                        name: `Sector ${x + 1}-${y + 1}`,
+                        visit_count: (x + y) % 3 === 0 ? 2 : 1,
+                        first_visited_turn: y * size + x + 1,
+                        last_visited_turn: y * size + x + 1,
+                        region_id: 1
+                    });
+                    if (x + 1 < size) {
+                        edges.push({ from: id, to: `g_${x + 1}_${y}`, direction: 'east', kind: 'walk', inferred: false });
+                        edges.push({ from: `g_${x + 1}_${y}`, to: id, direction: 'west', kind: 'walk', inferred: true });
+                    }
+                    if (y + 1 < size) {
+                        edges.push({ from: id, to: `g_${x}_${y + 1}`, direction: 'south', kind: 'walk', inferred: false });
+                        edges.push({ from: `g_${x}_${y + 1}`, to: id, direction: 'north', kind: 'walk', inferred: true });
+                    }
+                }
+            }
+            return { current_room_id: `g_${Math.floor(size / 2)}_${Math.floor(size / 2)}`, rooms, edges };
+        }
+
+        function makeWalk40() {
+            const names = [
+                'Mossy Antechamber', 'Sunken Atrium', 'Collapsed Tunnel 1', 'Collapsed Tunnel 2',
+                'Collapsed Tunnel 3', 'Chapel of Quiet Waters', 'Chapel of Quiet Bells',
+                'Rusty Cistern', 'Obsidian Bridge', 'Lantern Alcove', 'Flooded Archives',
+                'Echoing Gallery', 'Sanctum Threshold', 'Astral Observatory'
+            ];
+            const rooms = names.map((name, idx) => ({
+                id: `w${idx}`,
+                name,
+                visit_count: idx === 1 ? 6 : (idx % 3) + 1,
+                first_visited_turn: idx + 1,
+                last_visited_turn: idx + 15,
+                region_id: idx === 13 ? 2 : 1
+            }));
+            const links = [
+                [0, 1, 'north'], [1, 2, 'east'], [2, 3, 'north'], [3, 4, 'west'],
+                [1, 5, 'west'], [5, 6, 'south'], [6, 7, 'west'], [7, 8, 'north'],
+                [8, 9, 'east'], [9, 10, 'north'], [10, 11, 'east'], [11, 12, 'south'],
+                [1, 9, 'northeast'], [4, 11, 'north'], [5, 10, 'northwest']
+            ];
+            const opp = { north: 'south', south: 'north', east: 'west', west: 'east', northeast: 'southwest', northwest: 'southeast' };
+            const edges = [];
+            for (const [a, b, dir] of links) {
+                edges.push({ from: `w${a}`, to: `w${b}`, direction: dir, kind: 'walk', inferred: false });
+                edges.push({ from: `w${b}`, to: `w${a}`, direction: opp[dir], kind: 'walk', inferred: true });
+            }
+            edges.push({ from: 'w12', to: 'w13', direction: 'mirror', kind: 'portal', inferred: false });
+            edges.push({ from: 'w6', to: 'w0', direction: null, kind: 'time', inferred: false });
+            return { current_room_id: 'w1', rooms, edges };
+        }
+
+        function makeP6() {
+            return {
+                current_room_id: 'dawn',
+                rooms: [
+                    { id: 'dawn', name: 'Dawn Camp', visit_count: 2, first_visited_turn: 1, last_visited_turn: 4, region_id: 2 },
+                    { id: 'north', name: 'North Hall', visit_count: 1, first_visited_turn: 2, last_visited_turn: 2, region_id: 1 },
+                    { id: 'gallery', name: 'Gallery', visit_count: 1, first_visited_turn: 3, last_visited_turn: 3, region_id: 1 },
+                    { id: 'vault', name: 'Vault of Echoes', visit_count: 1, first_visited_turn: 4, last_visited_turn: 4, region_id: 1 }
+                ],
+                edges: [
+                    { from: 'north', to: 'gallery', direction: 'east', kind: 'walk', inferred: false },
+                    { from: 'gallery', to: 'north', direction: 'west', kind: 'walk', inferred: true },
+                    { from: 'gallery', to: 'vault', direction: 'archway', kind: 'portal', inferred: false },
+                    { from: 'vault', to: 'dawn', direction: null, kind: 'time', inferred: false }
+                ]
+            };
+        }
+
+        const PRESETS = {
+            citadel: makeCitadel(),
+            spiral: makeSpiral24(),
+            walk40: makeWalk40(),
+            grid5x5: makeGrid(5),
+            p6: makeP6(),
+            large64: makeGrid(8)
+        };
+
+        let activeKey = 'citadel';
+        let activeGraph = PRESETS[activeKey];
+
+        // ─── Mock /api/map & /api/path via fetch interceptor ─────────────────
+        function findWalkPath(graph, fromId, toId) {
+            if (fromId === toId) return { reachable: true, steps: [] };
+            const queue = [[fromId, []]];
+            const seen = new Set([fromId]);
+            while (queue.length > 0) {
+                const [curr, path] = queue.shift();
+                for (const edge of graph.edges) {
+                    if (edge.kind !== 'walk') continue;
+                    if (edge.from !== curr || seen.has(edge.to)) continue;
+                    const nextPath = [...path, { from: edge.from, to: edge.to, direction: edge.direction }];
+                    if (edge.to === toId) return { reachable: true, steps: nextPath };
+                    seen.add(edge.to);
+                    queue.push([edge.to, nextPath]);
+                }
+            }
+            const hasAny = graph.edges.some(e => e.from === fromId || e.to === toId);
+            return {
+                reachable: false,
+                reason: hasAny
+                    ? 'No walkable route — the target is in a different region.'
+                    : 'No route found.'
+            };
+        }
+
+        const origFetch = window.fetch.bind(window);
+        window.fetch = async (input, init) => {
+            const url = typeof input === 'string' ? input : input.url;
+            if (url.startsWith('/api/map')) {
+                return new Response(JSON.stringify(activeGraph), {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' }
+                });
+            }
+            if (url.startsWith('/api/path')) {
+                const parsed = new URL(url, window.location.origin);
+                const from = parsed.searchParams.get('from');
+                const to = parsed.searchParams.get('to');
+                const result = findWalkPath(activeGraph, from, to);
+                return new Response(JSON.stringify(result), {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' }
+                });
+            }
+            return origFetch(input, init);
+        };
+
+        // ─── Mount real mapPanel.js ──────────────────────────────────────────
+        const { renderMapPanel } = await import('../web/static/js/components/mapPanel.js');
+
+        function loadPreset(key) {
+            activeKey = key;
+            activeGraph = PRESETS[key];
+            document.querySelectorAll('[data-preset]').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.preset === key);
+            });
+            document.getElementById('pg-stats').textContent =
+                `${activeGraph.rooms.length} rooms · ${activeGraph.edges.length} edges · current: ${activeGraph.current_room_id}`;
+            document.getElementById('pg-json-pre').textContent = JSON.stringify(activeGraph, null, 2);
+            renderMapPanel(activeGraph);
+        }
+
+        document.querySelectorAll('[data-preset]').forEach(btn => {
+            btn.addEventListener('click', () => loadPreset(btn.dataset.preset));
+        });
+
+        document.getElementById('pg-viewport').addEventListener('change', (e) => {
+            const frame = document.getElementById('pg-viewport-frame');
+            frame.classList.remove('mode-sidebar', 'mode-mobile');
+            if (e.target.value === 'sidebar') frame.classList.add('mode-sidebar');
+            if (e.target.value === 'mobile') frame.classList.add('mode-mobile');
+        });
+
+        document.getElementById('pg-toggle-json').addEventListener('click', () => {
+            document.getElementById('pg-json-drawer').classList.toggle('hidden');
+        });
+
+        document.getElementById('pg-copy-json').addEventListener('click', async () => {
+            try {
+                await navigator.clipboard.writeText(JSON.stringify(activeGraph, null, 2));
+            } catch (_) {}
+        });
+
+        loadPreset('citadel');
+    </script>
+</body>
+</html>

@@ -236,7 +236,8 @@ def test_map_panel_renders_rooms_from_api(game_page):
         assert key.count("|") == 2, key
 
     full_name = page.locator(".map-room").first.get_attribute("data-full-name")
-    compact = page.locator(".map-room").first.locator(".map-room-name").inner_text()
+    first_id = page.locator(".map-room").first.get_attribute("data-room-id")
+    compact = page.locator(f'.map-room-name[data-room-id="{first_id}"]').inner_text()
     assert full_name, "rooms must store the full untruncated name"
     assert len(compact) <= 16, compact
 
@@ -253,7 +254,7 @@ def test_map_current_room_highlight(game_page):
 
     highlight = page.locator(f'.map-room[data-room-id="{current}"].current-room')
     expect(highlight).to_have_count(1)
-    expect(highlight.locator(".map-room-meta")).to_contain_text("CURRENT")
+    expect(page.locator(f'.map-room-meta[data-room-id="{current}"]')).to_contain_text("CURRENT")
 
 
 def test_map_empty_state(game_page):
@@ -985,7 +986,7 @@ def test_map_dense_graph_culls_colliding_labels(game_page):
 
     assert page.locator(".map-room-name.is-label-culled").count() > 0, \
         "dense graphs must cull colliding labels"
-    expect(page.locator('.map-room[data-room-id="hub"] .map-room-name')).not_to_have_class(
+    expect(page.locator('.map-room-name[data-room-id="hub"]')).not_to_have_class(
         "map-room-name is-label-culled"
     )
     overlaps = page.evaluate(
@@ -1139,8 +1140,8 @@ def test_map_meta_never_outranks_culled_names(game_page):
             for (const room of document.querySelectorAll('.map-room')) {
                 const id = room.getAttribute('data-room-id');
                 if (id === 'hub') continue;
-                const name = room.querySelector('.map-room-name');
-                const meta = room.querySelector('.map-room-meta');
+                const name = document.querySelector(`.map-room-name[data-room-id="${id}"]`);
+                const meta = document.querySelector(`.map-room-meta[data-room-id="${id}"]`);
                 if (name?.classList.contains('is-label-culled')
                     && !meta?.classList.contains('is-label-culled')) {
                     bad.push(id);
@@ -1151,7 +1152,7 @@ def test_map_meta_never_outranks_culled_names(game_page):
     )
     assert violations == [], violations
 
-    current = page.locator('.map-room[data-room-id="hub"] .map-room-meta')
+    current = page.locator('.map-room-meta[data-room-id="hub"]')
     expect(current).to_contain_text("CURRENT")
     assert not current.evaluate("el => el.classList.contains('is-label-culled')"), \
         "◉ CURRENT must never be culled"
@@ -1191,3 +1192,130 @@ def test_map_hidden_render_refits_and_preserves_manual_pan(game_page):
     page.wait_for_timeout(250)
     assert page.locator("#map-canvas-content").get_attribute("style") == panned, \
         "showing the tab overrode a manual camera"
+
+
+# ─── PATCH-06 scopes ──────────────────────────────────────────────────────
+
+def _install_mutable_map(page, fixture):
+    state = {"fixture": fixture}
+    page.route(
+        "**/api/map",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(state["fixture"]),
+        ),
+    )
+    return state
+
+
+def test_map_fit_refits_when_graph_changes(game_page):
+    """FIT cameras follow a changed graph; manual cameras never do."""
+    page = game_page
+    state = _install_mutable_map(page, P6_FIXTURE)
+    _commit_move(page, "look around")
+    _open_map_tab(page)
+    expect(page.locator(".map-room")).to_have_count(4)
+    zoom_before = float(page.locator("#map-canvas").get_attribute("data-zoom"))
+
+    state["fixture"] = _dense_fixture(15)
+    _open_map_tab(page)
+    expect(page.locator(".map-room")).to_have_count(15)
+    page.wait_for_timeout(300)
+    zoom_after = float(page.locator("#map-canvas").get_attribute("data-zoom"))
+    assert zoom_after != zoom_before, (zoom_before, zoom_after)
+
+    canvas = _canvas_rect(page)
+    for index in range(15):
+        room_id = "hub" if index == 0 else f"n{index}"
+        assert _rect_inside(_room_rect(page, room_id), canvas), room_id
+
+    # Manual mode is the player's: a graph change must not touch the transform.
+    page.mouse.move(canvas["left"] + 30, canvas["top"] + canvas["height"] - 30)
+    page.mouse.down()
+    page.mouse.move(canvas["left"] + 75, canvas["top"] + canvas["height"] - 65, steps=8)
+    page.mouse.up()
+    panned = page.locator("#map-canvas-content").get_attribute("style")
+
+    state["fixture"] = _dense_fixture(24)
+    _open_map_tab(page)
+    expect(page.locator(".map-room")).to_have_count(24)
+    page.wait_for_timeout(300)
+    assert page.locator("#map-canvas-content").get_attribute("style") == panned, \
+        "graph change overrode a manual camera"
+
+
+def test_map_labels_never_overlap_orb_rects(game_page):
+    """Node labels are placed clear of every orb on 15- and 24-room graphs."""
+    page = game_page
+    state = _install_mutable_map(page, _dense_fixture(15))
+    _commit_move(page, "look around")
+    _open_map_tab(page)
+    expect(page.locator(".map-room")).to_have_count(15)
+    page.wait_for_timeout(350)
+
+    for count in (15, 24):
+        if count == 24:
+            state["fixture"] = _dense_fixture(24)
+            _open_map_tab(page)
+            expect(page.locator(".map-room")).to_have_count(24)
+            page.wait_for_timeout(350)
+        overlaps = page.evaluate(
+            """() => {
+                const orbs = [...document.querySelectorAll('.map-room')]
+                    .map(el => el.getBoundingClientRect());
+                const labels = [...document.querySelectorAll('.map-room-name')]
+                    .filter(el => !el.classList.contains('is-label-culled'))
+                    .map(el => el.getBoundingClientRect());
+                let count = 0;
+                for (const label of labels) {
+                    for (const orb of orbs) {
+                        if (!(label.right <= orb.left || orb.right <= label.left
+                            || label.bottom <= orb.top || orb.bottom <= label.top)) {
+                            count += 1;
+                        }
+                    }
+                }
+                return count;
+            }"""
+        )
+        assert overlaps == 0, f"{overlaps} label/orb overlaps at {count} rooms"
+
+
+def test_map_labels_use_four_position_placement(game_page):
+    """Labels flip top/right/left when the bottom slot is blocked."""
+    page = game_page
+    fixture = _dense_fixture(8)
+    fixture["current_room_id"] = "n1"
+    _open_fixture_map(page, fixture)
+    page.wait_for_timeout(350)
+
+    placements = page.eval_on_selector_all(
+        ".map-node-label",
+        "els => els.filter(el => !el.querySelector('.map-room-name').classList.contains('is-label-culled')).map(el => ['bottom','top','right','left'].find(p => el.classList.contains('label-pos-' + p)))",
+    )
+    assert placements, "labels must live in .map-node-label wrappers"
+    assert all(placements), placements
+    assert any(p != "bottom" for p in placements), placements
+
+
+def test_map_semantic_zoom_culls_sub8px_nonfocal_names(game_page):
+    """Below ~8px labels only focal/hub names remain visible."""
+    page = game_page
+    _open_fixture_map(page, _dense_fixture(64))
+    expect(page.locator(".map-room")).to_have_count(64)
+
+    for _ in range(4):
+        page.locator("#map-zoom-out").click()
+    page.wait_for_timeout(350)
+    zoom = float(page.locator("#map-canvas").get_attribute("data-zoom"))
+    assert 11.5 * zoom < 8, zoom
+
+    visible_leaf_names = page.locator(
+        '.map-room-name[data-room-id^="n"]:not(.is-label-culled)'
+    ).count()
+    assert visible_leaf_names == 0, visible_leaf_names
+    current_meta = page.locator('.map-room-meta[data-room-id="hub"]')
+    expect(current_meta).to_contain_text("CURRENT")
+    assert not current_meta.evaluate("el => el.classList.contains('is-label-culled')"), \
+        "◉ CURRENT must remain visible even when the title is placement-culled"

@@ -61,8 +61,10 @@ let fittedForSize = null;
 const nodeEls = new Map();
 const edgePaths = new Map();
 const edgeLabels = new Map();
+const labelEls = new Map();
 let labelMetrics = new WeakMap();
 let compactLabels = new Map();
+let lastGraphSignature = null;
 
 let hoveredId = null;
 let hoverDwellTimer = null;
@@ -121,6 +123,10 @@ export function renderMapPanel(data) {
     const content = ensureContent(canvas);
     wireInteractions(panel, canvas);
 
+    const signature = graphSignature(graphData);
+    const graphChanged = lastGraphSignature !== null && signature !== lastGraphSignature;
+    lastGraphSignature = signature;
+
     // A committed turn may have moved the party or removed rooms: drop any
     // painted route before diffing the new graph.
     clearRoute();
@@ -139,6 +145,11 @@ export function renderMapPanel(data) {
             label.remove();
             edgeLabels.delete(key);
         }
+        for (const [id, entry] of labelEls) {
+            entry.wrap.remove();
+            labelEls.delete(id);
+        }
+        document.getElementById('map-label-layer')?.remove();
         const svg = document.getElementById('map-edges');
         if (svg) svg.remove();
         content.style.transform = '';
@@ -176,7 +187,8 @@ export function renderMapPanel(data) {
         fitCamera();
     } else if (cameraMode === 'fit') {
         const fitted = fittedForSize;
-        const stale = !fitted
+        const stale = graphChanged
+            || !fitted
             || fitted.usedFallback
             || measured.usedFallback
             || Math.abs(measured.width - fitted.width) > 0.5
@@ -257,10 +269,31 @@ function nodeById(id) {
     return layout ? layout.getNode(id) : null;
 }
 
+function graphSignature(data) {
+    const roomIds = (data.rooms || []).map(room => room.id).filter(Boolean).sort();
+    const edgeKeys = (data.edges || [])
+        .filter(edge => edge && edge.from && edge.to)
+        .map(edge => edgeKey(edge.from, edge.direction, edge.to))
+        .sort();
+    return `${data.current_room_id ?? ''}|${roomIds.join(',')}|${edgeKeys.join(',')}`;
+}
+
 // ─── keyed node/edge diffing ──────────────────────────────────────────────
+
+function ensureLabelLayer(content) {
+    let layer = document.getElementById('map-label-layer');
+    if (!layer) {
+        layer = document.createElement('div');
+        layer.id = 'map-label-layer';
+        layer.className = 'map-label-layer';
+        content.appendChild(layer);
+    }
+    return layer;
+}
 
 function renderNodes(content) {
     compactLabels = dedupeCompactLabels(graphData.rooms);
+    ensureLabelLayer(content);
     const seen = new Set();
     for (const room of graphData.rooms) {
         if (!room || !room.id) continue;
@@ -271,12 +304,19 @@ function renderNodes(content) {
             nodeEls.set(room.id, el);
             content.appendChild(el);
         }
+        ensureNodeLabel(room);
         updateRoomNode(el, room);
     }
     for (const [id, el] of [...nodeEls]) {
         if (!seen.has(id)) {
             el.remove();
             nodeEls.delete(id);
+        }
+    }
+    for (const [id, entry] of [...labelEls]) {
+        if (!seen.has(id)) {
+            entry.wrap.remove();
+            labelEls.delete(id);
         }
     }
 }
@@ -287,15 +327,33 @@ function buildRoomNode(room) {
     el.setAttribute('data-room-id', room.id);
     el.setAttribute('tabindex', '0');
     el.setAttribute('role', 'button');
+    return el;
+}
+
+function ensureNodeLabel(room) {
+    let entry = labelEls.get(room.id);
+    if (entry) return entry;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'map-node-label label-pos-bottom';
+    wrap.setAttribute('data-room-id', room.id);
+    wrap.dataset.placement = 'bottom';
 
     const name = document.createElement('span');
     name.className = 'map-room-name';
+    name.setAttribute('data-room-id', room.id);
+
     const meta = document.createElement('span');
     meta.className = 'map-room-meta';
+    meta.setAttribute('data-room-id', room.id);
 
-    el.appendChild(name);
-    el.appendChild(meta);
-    return el;
+    wrap.appendChild(name);
+    wrap.appendChild(meta);
+    ensureLabelLayer(document.getElementById('map-canvas-content')).appendChild(wrap);
+
+    entry = { wrap, name, meta };
+    labelEls.set(room.id, entry);
+    return entry;
 }
 
 function updateRoomNode(el, room) {
@@ -303,6 +361,7 @@ function updateRoomNode(el, room) {
     const visitCount = room.visit_count || 0;
     const visited = visitCount > 0 || room.last_visit_turn != null;
     const isCurrent = room.id === graphData.current_room_id;
+    const isFocal = isCurrent || hoveredId === room.id || inspectedId === room.id;
     const pinned = layout ? layout.homeAnchors.has(room.id) : false;
 
     el.classList.toggle('current-room', isCurrent);
@@ -320,17 +379,24 @@ function updateRoomNode(el, room) {
     el.setAttribute('data-pinned', pinned ? 'true' : 'false');
     el.setAttribute('aria-label', fullName);
 
-    const nameEl = el.querySelector('.map-room-name');
-    const label = compactLabels.get(room.id) || formatCompactRoomName(fullName);
-    if (nameEl.textContent !== label) {
-        nameEl.textContent = label;
-        labelMetrics.delete(nameEl);
+    const labelEl = ensureNodeLabel(room);
+    labelEl.wrap.classList.toggle('is-focal', isFocal);
+    labelEl.name.classList.toggle('is-current', isCurrent);
+    if (hoveredId) {
+        labelEl.wrap.classList.toggle('is-hovered', hoveredId === room.id);
+        labelEl.wrap.classList.toggle('is-neighbor', hoveredId !== room.id
+            && edgeTouches(room.id, hoveredId));
     }
-    const metaEl = el.querySelector('.map-room-meta');
+
+    const label = compactLabels.get(room.id) || formatCompactRoomName(fullName);
+    if (labelEl.name.textContent !== label) {
+        labelEl.name.textContent = label;
+        labelMetrics.delete(labelEl.name);
+    }
     const metaText = stateLabel(isCurrent, visited, visitCount);
-    if (metaEl.textContent !== metaText) {
-        metaEl.textContent = metaText;
-        labelMetrics.delete(metaEl);
+    if (labelEl.meta.textContent !== metaText) {
+        labelEl.meta.textContent = metaText;
+        labelMetrics.delete(labelEl.meta);
     }
 }
 
@@ -454,6 +520,8 @@ function updateAllGeometry() {
         el.style.left = `${node.x - node.radius}px`;
         el.style.top = `${node.y - node.radius}px`;
         el.style.setProperty('--node-diameter', `${node.radius * 2}px`);
+        const label = labelEls.get(id);
+        if (label) positionNodeLabel(label, node);
     }
 
     const bounds = computeBounds([...layout.nodes.values()], 40);
@@ -501,15 +569,26 @@ function updateAllGeometry() {
     scheduleLabelCulling();
 }
 
-// Screen-space label collision culling. Dense inner rings can stack titles at
-// FIT zoom; priority keeps the labels that carry the most context:
-// current > hovered > hovered neighbour > hub > other, with edge labels last.
-// Intrinsic label sizes are measured once and cached; camera frames then use
-// zero per-label DOM reads, and culling is debounced during gestures.
+// Screen-space label collision culling. Node labels live in a dedicated
+// `.map-label-layer` above the orbs and are placed in one of four slots
+// (bottom → top → right → left) chosen against orb rects, incident edges and
+// already-placed labels. Intrinsic sizes are cached; camera frames use only
+// world-to-screen math (zero per-label DOM reads).
 const LABEL_CULL_DEBOUNCE_MS = 100;
-const META_TOP_PX = 20.8;
+const LABEL_PLACEMENTS = ['bottom', 'top', 'right', 'left'];
+const LABEL_FONT_PX = 11.5;
+const MIN_LABEL_PX = 8;
+const ORB_LABEL_PADDING = 4;
+const LABEL_GAP_PX = 6;
+const EDGE_LABEL_GAP = 24;
 let labelCullFrame = null;
 let labelCullTimer = null;
+
+function isFocalRoom(id) {
+    return id === graphData.current_room_id
+        || id === hoveredId
+        || id === inspectedId;
+}
 
 function isCameraGestureActive() {
     return Boolean(
@@ -554,12 +633,19 @@ function labelsOverlap(a, b, padding = 2) {
         || b.bottom + padding <= a.top);
 }
 
+function overlapArea(a, b) {
+    const width = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+    const height = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+    return width > 0 && height > 0 ? width * height : 0;
+}
+
 function labelPriority(id, node) {
     if (id === graphData.current_room_id) return 0;
     if (id === hoveredId) return 1;
-    if (hoveredId && edgeTouches(id, hoveredId)) return 2;
-    if ((node?.degree || 0) >= 3) return 3;
-    return 4;
+    if (id === inspectedId) return 2;
+    if (hoveredId && edgeTouches(id, hoveredId)) return 3;
+    if ((node?.degree || 0) >= 3) return 4;
+    return 5;
 }
 
 function labelMetricsFor(el, isSvg = false) {
@@ -568,7 +654,6 @@ function labelMetricsFor(el, isSvg = false) {
     if (isSvg && typeof el.getBBox === 'function') {
         const box = el.getBBox();
         metrics = { width: box.width || 8, height: box.height || 10 };
-        // Hidden tabs report a zero box; measure again once visible.
         if (box.width > 0 && box.height > 0) labelMetrics.set(el, metrics);
         return metrics;
     }
@@ -579,20 +664,115 @@ function labelMetricsFor(el, isSvg = false) {
     return metrics;
 }
 
-function roomLabelRect(node, kind, metrics) {
-    const zoom = camera.zoom;
-    const width = metrics.width * zoom;
-    const height = metrics.height * zoom;
-    const topWorld = node.y + node.radius + (kind === 'meta' ? META_TOP_PX : 3);
-    const centre = worldToScreen({ x: node.x, y: topWorld + metrics.height / 2 }, camera);
-    return {
-        left: centre.x - width / 2,
-        right: centre.x + width / 2,
-        top: centre.y - height / 2,
-        bottom: centre.y + height / 2,
-        width,
-        height,
-    };
+function positionNodeLabel(entry, node) {
+    const placement = entry.wrap.dataset.placement || 'bottom';
+    const gap = LABEL_GAP_PX / (camera.zoom || 1);
+    let left = node.x;
+    let top = node.y;
+    if (placement === 'bottom') {
+        top = node.y + node.radius + gap;
+    } else if (placement === 'top') {
+        top = node.y - node.radius - gap;
+    } else if (placement === 'right') {
+        left = node.x + node.radius + gap;
+    } else if (placement === 'left') {
+        left = node.x - node.radius - gap;
+    }
+    entry.wrap.style.left = `${left}px`;
+    entry.wrap.style.top = `${top}px`;
+}
+
+function applyLabelPlacement(entry, node, placement) {
+    entry.wrap.dataset.placement = placement;
+    for (const candidate of LABEL_PLACEMENTS) {
+        entry.wrap.classList.toggle(`label-pos-${candidate}`, candidate === placement);
+    }
+    positionNodeLabel(entry, node);
+}
+
+function labelRectForPlacement(node, placement, width, height, zoom) {
+    const centre = worldToScreen({ x: node.x, y: node.y }, camera);
+    const radius = node.radius * zoom;
+    const w = width * zoom;
+    const h = height * zoom;
+    let left;
+    let top;
+    if (placement === 'bottom') {
+        left = centre.x - w / 2;
+        top = centre.y + radius + LABEL_GAP_PX;
+    } else if (placement === 'top') {
+        left = centre.x - w / 2;
+        top = centre.y - radius - LABEL_GAP_PX - h;
+    } else if (placement === 'right') {
+        left = centre.x + radius + LABEL_GAP_PX;
+        top = centre.y - h / 2;
+    } else {
+        left = centre.x - radius - LABEL_GAP_PX - w;
+        top = centre.y - h / 2;
+    }
+    return { left, top, right: left + w, bottom: top + h, width: w, height: h };
+}
+
+function pointInRect(x, y, rect) {
+    return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+}
+
+function segmentsIntersect(a, b, c, d) {
+    const cross = (px, py, qx, qy) => px * qy - py * qx;
+    const d1 = cross(b.x - a.x, b.y - a.y, c.x - a.x, c.y - a.y);
+    const d2 = cross(b.x - a.x, b.y - a.y, d.x - a.x, d.y - a.y);
+    const d3 = cross(d.x - c.x, d.y - c.y, a.x - c.x, a.y - c.y);
+    const d4 = cross(d.x - c.x, d.y - c.y, b.x - c.x, b.y - c.y);
+    return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0))
+        && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+}
+
+function segmentIntersectsRect(segment, rect) {
+    if (pointInRect(segment.x1, segment.y1, rect)
+        || pointInRect(segment.x2, segment.y2, rect)) return true;
+    if (Math.max(segment.x1, segment.x2) < rect.left
+        || Math.min(segment.x1, segment.x2) > rect.right
+        || Math.max(segment.y1, segment.y2) < rect.top
+        || Math.min(segment.y1, segment.y2) > rect.bottom) return false;
+    const a = { x: segment.x1, y: segment.y1 };
+    const b = { x: segment.x2, y: segment.y2 };
+    const corners = [
+        { x: rect.left, y: rect.top },
+        { x: rect.right, y: rect.top },
+        { x: rect.right, y: rect.bottom },
+        { x: rect.left, y: rect.bottom },
+    ];
+    for (let i = 0; i < 4; i += 1) {
+        if (segmentsIntersect(a, b, corners[i], corners[(i + 1) % 4])) return true;
+    }
+    return false;
+}
+
+function incidentEdgeSegments(id, zoom) {
+    const node = layout?.getNode(id);
+    if (!node) return [];
+    const centre = worldToScreen({ x: node.x, y: node.y }, camera);
+    const radius = node.radius * zoom;
+    const segments = [];
+    for (const edge of graphData.edges) {
+        if (!edge || edge.from === edge.to) continue;
+        if (edge.from !== id && edge.to !== id) continue;
+        const otherId = edge.from === id ? edge.to : edge.from;
+        const other = layout.getNode(otherId);
+        if (!other) continue;
+        const target = worldToScreen({ x: other.x, y: other.y }, camera);
+        const dx = target.x - centre.x;
+        const dy = target.y - centre.y;
+        const length = Math.hypot(dx, dy);
+        if (length < 1e-6) continue;
+        segments.push({
+            x1: centre.x + (dx / length) * radius,
+            y1: centre.y + (dy / length) * radius,
+            x2: target.x,
+            y2: target.y,
+        });
+    }
+    return segments;
 }
 
 function edgeLabelRect(labelEl, metrics) {
@@ -615,85 +795,149 @@ function edgeLabelRect(labelEl, metrics) {
 function cullLabels() {
     if (!layout) return;
     const canvas = document.getElementById('map-canvas');
-    // Hidden tabs have no layout box; measuring now would cache garbage sizes.
     if (!canvas || canvas.clientWidth === 0) return;
 
-    // Read phase: intrinsic metrics are cached after the first cull, so camera
-    // frames perform no per-label getBoundingClientRect/offsetWidth reads.
-    const entries = [];
-    for (const [id, el] of nodeEls) {
-        const node = layout.getNode(id);
-        if (!node) continue;
-        const basePriority = labelPriority(id, node);
-        const nameEl = el.querySelector('.map-room-name');
-        if (nameEl) {
-            entries.push({
-                el: nameEl,
-                kind: 'name',
-                node,
-                priority: basePriority,
-                degree: node.degree || 0,
-                id,
-            });
-        }
-        const metaEl = el.querySelector('.map-room-meta');
-        if (metaEl) {
-            // Current/hovered/inspected meta stays adjacent to its own name;
-            // every other meta ranks below all names and edge labels so
-            // "VISITED ×N" can never outrank a room title.
-            const focal = id === graphData.current_room_id
-                || id === hoveredId
-                || id === inspectedId;
-            entries.push({
-                el: metaEl,
-                kind: 'meta',
-                node,
-                priority: focal ? basePriority + 0.5 : 10 + basePriority,
-                degree: node.degree || 0,
-                id,
-            });
-        }
-    }
-    for (const labelEl of edgeLabels.values()) {
-        entries.push({
-            el: labelEl,
-            kind: 'edge',
-            metrics: labelMetricsFor(labelEl, true),
-            priority: 5,
-            degree: 0,
-            id: '',
+    const zoom = camera.zoom;
+    const kept = [];
+    // Orb rects are the first-class obstacles: no label may cover any orb.
+    for (const node of layout.nodes.values()) {
+        const centre = worldToScreen({ x: node.x, y: node.y }, camera);
+        const radius = node.radius * zoom + ORB_LABEL_PADDING;
+        kept.push({
+            left: centre.x - radius,
+            top: centre.y - radius,
+            right: centre.x + radius,
+            bottom: centre.y + radius,
+            width: radius * 2,
+            height: radius * 2,
         });
     }
 
-    // Compute phase: pure geometry from the cached sizes + camera transform.
-    entries.sort((a, b) => (
-        a.priority - b.priority || b.degree - a.degree || a.id.localeCompare(b.id)
+    const nodeEntries = [...labelEls.entries()].map(([id, entry]) => ({
+        id,
+        entry,
+        node: layout.getNode(id),
+        priority: labelPriority(id, layout.getNode(id)),
+    })).filter(entry => entry.node);
+
+    nodeEntries.sort((a, b) => (
+        a.priority - b.priority
+        || (b.node.degree || 0) - (a.node.degree || 0)
+        || a.id.localeCompare(b.id)
     ));
-    const kept = [];
-    const culled = new Set();
-    const culledNames = new Set();
-    for (const entry of entries) {
-        if (entry.kind === 'meta' && culledNames.has(entry.id)) {
-            culled.add(entry.el);
+
+    for (const { id, entry, node } of nodeEntries) {
+        const focal = isFocalRoom(id);
+        const semanticCulled = !focal
+            && (node.degree || 0) < 3
+            && LABEL_FONT_PX * zoom < MIN_LABEL_PX;
+        if (semanticCulled) {
+            entry.name.classList.add('is-label-culled');
+            entry.meta.classList.add('is-label-culled');
             continue;
         }
-        if (entry.kind !== 'edge') entry.metrics = labelMetricsFor(entry.el, false);
-        const rect = entry.kind === 'edge'
-            ? edgeLabelRect(entry.el, entry.metrics)
-            : roomLabelRect(entry.node, entry.kind, entry.metrics);
-        if (rect.width <= 0 || rect.height <= 0) continue;
-        if (kept.some(other => labelsOverlap(other, rect))) {
-            culled.add(entry.el);
-            if (entry.kind === 'name') culledNames.add(entry.id);
-        } else {
-            kept.push(rect);
+
+        const nameMetrics = labelMetricsFor(entry.name, false);
+        const metaMetrics = focal ? labelMetricsFor(entry.meta, false) : null;
+        let width = Math.max(nameMetrics.width, metaMetrics?.width || 0);
+        let height = nameMetrics.height + (metaMetrics ? metaMetrics.height + 2 : 0);
+        const segments = incidentEdgeSegments(id, zoom);
+        entry.name.style.maxWidth = '';
+        entry.wrap.style.maxWidth = '';
+
+        const pick = (candidateWidth, candidateHeight, { ignoreEdges = false } = {}) => {
+            let best = null;
+            for (const placement of LABEL_PLACEMENTS) {
+                const rect = labelRectForPlacement(node, placement, candidateWidth, candidateHeight, zoom);
+                const blockedByKept = kept.some(other => labelsOverlap(other, rect));
+                const blockedByEdge = !ignoreEdges
+                    && segments.some(segment => segmentIntersectsRect(segment, rect));
+                const blocked = blockedByKept || blockedByEdge;
+                const area = kept.reduce((sum, other) => sum + overlapArea(other, rect), 0);
+                if (!blocked) return { placement, rect };
+                if (!best || area < best.area) best = { placement, rect, area };
+            }
+            return { best };
+        };
+
+        let result = pick(width, height);
+        let chosen = result.placement || null;
+        let bestFallback = result.best || null;
+        let nameCulled = false;
+
+        if (!chosen && focal) {
+            // Focal labels may cross an incident edge when an orb-free slot
+            // exists; keeping the room title visible wins over edge purity.
+            const noEdge = pick(width, height, { ignoreEdges: true });
+            if (noEdge.placement) chosen = noEdge.placement;
+            else if (noEdge.best && !bestFallback) bestFallback = noEdge.best;
         }
+
+        if (!chosen && focal) {
+            // Try a narrower pill before sacrificing the title.
+            const compactWidth = Math.min(width, 140 / zoom);
+            if (compactWidth < width - 0.5) {
+                const compact = pick(compactWidth, height);
+                if (compact.placement) {
+                    width = compactWidth;
+                    chosen = compact.placement;
+                    entry.name.style.maxWidth = `${compactWidth}px`;
+                    entry.wrap.style.maxWidth = `${compactWidth}px`;
+                }
+            }
+        }
+
+        if (!chosen && focal && metaMetrics) {
+            // Keep the small ◉ CURRENT / status caption even when the full
+            // title cannot fit anywhere without covering an orb.
+            entry.name.classList.add('is-label-culled');
+            nameCulled = true;
+            width = metaMetrics.width;
+            height = metaMetrics.height;
+            const metaPick = pick(width, height);
+            chosen = metaPick.placement || metaPick.best?.placement || 'bottom';
+            bestFallback = metaPick.best || null;
+        }
+
+        if (!chosen) {
+            if (!focal) {
+                entry.name.classList.add('is-label-culled');
+                entry.meta.classList.add('is-label-culled');
+                continue;
+            }
+            chosen = bestFallback?.placement || 'bottom';
+        }
+
+        applyLabelPlacement(entry, node, chosen);
+        entry.name.classList.toggle('is-label-culled', nameCulled);
+        entry.meta.classList.toggle('is-label-culled', !focal);
+        kept.push(labelRectForPlacement(node, chosen, width, height, zoom));
     }
 
-    // Write phase: no reads after this point.
-    for (const entry of entries) {
-        entry.el.classList.toggle('is-label-culled', culled.has(entry.el));
+    // Edge labels last: short edges and collisions are culled.
+    const edgeByKey = new Map();
+    for (const edge of graphData.edges) {
+        if (!edge || !edge.from || !edge.to) continue;
+        edgeByKey.set(edgeKey(edge.from, edge.direction, edge.to), edge);
     }
+    for (const [key, labelEl] of edgeLabels) {
+        const edge = edgeByKey.get(key);
+        const from = edge ? layout.getNode(edge.from) : null;
+        const to = edge ? layout.getNode(edge.to) : null;
+        const metrics = labelMetricsFor(labelEl, true);
+        let cull = !from || !to || edge.from === edge.to;
+        if (!cull) {
+            const distance = Math.hypot(to.x - from.x, to.y - from.y) * zoom;
+            cull = distance < metrics.width * zoom + EDGE_LABEL_GAP;
+        }
+        if (!cull) {
+            const rect = edgeLabelRect(labelEl, metrics);
+            cull = kept.some(other => labelsOverlap(other, rect));
+            if (!cull) kept.push(rect);
+        }
+        labelEl.classList.toggle('is-label-culled', cull);
+    }
+
     canvas.dataset.cullRuns = String((Number(canvas.dataset.cullRuns) || 0) + 1);
 }
 
@@ -1189,6 +1433,10 @@ function applyHoverNeighbourhood(id) {
         el.classList.toggle('is-hovered', roomId === id);
         el.classList.toggle('is-neighbor', roomId !== id && neighbours.has(roomId));
     }
+    for (const [roomId, entry] of labelEls) {
+        entry.wrap.classList.toggle('is-hovered', roomId === id);
+        entry.wrap.classList.toggle('is-neighbor', roomId !== id && neighbours.has(roomId));
+    }
     for (const edge of graphData.edges) {
         const key = edgeKey(edge.from, edge.direction, edge.to);
         const path = edgePaths.get(key);
@@ -1209,6 +1457,9 @@ function clearHover() {
     canvas?.classList.remove('has-hover');
     for (const el of nodeEls.values()) {
         el.classList.remove('is-hovered', 'is-neighbor');
+    }
+    for (const entry of labelEls.values()) {
+        entry.wrap.classList.remove('is-hovered', 'is-neighbor');
     }
     for (const path of edgePaths.values()) path.classList.remove('is-neighbor');
     for (const label of edgeLabels.values()) label.classList.remove('is-neighbor');

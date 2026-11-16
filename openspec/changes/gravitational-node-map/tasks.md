@@ -64,3 +64,19 @@
 - [x] P04.5 Re-run reproduction tests, the map/spatial/save unit suite, the full `tests/e2e/` Playwright suite, and `openspec validate gravitational-node-map --strict`; record the shared default dir's save count before and after (must be equal).
 - [x] P04.6 Update `engine/ARCHITECTURE.md`, `web/FRONTEND_ARCHITECTURE.md`, `tests/ARCHITECTURE.md`, `verification.md`, and mark `PATCH-04` `RESOLVED` in `patch.md` (keeping `P03.4` `[~]` until a live LLM run produces `>= 40` moves and `>= 10` rooms).
 - [ ] P04.7 (needs explicit user approval, not an agent task) After the prune UI ships, the user clears the ≈750 stale saves in `/tmp/open-dungeon/local-dev` through it, with the preview checked first.
+
+## Patch 05: Prune-By-Previewed-Ids, Manual-Camera Move Follow & Cleanups
+
+- [ ] P05.1 Add reproducing tests and confirm RED on `39e98ba`: `tests/unit/savesPrune.test.mjs` (`pruneAdventures` with `ids`: save created after preview survives, moves-changed/active/unknown ids skipped, empty `ids`, per-id failure isolation), `tests/unit/mapGeometry.test.mjs` (`panIntoView`), `tests/e2e/test_restore_saves.py` (planted-after-preview survives; confirm lists up to 5 titles; stale-preview guard), `tests/e2e/test_map_render.py` (manual camera + move brings the new current room into view with zoom preserved; same-room render leaves the transform untouched; 24-room spiral label-rect parity / zero visible overlaps).
+- [ ] P05.2 Prune by previewed ids: `ids` + `skippedIds` in `engine/index.js`, route requires `ids` for real runs in `web/routes/saves.js`, preview sequence guard + titles in confirm + skipped/failed toast in `web/static/js/api/saves.js`.
+- [ ] P05.3 Manual-camera move follow: pure `panIntoView` in `web/static/js/components/mapGeometry.js`; `lastRenderedCurrentId` + `panCurrentIntoView()` in `web/static/js/components/mapPanel.js` (zoom and `manual` mode preserved; same-room renders never move the camera).
+- [ ] P05.4 Cleanups: remove `selectPrunable`, simplify `pageSlice` in `saveListModel.js`; measure `META_TOP_PX` from the DOM (cached, re-measured on `document.fonts.ready`) in `mapPanel.js`.
+- [ ] P05.5 Re-run reproduction tests, map/spatial/save unit suite, the full `tests/e2e/` suite, and `openspec validate gravitational-node-map --strict`; record the shared default dir's save count before and after (must be equal); update `engine/ARCHITECTURE.md`, `web/FRONTEND_ARCHITECTURE.md`, `tests/ARCHITECTURE.md`, both spec files, `verification.md`, and mark `PATCH-05` `RESOLVED` in `patch.md` (keeping `P03.4` `[~]` and `P04.7` open).
+
+## Patch 06: Re-Fit on Graph Change, Label Layer & Orb/Edge-Aware Placement
+
+- [x] P06.1 Add reproducing E2E tests in `tests/e2e/test_map_render.py` (graph-change re-fit in `fit` mode, zero label↔orb overlaps on dense citadel/spiral, 4-position label placement, sub-8px semantic zoom culling); confirm RED.
+- [x] P06.2 Update `renderMapPanel()` in `mapPanel.js` to re-fit when `cameraMode === 'fit'` and graph rooms/bounds change.
+- [x] P06.3 Move node labels to a dedicated `.map-label-layer` above orbs, add dark pill/halo styling in `style.css`, seed `cullLabels()` with orb rects, implement 4-position `{ bottom, top, right, left }` placement avoiding orbs/edges/labels, cull short-edge labels & sub-8px non-focal names, and restrict `.map-room-meta` to focal nodes.
+- [x] P06.4 Re-run Node unit tests, Playwright E2E suite, `openspec validate gravitational-node-map --strict`, and verify visually in `playgrounds/gravitational_map_playground.html`.
+- [x] P06.5 Update `web/FRONTEND_ARCHITECTURE.md`, `verification.md`, and mark `PATCH-06` `RESOLVED` in `patch.md`.
